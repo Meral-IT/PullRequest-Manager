@@ -1,0 +1,55 @@
+.window-frame {
+  display: flex;
+  flex-direction: column;
+  -webkit-user-select: none;
+  user-select: none;
+  background-color: var(--window-c-background);
+  transition: background-color var(--window-background-transition-duration) ease;
+}
+
+.window-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.window-titlebar {
+  -webkit-app-region: drag;
+}
+
+.window-titlebar-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--window-title-margin);
+  height: 100%;
+  padding: 0 10px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.window-titlebar-title {
+  display: flex;
+  flex: 1;
+  font-size: var(--window-titlebar-font-size);
+  margin-left: var(--window-title-margin);
+  font-weight: var(--window-titlebar-font-weight, normal);
+  padding-left: 4px;
+}
+
+.window-titlebar-title[data-centered] {
+  text-align: center;
+  padding-left: 0;
+  margin: 0;
+}
+
+.window-titlebar-controls {
+  display: flex;
+  position: absolute;
+  right: 0;
+  top: 0;
+  -webkit-app-region: no-drag;
+}

@@ -1,0 +1,39 @@
+/*
+* Scrollable container with dynamic height
+* https://codepen.io/stephenbunch/pen/KWBNVo
+*/
+.container {
+  /* give the outermost container a predefined size */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.section {
+  flex-grow: 1;
+
+  display: flex;
+  flex-direction: column;
+
+  /* for Firefox */
+  min-height: 0;
+}
+
+.header {
+  margin-bottom: 10px;
+}
+
+.scrollable-content {
+  flex-grow: 1;
+
+  overflow: hidden;
+  overflow-y: auto;
+
+  /* for Firefox */
+  min-height: 0;
+}
