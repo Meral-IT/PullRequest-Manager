@@ -1,5 +1,11 @@
 import * as azdev from 'azure-devops-node-api'
-import { CommentThreadStatus, PullRequestAsyncStatus } from 'azure-devops-node-api/interfaces/GitInterfaces'
+import {
+  CommentThreadStatus,
+  CommentType,
+  GitPullRequest,
+  PullRequestAsyncStatus,
+  PullRequestStatus,
+} from 'azure-devops-node-api/interfaces/GitInterfaces'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
 import { PullRequestData } from '../models/pr-data'
@@ -7,6 +13,10 @@ import { AzDoSettings } from '../models/settings.model'
 import { PullRequest, PullRequestThreadState } from '../models/pull-request.model'
 import { ErrorType } from '../models/error-detail'
 import log from 'electron-log/main'
+import loader from '../tools/loading.service'
+import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
+import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces'
+import { PrVote } from '../models/pr-vote'
 
 const cacheDir = path.join(app.getPath('userData'), 'Cache', 'AzureDevOnpom psImages')
 const settingFile = path.join(cacheDir, 'azdo-image-cache.json')
@@ -15,12 +25,51 @@ const cacheEvictionInterval = 1000 * 60 * 60 * 24 * 7 // 1 week
 let settings: AzDoSettings
 let api: azdev.WebApi
 let active: boolean
+let pullRequests: PullRequestData
+let teams: WebApiTeam[]
+let mySelf: Identity | undefined
 
 export function stop(): void {
   if (!active) {
     return
   }
   active = false
+}
+
+export function getPullRequests(): PullRequestData {
+  return pullRequests
+}
+
+async function getMyTeams(): Promise<WebApiTeam[]> {
+  if (!isValidSettings(settings) || !api) {
+    return []
+  }
+
+  const buildApi = await api.getCoreApi(settings.organizationUrl, [api.authHandler])
+  const teams = await buildApi.getTeams(settings.project, true)
+
+  return teams
+}
+
+export async function approvePullRequests(prs: PullRequest[]): Promise<void> {
+  if (!isValidSettings(settings) || !api) {
+    return
+  }
+
+  const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+  const connectionData = await api.connect()
+
+  prs.forEach(async (pr) => {
+    await buildApi.createPullRequestReviewer(
+      {
+        vote: 10,
+      },
+      pr.details.repositoryId,
+      pr.id,
+      connectionData.authenticatedUser?.id ?? '',
+      pr.details.projectId
+    )
+  })
 }
 
 function convert(rowState: CommentThreadStatus | undefined): PullRequestThreadState {
@@ -30,6 +79,12 @@ function convert(rowState: CommentThreadStatus | undefined): PullRequestThreadSt
   return PullRequestThreadState[CommentThreadStatus[rowState] as keyof typeof PullRequestThreadState]
 }
 
+function createPrWebUri(pr: GitPullRequest): string {
+  const template = pr._links.self.href
+
+  return template.replace('_apis/git/repositories', '_git').replace('pullRequests', 'pullRequest')
+}
+
 async function onTickCore(): Promise<void> {
   const data: PullRequestData = {
     items: [],
@@ -37,10 +92,18 @@ async function onTickCore(): Promise<void> {
   }
 
   if (isValidSettings(settings) && api) {
+    const connectionData = await api.connect()
+    mySelf = connectionData.authenticatedUser
+    teams = await getMyTeams()
     log.debug('Fetching data from Azure DevOps')
+    loader.start()
     try {
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-      data.items = (await buildApi.getPullRequestsByProject(settings.project, {})).map((pr) => {
+      const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
+        includeLinks: true,
+        status: PullRequestStatus.Active,
+      })
+      data.items = azDoBuilds.map((pr) => {
         return {
           id: pr.pullRequestId,
           author: {
@@ -67,19 +130,25 @@ async function onTickCore(): Promise<void> {
             isDraft: pr.isDraft,
             isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
           },
+          mergeStatus: pr.mergeStatus as any,
+          mergeFailureMessage: pr.mergeFailureMessage,
           reviewers: pr.reviewers?.map((reviewer) => {
             return {
               user: {
                 id: reviewer.id,
                 label: reviewer.displayName,
                 isBot: reviewer.isAadIdentity,
+                isMySelf: reviewer.id == mySelf?.id || teams.some((team) => team.id === reviewer.id),
                 imageUrl: reviewer.imageUrl,
                 imageBase64: undefined,
               },
               isRequired: reviewer.isRequired,
-              vote: reviewer.vote as any,
+              vote: reviewer.vote as PrVote,
             }
           }),
+          urls: {
+            web: createPrWebUri(pr),
+          },
         } as PullRequest
       })
 
@@ -96,7 +165,12 @@ async function onTickCore(): Promise<void> {
         const thread = threads.find((thread) => thread.pr === pr.id)
         if (thread) {
           pr.interactions.threads = thread.threads
-            .filter((x) => !x.properties || !('CodeReviewThreadType' in x.properties))
+            .filter((x) => !(x.properties && x.properties.CodeReviewThreadType))
+            .filter((x) => x.status === CommentThreadStatus.Active || x.status === CommentThreadStatus.Pending)
+            .filter((x) => x.comments && x.comments.length > 0)
+            .filter(
+              (x) => x.comments && x.comments.every((c) => c.commentType !== CommentType.System && c.isDeleted !== true)
+            )
             .map((thread) => {
               return {
                 id: thread.id ?? 0,
@@ -119,9 +193,9 @@ async function onTickCore(): Promise<void> {
                   }) ?? [],
               }
             })
-          pr.interactions.activeThreads = pr.interactions.threads.filter(
-            (thread) =>
-              thread.state === PullRequestThreadState.Active || thread.state === PullRequestThreadState.Pending
+          pr.interactions.activeThreads = pr.interactions.threads.length
+          pr.interactions.activeFromBots = pr.interactions.threads.filter((x) =>
+            x.comments.some((c) => c.author.isBot)
           ).length
         }
       }
@@ -153,6 +227,8 @@ async function onTickCore(): Promise<void> {
 
   // await enrichImages(data.items)
 
+  loader.stop()
+  pullRequests = data
   try {
     BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
   } catch (error) {
@@ -256,7 +332,7 @@ async function onTick(): Promise<void> {
   }
 
   await onTickCore()
-  setTimeout(onTick, settings.updateInterval)
+  setTimeout(onTick, settings.updateInterval * 1000)
 }
 
 function startCore(): void {
@@ -275,9 +351,12 @@ function isValidSettings(input?: AzDoSettings): boolean {
 }
 
 export function setConfiguration(input: AzDoSettings): void {
+  const hasChanged = JSON.stringify(settings) !== JSON.stringify(input)
   settings = input
 
-  reInitializeApi()
+  if (hasChanged) {
+    reInitializeApi()
+  }
 }
 
 export function start(): void {

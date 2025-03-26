@@ -1,8 +1,9 @@
 import { app, safeStorage } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { SettingsModel } from '../models/settings.model'
+import { SettingsModel, TableSize } from '../models/settings.model'
 import Logger from 'electron-log/main'
+import { defaultProfiles } from '../models/pr-profile'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
 const defaultSettings: SettingsModel = {
@@ -10,11 +11,13 @@ const defaultSettings: SettingsModel = {
     organizationUrl: '',
     project: '',
     pat: '',
-    updateInterval: 30 * 1000,
+    updateInterval: 60,
   },
   appearance: {
     theme: 'system',
+    tableSize: TableSize.Small,
   },
+  profiles: defaultProfiles,
 }
 let cachedSettings: SettingsModel | null = null
 
@@ -68,6 +71,8 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
     },
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance,
+      tableSize: input.appearance.tableSize || defaultSettings.appearance.tableSize,
     },
+    profiles: input.profiles || defaultSettings.profiles,
   }
 }

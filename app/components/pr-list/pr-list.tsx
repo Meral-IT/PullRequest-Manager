@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { BotFilled, ChatRegular, CheckmarkRegular } from '@fluentui/react-icons'
+import { BotFilled, ChatRegular, CheckmarkRegular, OpenFilled } from '@fluentui/react-icons'
 import {
   Avatar,
   TableColumnDefinition,
@@ -18,11 +18,17 @@ import {
   AvatarGroupPopover,
   DataGridHeader,
   DataGridHeaderCell,
+  Button,
+  tokens,
+  InfoLabel,
 } from '@fluentui/react-components'
 import ZeroData from '../zero-data/zero-data.component'
 import emptyImage from '@/resources/emptyPRList.svg'
 import { PrVote } from '@/lib/models/pr-vote'
-import { PullRequest, Reviewer } from '@/lib/models/pull-request.model'
+import { PullRequest, PullRequestMergeStatus, Reviewer } from '@/lib/models/pull-request.model'
+import { useEffect } from 'react'
+import { SettingsModel } from '@/lib/models/settings.model'
+import { usePersistentState } from '@/lib/tools/persistent-state.hook'
 
 function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   switch (vote) {
@@ -69,13 +75,28 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
     renderHeaderCell: () => 'Details',
     renderCell: (item) => {
+      const failedOrConflicted =
+        item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
+      const color = failedOrConflicted ? tokens.colorStatusDangerForeground1 : undefined
+
+      const failureMessage = item.mergeStatus === PullRequestMergeStatus.Failure ? item.mergeFailureMessage : undefined
+      const conflictMessage =
+        item.mergeStatus === PullRequestMergeStatus.Conflicts ? 'This PR has conflicts' : undefined
+
+      const infoMessage = failureMessage || conflictMessage
+
       return (
         <TableCellLayout
           description={`
           ${item.details.repository}`}
           appearance="primary"
+          truncate
         >
-          {item.details.label}
+          <span style={{ color: color }}>
+            <InfoLabel size="small" info={infoMessage}>
+              {item.details.label}
+            </InfoLabel>
+          </span>
         </TableCellLayout>
       )
     },
@@ -118,12 +139,23 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
   }),
   createTableColumn<PullRequest>({
-    columnId: 'lastUpdated',
+    columnId: 'actions',
     compare: (a, b) => {
-      return a.lastUpdated.timestamp - b.lastUpdated.timestamp
+      return a.interactions.activeThreads - b.interactions.activeThreads
     },
+    renderHeaderCell: () => 'Actions',
     renderCell: (item) => {
-      return item.lastUpdated.label
+      const click = () => {
+        window.api.invoke('web-open-url', item.urls.web)
+      }
+
+      return (
+        <>
+          <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+            <Button aria-label="Open PR" icon={<OpenFilled />} onClick={click} />
+          </Tooltip>
+        </>
+      )
     },
   }),
 ]
@@ -166,24 +198,19 @@ const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
 
 const columnSizingOptions = {
   author: {
-    defaultWidth: 30,
-    minWidth: 30,
+    idealWidth: 30,
   },
   details: {
-    defaultWidth: 300,
-    idealwidth: 400,
+    idealWidth: 1500,
   },
   reviews: {
-    defaultWidth: 20,
-    idealwidth: 20,
+    idealWidth: 80,
   },
   comments: {
-    defaultWidth: 20,
-    idealwidth: 20,
+    idealWidth: 60,
   },
-  lastUpdated: {
-    defaultWidth: 20,
-    idealwidth: 20,
+  actions: {
+    idealWidth: 70,
   },
 }
 
@@ -197,7 +224,24 @@ export default function PrList(props: Props) {
     []
   )
 
+  const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
   const { data } = props
+
+  useEffect(() => {
+    async function fetchData() {
+      await window.api.invoke('get-settings').then((settings: SettingsModel) => {
+        return setTableSize(settings.appearance.tableSize)
+      })
+    }
+
+    fetchData()
+  }, [])
+
+  useEffect(() => {
+    return window.api.receive('settings', (data: SettingsModel) => {
+      return setTableSize(data.appearance.tableSize)
+    })
+  }, [])
 
   if (data.length === 0) {
     return (
@@ -215,18 +259,15 @@ export default function PrList(props: Props) {
       columns={columns}
       defaultSortState={defaultSortState}
       columnSizingOptions={columnSizingOptions}
-      selectionMode="multiselect"
-      size="small"
-      subtleSelection
+      // selectionMode="multiselect"
+      sortable
+      size={tableSize as any}
+      // subtleSelection
       resizableColumns
       style={{ minWidth: '100%' }}
     >
       <DataGridHeader>
-        <DataGridRow
-          selectionCell={{
-            checkboxIndicator: { 'aria-label': 'Select all rows' },
-          }}
-        >
+        <DataGridRow>
           {({ renderHeaderCell, columnId }, dataGrid) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
         </DataGridRow>
       </DataGridHeader>

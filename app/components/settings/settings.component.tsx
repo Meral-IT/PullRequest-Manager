@@ -8,7 +8,13 @@ import {
   Tab,
   TabList,
 } from '@fluentui/react-components'
-import { SettingsFilled, KeyFilled, HomeFilled, PaintBrushFilled } from '@fluentui/react-icons'
+import {
+  SettingsFilled,
+  KeyFilled,
+  HomeFilled,
+  PaintBrushFilled,
+  LayerDiagonalPersonFilled,
+} from '@fluentui/react-icons'
 import { useContext } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { SettingsContext } from './context'
@@ -66,6 +72,9 @@ export default function SettingsComponent() {
             </Tab>
             <Tab icon={<KeyFilled />} value="/settings/azure-devops">
               Azure DevOps
+            </Tab>
+            <Tab icon={<LayerDiagonalPersonFilled />} value="/settings/profiles">
+              Profiles
             </Tab>
           </TabList>
         </div>

@@ -44,6 +44,11 @@ export const menuItems: TitlebarMenu[] = [
             action: 'navigate',
             actionParams: ['/settings/azure-devops'],
           },
+          {
+            name: 'Profiles',
+            action: 'navigate',
+            actionParams: ['/settings/profiles'],
+          },
         ],
       },
       {

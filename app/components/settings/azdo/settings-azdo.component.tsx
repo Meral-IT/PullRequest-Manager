@@ -5,6 +5,7 @@ import {
   Input,
   makeResetStyles,
   makeStyles,
+  SpinButton,
   Spinner,
   tokens,
 } from '@fluentui/react-components'
@@ -84,6 +85,15 @@ export default function AzureDevOpsSettings() {
       </Field>
       <Field label="Personal access token" hint="Your personal access token">
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
+      </Field>
+      <Field label="Refresh interval in seconds" hint="The interval in seconds to refresh the pull requests">
+        <SpinButton
+          name="azDoInterval"
+          value={state.azDoInterval}
+          onChange={actions.onChangeHandler}
+          min={1}
+          max={3000}
+        ></SpinButton>
       </Field>
       <Field>
         <Button className={buttonClass} onClick={actions.validateAzDo} disabled={validatingAzDo} icon={validatingIcon}>

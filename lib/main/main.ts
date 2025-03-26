@@ -13,11 +13,11 @@ log.initialize()
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('meralit.pullrequest-manager')
 
   installExtension(REACT_DEVELOPER_TOOLS)
-    .then((ext) => console.log(`Added Extension:  ${ext.name}`))
-    .catch((err) => console.log('An error occurred: ', err))
+    .then((ext) => log.debug(`Added Extension: ${ext.name}`))
+    .catch((err) => log.debug('An error occurred: ', err))
 
   // Create app window
   getOrCreateAppWindow()

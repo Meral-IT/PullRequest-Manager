@@ -1,7 +1,7 @@
 import { BrowserWindow, shell, app, screen } from 'electron'
 import { join } from 'path'
 import { registerWindowIPC } from '@/lib/window/ipcEvents'
-import appIcon from '@/resources/azure-devops.png'
+import appIcon from '@/resources/build/icon.png'
 import { loadSettings } from './settings'
 import { setConfiguration, start } from '../azure-devops/azure-devops.service'
 import createTrayIcon from './tray'
@@ -50,9 +50,13 @@ export function createAppWindow(): BrowserWindow {
   registerWindowIPC(mainWindow)
 
   mainWindow.on('ready-to-show', async () => {
-    await initializeAzureDevOps()
     createTrayIcon(showWindow, exitApp)
-    mainWindow.show()
+    await initializeAzureDevOps()
+
+    // Only show the window in debug mode
+    // if (isDebug()) {
+    //   mainWindow.show()
+    // }
   })
 
   // Hide the window instead of closing it, so it can be reopened quickly
@@ -75,6 +79,7 @@ export function createAppWindow(): BrowserWindow {
   }
   return mainWindow
 }
+
 export default function getOrCreateAppWindow(): BrowserWindow {
   if (!mainWindow) {
     mainWindow = createAppWindow()

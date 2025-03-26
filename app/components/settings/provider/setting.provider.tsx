@@ -1,5 +1,6 @@
 import { ChangeEvent, ReactNode, useEffect, useState } from 'react'
 import { SettingPageProps, SettingsContext, SettingStateProps } from '../context'
+import { SettingsModel, TableSize } from '@/lib/models/settings.model'
 
 interface Props {
   children: ReactNode
@@ -14,28 +15,44 @@ export const SettingProvider = ({ children }: Props) => {
     azDoOrganizationUrl: '',
     azDoProject: '',
     azDoPat: '',
+    azDoInterval: 60,
     azDoValidationMessage: '',
     azDoValidationState: 'none',
     appearanceTheme: 'system',
+    appearanceTableSize: TableSize.Small,
+    profiles: [],
   })
+
+  const convertSettings = (settings: SettingsModel): SettingStateProps => {
+    return {
+      appearanceTheme: settings.appearance.theme,
+      name: '',
+      email: '',
+      azDoOrganizationUrl: settings.azDo.organizationUrl,
+      azDoProject: settings.azDo.project,
+      azDoPat: settings.azDo.pat,
+      azDoInterval: settings.azDo.updateInterval,
+      azDoValidationMessage: '',
+      azDoValidationState: 'none',
+      appearanceTableSize: settings.appearance.tableSize,
+      profiles: settings.profiles,
+    }
+  }
 
   useEffect(() => {
     async function fetchData() {
-      await window.api.invoke('get-settings').then((settings) => {
-        return setFormData({
-          appearanceTheme: settings.appearance.theme,
-          name: '',
-          email: '',
-          azDoOrganizationUrl: settings.azDo.organizationUrl,
-          azDoProject: settings.azDo.project,
-          azDoPat: settings.azDo.pat,
-          azDoValidationMessage: '',
-          azDoValidationState: 'none',
-        })
+      await window.api.invoke('get-settings').then((settings: SettingsModel) => {
+        return setFormData(convertSettings(settings))
       })
     }
 
     fetchData()
+  }, [])
+
+  useEffect(() => {
+    return window.api.receive('settings', (data: SettingsModel) => {
+      setFormData(convertSettings(data))
+    })
   }, [])
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -69,16 +86,20 @@ export const SettingProvider = ({ children }: Props) => {
   const saveSettings = async () => {
     setSaving(true)
     try {
-      await window.api.invoke('save-settings', {
+      const model: SettingsModel = {
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,
           project: formData.azDoProject,
           pat: formData.azDoPat,
+          updateInterval: formData.azDoInterval,
         },
         appearance: {
           theme: formData.appearanceTheme,
+          tableSize: formData.appearanceTableSize,
         },
-      })
+        profiles: formData.profiles,
+      }
+      await window.api.invoke('save-settings', model)
     } finally {
       setSaving(false)
     }

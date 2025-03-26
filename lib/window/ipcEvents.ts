@@ -2,7 +2,8 @@ import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import os from 'os'
 import { loadSettings, saveSettings } from '../main/settings'
 import * as azdev from 'azure-devops-node-api'
-import { setConfiguration } from '../azure-devops/azure-devops.service'
+import { approvePullRequests, getPullRequests, setConfiguration } from '../azure-devops/azure-devops.service'
+import { PullRequest } from '../models/pull-request.model'
 
 export const registerNativeThemeEventListeners = (allBrowserWindows: BrowserWindow[]) => {
   nativeTheme.addListener('updated', () => {
@@ -75,6 +76,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     setConfiguration(settings.azDo)
 
     mainWindow.webContents.send('theme-changed', settings.appearance.theme)
+    mainWindow.webContents.send('settings', settings)
   })
 
   handleIPC('validate-azure-devops', async (_e, arg: { organizationUrl: string; project: string; pat: string }) => {
@@ -93,5 +95,13 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
 
       return { userDisplayName: null, error: message }
     }
+  })
+
+  handleIPC('get-pr-data', async (_e) => {
+    return getPullRequests()
+  })
+
+  handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
+    await approvePullRequests(data)
   })
 }

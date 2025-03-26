@@ -12,6 +12,33 @@ export type CommentsCell = {
   user: number
 }
 
+export enum PullRequestMergeStatus {
+  /**
+   * Status is not set. Default state.
+   */
+  NotSet = 0,
+  /**
+   * Pull request merge is queued.
+   */
+  Queued = 1,
+  /**
+   * Pull request merge failed due to conflicts.
+   */
+  Conflicts = 2,
+  /**
+   * Pull request merge succeeded.
+   */
+  Succeeded = 3,
+  /**
+   * Pull request merge rejected by policy.
+   */
+  RejectedByPolicy = 4,
+  /**
+   * Pull request merge failed.
+   */
+  Failure = 5,
+}
+
 export type DetailsCell = {
   label: string
   number: number
@@ -41,6 +68,13 @@ export type PullRequest = {
   details: DetailsCell
   reviewers: Reviewer[]
   interactions: PullRequestThreads
+  urls: PullRequestUrls
+  mergeStatus: PullRequestMergeStatus
+  mergeFailureMessage?: string
+}
+
+export type PullRequestUrls = {
+  web: string
 }
 
 export type PullRequestThreads = {

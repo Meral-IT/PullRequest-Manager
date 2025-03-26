@@ -1,12 +1,3 @@
-/*
- * Filename: f:\Projekte\PullRequestManager\src\renderer\components\zero-data\zero-data.component.ts
- * Path: f:\Projekte\PullRequestManager
- * Created Date: Sunday, November 24th 2024, 8:09:02 pm
- * Author: Necati Meral https://meral.cloud
- *
- * Copyright (c) 2024 Meral IT
- */
-/* eslint-disable react/jsx-props-no-spreading */
 import * as React from 'react'
 import { Body1, Button, Image, Link, Title1 } from '@fluentui/react-components'
 import './zero.data.scss'

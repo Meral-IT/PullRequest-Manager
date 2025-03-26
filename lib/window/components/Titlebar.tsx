@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useWindowContext } from './WindowContext'
 import { useTitlebarContext } from './TitlebarContext'
 import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
@@ -13,7 +13,9 @@ import {
   MenuPopover,
   MenuTrigger,
   Slot,
+  Spinner,
   tokens,
+  Tooltip,
 } from '@fluentui/react-components'
 import { useNavigate } from 'react-router-dom'
 import { DismissFilled, LineHorizontal1Filled, MaximizeFilled } from '@fluentui/react-icons'
@@ -63,6 +65,7 @@ export const Titlebar = () => {
   const styles = useStyles()
   const { title, icon, titleCentered, menuItems } = useWindowContext().titlebar
   const { menusVisible, setMenusVisible, closeActiveMenu } = useTitlebarContext()
+  const [loaderVisible, setLoaderVisible] = useState(false)
   const wcontext = useWindowContext().window
 
   useEffect(() => {
@@ -84,6 +87,18 @@ export const Titlebar = () => {
     }
   }, [menusVisible])
 
+  useEffect(() => {
+    return window.api.receive('loading', (event) => {
+      setLoaderVisible(event.isLoading)
+    })
+  }, [loaderVisible])
+
+  const titleSpinner = loaderVisible ? (
+    <Tooltip content={'Loading...'} relationship="label" withArrow>
+      <Spinner size="tiny" />
+    </Tooltip>
+  ) : null
+
   // TODO: Implement centered title
   return (
     <div className={['window-titlebar', styles.titlebar].join(' ')}>
@@ -94,7 +109,7 @@ export const Titlebar = () => {
       )}
 
       <div className={styles.titleBarTitle} style={{ visibility: menusVisible ? 'hidden' : 'visible' }}>
-        <Button appearance="subtle" size="small">
+        <Button iconPosition="after" icon={titleSpinner} appearance="subtle" size="small">
           {title}
         </Button>
       </div>
