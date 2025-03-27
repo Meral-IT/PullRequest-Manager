@@ -69,16 +69,16 @@ export default function PullRequestsOverview() {
     })
   }, [])
 
-  if (pullRequests.error) {
-    return PullRequestErrors(pullRequests.error)
-  }
-
   useEffect(() => {
     window.api.invoke('get-settings').then((settings) => {
       setProfiles(settings.profiles)
       setSelectedValue(settings.profiles.find((profile) => profile.isDefault)?.id || 'builtin:all')
     })
   }, [])
+
+  if (pullRequests.error) {
+    return PullRequestErrors(pullRequests.error)
+  }
 
   const onTabSelect = (_e: SelectTabEvent, data: SelectTabData) => {
     setSelectedValue(data.value)
