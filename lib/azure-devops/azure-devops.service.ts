@@ -110,6 +110,7 @@ async function onTickCore(): Promise<void> {
             id: pr.createdBy?.id ?? '',
             label: pr.createdBy?.displayName ?? '',
             isBot: pr.createdBy?.descriptor?.startsWith('svc') ?? false,
+            isMySelf: pr.createdBy?.id == mySelf?.id || teams.some((team) => team.id === pr.createdBy?.id),
           },
           lastUpdated: {
             label: pr.lastMergeCommit?.comment ?? '',
