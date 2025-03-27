@@ -67,6 +67,7 @@ export type PullRequest = {
   lastUpdated: LastUpdatedCell
   details: DetailsCell
   reviewers: Reviewer[]
+  isDraft: boolean
   interactions: PullRequestThreads
   urls: PullRequestUrls
   mergeStatus: PullRequestMergeStatus

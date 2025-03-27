@@ -2,9 +2,12 @@ import { PrVote } from './pr-vote'
 import { PullRequest, Reviewer } from './pull-request.model'
 import { User } from './user.model'
 
-export interface PullRequestFilter {
+export interface PullRequestFilter extends CombinationFilter<FilterNode> {}
+
+export interface FilterNode {
   author?: CombinationFilter<UserFilter>
   reviewers?: CombinationFilter<ReviewerFilter>
+  isDraft?: boolean
 }
 
 export interface UserFilter {
@@ -27,12 +30,22 @@ export interface CombinationFilter<TFilter> {
 
 export class FilterEvaluator {
   public static evaluate(data: PullRequest[], filter: PullRequestFilter): PullRequest[] {
-    return data.filter((pr) => {
-      return (
-        (!filter.author || this.evaluateAuthor(pr, filter.author)) &&
-        (!filter.reviewers || this.evaluateReviewers(pr, filter.reviewers))
-      )
-    })
+    return data.filter((pr) => this.evaluatePullRequest(pr, filter))
+  }
+
+  private static evaluatePullRequest(pr: PullRequest, filter: PullRequestFilter): boolean {
+    return filter.op === 'AND'
+      ? filter.filters.every((f) => this.evaluatePullRequestFilter(pr, f))
+      : filter.filters.some((f) => this.evaluatePullRequestFilter(pr, f))
+  }
+
+  private static evaluatePullRequestFilter(pr: PullRequest, filter: FilterNode): boolean {
+    return (
+      ((!filter.author || this.evaluateAuthor(pr, filter.author)) &&
+        (!filter.reviewers || this.evaluateReviewers(pr, filter.reviewers)) &&
+        (filter.isDraft === undefined || pr.isDraft === filter.isDraft)) ??
+      false
+    )
   }
 
   private static evaluateAuthor(pr: PullRequest, filter: CombinationFilter<UserFilter>): boolean {

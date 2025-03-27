@@ -121,6 +121,7 @@ async function onTickCore(): Promise<void> {
             activeThreads: 0,
             activeFromBots: 0,
           },
+          isDraft: pr.isDraft,
           details: {
             label: pr.title,
             number: pr.pullRequestId,

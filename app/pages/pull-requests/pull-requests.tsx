@@ -1,4 +1,10 @@
-import { CounterBadge, Menu, MenuItem, MenuList, MenuPopover, Tab, TabList } from '@fluentui/react-components'
+import ErrorComponent from '@/app/components/error/error.component'
+import PrList from '@/app/components/pr-list/pr-list'
+import { ErrorDetail } from '@/lib/models/error-detail'
+import { PullRequestData } from '@/lib/models/pr-data'
+import { PrProfile } from '@/lib/models/pr-profile'
+import { PullRequest } from '@/lib/models/pull-request.model'
+import { FilterEvaluator } from '@/lib/models/ui-filter.model'
 import type {
   PositioningImperativeRef,
   PositioningShorthand,
@@ -6,16 +12,10 @@ import type {
   SelectTabEvent,
   TabValue,
 } from '@fluentui/react-components'
+import { CounterBadge, Menu, MenuItem, MenuList, MenuPopover, Tab, TabList } from '@fluentui/react-components'
+import { ThumbLikeFilled } from '@fluentui/react-icons'
 import { useEffect, useRef, useState } from 'react'
 import './pull-requests.scss'
-import { ErrorDetail } from '@/lib/models/error-detail'
-import ErrorComponent from '@/app/components/error/error.component'
-import PrList from '@/app/components/pr-list/pr-list'
-import { PullRequestData } from '@/lib/models/pr-data'
-import { PrProfile } from '@/lib/models/pr-profile'
-import { FilterEvaluator } from '@/lib/models/ui-filter.model'
-import { ThumbLikeFilled } from '@fluentui/react-icons'
-import { PullRequest } from '@/lib/models/pull-request.model'
 
 function PullRequestErrors(error: ErrorDetail) {
   return <ErrorComponent error={error} />
@@ -95,7 +95,7 @@ export default function PullRequestsOverview() {
   }
 
   const details = profiles.map((profile) => {
-    const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter || {})
+    const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter ?? { filters: [], op: 'AND' })
     const badge = <CounterBadge>{filtered.length}</CounterBadge>
     const onProfileHeaderAuxClick = (e) => {
       setMenuData(filtered)

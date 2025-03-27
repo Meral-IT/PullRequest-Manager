@@ -22,14 +22,19 @@ export const defaultProfiles: PrProfile[] = [
     isDefault: false,
     enableAcceptAll: true,
     filter: {
-      author: {
-        op: 'AND',
-        filters: [
-          {
-            isBot: true,
+      op: 'AND',
+      filters: [
+        {
+          author: {
+            op: 'AND',
+            filters: [
+              {
+                isBot: true,
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
     },
   },
   {
@@ -39,17 +44,22 @@ export const defaultProfiles: PrProfile[] = [
     isDefault: true,
     enableAcceptAll: false,
     filter: {
-      reviewers: {
-        op: 'OR',
-        filters: [
-          {
-            user: {
-              isMySelf: true,
-            },
-            vote: PrVote.NoVote,
+      op: 'AND',
+      filters: [
+        {
+          reviewers: {
+            op: 'AND',
+            filters: [
+              {
+                user: {
+                  isMySelf: true,
+                },
+                vote: PrVote.NoVote,
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
     },
   },
   {
@@ -58,14 +68,15 @@ export const defaultProfiles: PrProfile[] = [
     isDefault: false,
     enableAcceptAll: false,
     filter: {
-      author: {
-        op: 'AND',
-        filters: [
-          {
-            isMySelf: true,
+      op: 'AND',
+      filters: [
+        {
+          author: {
+            op: 'AND',
+            filters: [{ isMySelf: true }],
           },
-        ],
-      },
+        },
+      ],
     },
   },
   {
@@ -74,16 +85,21 @@ export const defaultProfiles: PrProfile[] = [
     isDefault: false,
     enableAcceptAll: false,
     filter: {
-      reviewers: {
-        op: 'AND',
-        filters: [
-          {
-            user: {
-              isMySelf: true,
-            },
+      op: 'AND',
+      filters: [
+        {
+          reviewers: {
+            op: 'AND',
+            filters: [
+              {
+                user: {
+                  isMySelf: true,
+                },
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
     },
   },
 ]
