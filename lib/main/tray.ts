@@ -24,9 +24,9 @@ export default function createTrayIcon(showWindow: () => void, exitApp: () => vo
   trayIcon = new Tray(getAssetPath('tray/pull.png'))
   trayManager = new TrayManager(
     trayIcon,
-    getAssetPath('tray/pull-colored.png'),
-    getAssetPath('tray/pull.png'),
-    [0, 4, 8, 12, 16, 20, 24, 28, 32].map((i) => getAssetPath(`tray/loader/frame_${i.toString().padStart(2, '0')}.png`))
+    getAssetPath('tray/pull-colored@3x.png'),
+    getAssetPath('tray/pull@3x.png'),
+    [0, 4, 8, 12, 16, 20, 24, 28, 32].map((i) => getAssetPath(`tray/loader/frame_${i.toString().padStart(2, '0')}@3x.png`))
   )
 
   trayIcon.addListener('click', () => showWindow())
