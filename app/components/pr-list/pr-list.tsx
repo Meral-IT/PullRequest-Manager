@@ -1,34 +1,36 @@
-import * as React from 'react'
-import { BotFilled, ChatRegular, CheckmarkRegular, OpenFilled } from '@fluentui/react-icons'
-import {
-  Avatar,
-  TableColumnDefinition,
-  TableCellLayout,
-  createTableColumn,
-  DataGrid,
-  DataGridBody,
-  DataGridRow,
-  DataGridCell,
-  DataGridProps,
-  AvatarGroup,
-  AvatarGroupItem,
-  PresenceBadgeStatus,
-  Tooltip,
-  partitionAvatarGroupItems,
-  AvatarGroupPopover,
-  DataGridHeader,
-  DataGridHeaderCell,
-  Button,
-  tokens,
-  InfoLabel,
-} from '@fluentui/react-components'
-import ZeroData from '../zero-data/zero-data.component'
-import emptyImage from '@/resources/emptyPRList.svg'
 import { PrVote } from '@/lib/models/pr-vote'
 import { PullRequest, PullRequestMergeStatus, Reviewer } from '@/lib/models/pull-request.model'
-import { useEffect } from 'react'
 import { SettingsModel } from '@/lib/models/settings.model'
 import { usePersistentState } from '@/lib/tools/persistent-state.hook'
+import emptyImage from '@/resources/emptyPRList.svg'
+import {
+  Avatar,
+  AvatarGroup,
+  AvatarGroupItem,
+  AvatarGroupPopover,
+  Button,
+  DataGrid,
+  DataGridBody,
+  DataGridCell,
+  DataGridHeader,
+  DataGridHeaderCell,
+  DataGridProps,
+  DataGridRow,
+  InfoLabel,
+  Link,
+  PresenceBadgeStatus,
+  TableCellLayout,
+  TableColumnDefinition,
+  Text,
+  Tooltip,
+  createTableColumn,
+  partitionAvatarGroupItems,
+  tokens,
+} from '@fluentui/react-components'
+import { BotFilled, ChatRegular, CheckmarkRegular, OpenFilled } from '@fluentui/react-icons'
+import * as React from 'react'
+import { useEffect } from 'react'
+import ZeroData from '../zero-data/zero-data.component'
 
 function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   switch (vote) {
@@ -84,6 +86,9 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         item.mergeStatus === PullRequestMergeStatus.Conflicts ? 'This PR has conflicts' : undefined
 
       const infoMessage = failureMessage || conflictMessage
+      const click = () => {
+        window.api.invoke('web-open-url', item.urls.web)
+      }
 
       return (
         <TableCellLayout
@@ -93,8 +98,10 @@ const columns: TableColumnDefinition<PullRequest>[] = [
           truncate
         >
           <span style={{ color: color }}>
-            <InfoLabel size="small" info={infoMessage}>
-              {item.details.label}
+            <InfoLabel size="small" info={infoMessage} onClick={click}>
+              <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+                <Text weight='semibold' truncate>{item.details.label}</Text>
+              </Tooltip>
             </InfoLabel>
           </span>
         </TableCellLayout>
@@ -135,26 +142,6 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         <TableCellLayout description={desc} media={<ChatRegular />}>
           {item.interactions.activeThreads}
         </TableCellLayout>
-      )
-    },
-  }),
-  createTableColumn<PullRequest>({
-    columnId: 'actions',
-    compare: (a, b) => {
-      return a.interactions.activeThreads - b.interactions.activeThreads
-    },
-    renderHeaderCell: () => 'Actions',
-    renderCell: (item) => {
-      const click = () => {
-        window.api.invoke('web-open-url', item.urls.web)
-      }
-
-      return (
-        <>
-          <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
-            <Button aria-label="Open PR" icon={<OpenFilled />} onClick={click} />
-          </Tooltip>
-        </>
       )
     },
   }),
@@ -207,10 +194,7 @@ const columnSizingOptions = {
     idealWidth: 80,
   },
   comments: {
-    idealWidth: 60,
-  },
-  actions: {
-    idealWidth: 70,
+    idealWidth: 80,
   },
 }
 

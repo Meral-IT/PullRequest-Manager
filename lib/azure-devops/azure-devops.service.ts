@@ -92,12 +92,12 @@ async function onTickCore(): Promise<void> {
   }
 
   if (isValidSettings(settings) && api) {
-    const connectionData = await api.connect()
-    mySelf = connectionData.authenticatedUser
-    teams = await getMyTeams()
-    log.debug('Fetching data from Azure DevOps')
     loader.start()
     try {
+      const connectionData = await api.connect()
+      mySelf = connectionData.authenticatedUser
+      teams = await getMyTeams()
+      log.debug('Fetching data from Azure DevOps')
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
       const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
         includeLinks: true,
