@@ -1,0 +1,109 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      doRelease:
+        description: 'Should a release be done?'
+        required: true
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            buildCommand: 'npm run build:win'
+          - os: macos-latest
+            buildCommand: 'npm run build:mac'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    outputs:
+      semVer: ${{ steps.version.outputs.semVer }}
+      preReleaseLabel: ${{ steps.version.outputs.preReleaseLabel }}
+
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.doRelease == true
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
+
+      - uses: actions/checkout@v4
+        if: inputs.doRelease != true
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Determine Version
+        id: version
+        uses: gittools/actions/gitversion/execute@v3
+        with:
+          useConfigFile: true
+
+      - name: Set version
+        id: info
+        uses: jaywcjlove/github-action-package@main
+        with:
+          data: |
+            {
+              "version": "${{ steps.version.outputs.semVer }}"
+            }
+
+      - name: Install dependencies
+        run: npm install --prefer-offline --no-audit --progress=false
+
+      - name: Build
+        run: ${{ matrix.buildCommand }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Installer-${{ matrix.os }}
+          path: |
+            dist/*-setup.exe
+            dist/*.dmg
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.build.outputs.semVer }}
+          tag_name: v${{ needs.build.outputs.semVer }}
+          files: dist/**/*
+          prerelease: ${{ needs.build.outputs.preReleaseLabel != '' }}
+          generate_release_notes: true
+          token: ${{ secrets.RELEASE_PAT }}

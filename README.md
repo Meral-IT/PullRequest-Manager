@@ -1,5 +1,8 @@
 # PullRequestManager
 
+[![Build](https://github.com/Meral-IT/PullRequest-Manager/actions/workflows/auto-release.yml/badge.svg)](https://github.com/Meral-IT/PullRequest-Manager/actions/workflows/auto-release.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Meral-IT_PullRequest-Manager&metric=alert_status&token=eb9de62e47686090463d7936796a34b3d5f60bd7)](https://sonarcloud.io/summary/new_code?id=Meral-IT_PullRequest-Manager)
+
 ## Overview
 
 PullRequestManager is a powerful desktop application designed to simplify the management of pull requests in Azure DevOps. With an intuitive user interface and seamless integration, it helps developers efficiently review, filter, and manage pull requests directly from their desktop.
@@ -33,10 +36,6 @@ We are currently working on deeper integration with Azure DevOps, making it even
 - Enhanced automation for pull request workflows
 - Improved UI/UX for better collaboration
 
-| Main view                              | Azure DevOps configuration                              |
-| -------------------------------------- | ------------------------------------------------------- |
-| ![Screenshot 1](./doc/images/home.png) | ![Screenshot 2](./doc/images/azure-devops-settings.png) |
-
 Stay tuned for updates!
 
 ## Installation
@@ -53,8 +52,8 @@ Before you begin, ensure you have the following installed:
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/your-username/PullRequestManager.git
-   cd PullRequestManager
+   git clone https://github.com/github.com/Meral-IT/PullRequest-Manager
+   cd PullRequest-Manager
    ```
 
 2. Install dependencies:
@@ -66,7 +65,7 @@ Before you begin, ensure you have the following installed:
 3. Start the application:
 
    ```sh
-   npm run start
+   npm run dev
    ```
 
 ## Building the Application
@@ -108,12 +107,13 @@ npm run build
 ├── package.json # Project dependencies and scripts
 └── tsconfig.node.json # Main process tsconfig
 └── tsconfig.web.json # Renderer process tsconfig
+```
+
+## Special thanks
+
+- Microsoft for a great developer ecosystem
+- [@guasam](https://github.com/guasam) for his [electron-react-app](https://github.com/guasam/electron-react-app) template
 
 ## License
 
 PullRequestManager is available for personal and non-commercial use free of charge. For commercial use, please contact us regarding licensing options. Further details can be found in the [LICENSE](LICENSE) file.
-
----
-
-Contributions and feedback are welcome! If you have any suggestions or encounter issues, feel free to open an issue or submit a pull request.
-```

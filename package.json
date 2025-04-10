@@ -23,11 +23,6 @@
       "esbuild"
     ]
   },
-  "build": {
-    "extraResources": [
-      "./resources/**"
-    ]
-  },
   "scripts": {
     "dev": "electron-vite dev -w",
     "format": "prettier --write .",
