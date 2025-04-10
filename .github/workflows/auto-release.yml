@@ -100,3 +100,4 @@ jobs:
           tag_name: v${{ steps.version.outputs.semVer }}
           files: dist/*
           generate_release_notes: true
+          token: ${{ secrets.RELEASE_PAT }}
