@@ -8,7 +8,6 @@ import {
   AvatarGroup,
   AvatarGroupItem,
   AvatarGroupPopover,
-  Button,
   DataGrid,
   DataGridBody,
   DataGridCell,
@@ -17,7 +16,6 @@ import {
   DataGridProps,
   DataGridRow,
   InfoLabel,
-  Link,
   PresenceBadgeStatus,
   TableCellLayout,
   TableColumnDefinition,
@@ -27,10 +25,11 @@ import {
   partitionAvatarGroupItems,
   tokens,
 } from '@fluentui/react-components'
-import { BotFilled, ChatRegular, CheckmarkRegular, OpenFilled } from '@fluentui/react-icons'
+import { BotFilled, ChatRegular, CheckmarkRegular } from '@fluentui/react-icons'
 import * as React from 'react'
 import { useEffect } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
+import './pr-list.scss'
 
 function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   switch (vote) {
@@ -100,7 +99,9 @@ const columns: TableColumnDefinition<PullRequest>[] = [
           <span style={{ color: color }}>
             <InfoLabel size="small" info={infoMessage} onClick={click}>
               <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
-                <Text weight='semibold' truncate>{item.details.label}</Text>
+                <Text className="pr-title" weight="semibold" truncate>
+                  {item.details.label}
+                </Text>
               </Tooltip>
             </InfoLabel>
           </span>

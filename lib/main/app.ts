@@ -1,9 +1,10 @@
-import { BrowserWindow, shell, app, screen } from 'electron'
-import { join } from 'path'
 import { registerWindowIPC } from '@/lib/window/ipcEvents'
-import appIcon from '@/resources/build/icon.png'
-import { loadSettings } from './settings'
+import appIcon from '@/resources/build/icon.png?asset'
+import { app, BrowserWindow, screen, shell } from 'electron'
+import log from 'electron-log/main'
+import { join } from 'path'
 import { setConfiguration, start } from '../azure-devops/azure-devops.service'
+import { loadSettings } from './settings'
 import createTrayIcon from './tray'
 
 let mainWindow: BrowserWindow | null = null
@@ -19,6 +20,7 @@ export function exitApp(): void {
 }
 export function showWindow(): void {
   if (!mainWindow) {
+    log.error('"mainWindow" is not defined')
     throw new Error('"mainWindow" is not defined')
   }
   const display = screen.getPrimaryDisplay()
@@ -31,6 +33,7 @@ export function showWindow(): void {
 }
 
 export function createAppWindow(): BrowserWindow {
+  log.debug('Creating main window')
   const mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
@@ -52,11 +55,6 @@ export function createAppWindow(): BrowserWindow {
   mainWindow.on('ready-to-show', async () => {
     createTrayIcon(showWindow, exitApp)
     await initializeAzureDevOps()
-
-    // Only show the window in debug mode
-    // if (isDebug()) {
-    //   mainWindow.show()
-    // }
   })
 
   // Hide the window instead of closing it, so it can be reopened quickly

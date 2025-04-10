@@ -34,7 +34,6 @@ export async function saveSettings(input: SettingsModel): Promise<SettingsModel>
   const pat = encryptString(input.azDo.pat)
 
   input.azDo.pat = pat
-  Logger.debug('Saving settings', input)
   await fs.writeFile(settingFile, JSON.stringify(input, null, 2))
 
   input.azDo.pat = originalPat

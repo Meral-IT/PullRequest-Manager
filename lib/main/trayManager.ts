@@ -1,14 +1,19 @@
-import { Tray } from 'electron'
+import { NativeImage, Tray } from 'electron'
 
 export class TrayManager {
   tray: Tray
-  trayAnimationFrames: string[]
+  trayAnimationFrames: NativeImage | string[]
   animationInterval: NodeJS.Timeout | undefined
-  activeImage: string
-  idleImage: string
+  activeImage: NativeImage | string
+  idleImage: NativeImage | string
   active: boolean = false
 
-  constructor(tray: Tray, activeImage: string, idleImage: string, trayAnimationFrames: string[]) {
+  constructor(
+    tray: Tray,
+    activeImage: NativeImage | string,
+    idleImage: NativeImage | string,
+    trayAnimationFrames: NativeImage | string[]
+  ) {
     this.tray = tray
     this.trayAnimationFrames = trayAnimationFrames
     this.activeImage = activeImage

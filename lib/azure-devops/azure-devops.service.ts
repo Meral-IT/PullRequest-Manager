@@ -358,6 +358,7 @@ export function setConfiguration(input: AzDoSettings): void {
 
   if (hasChanged) {
     reInitializeApi()
+    onTickCore()
   }
 }
 

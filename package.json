@@ -17,6 +17,17 @@
     "email": "hallo@meral.cloud",
     "url": "https://meral.cloud"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "build": {
+    "extraResources": [
+      "./resources/**"
+    ]
+  },
   "scripts": {
     "dev": "electron-vite dev -w",
     "format": "prettier --write .",
@@ -30,26 +41,25 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
-    "@electron-toolkit/utils": "^4.0.0",
-    "@fluentui/react-components": "^9.61.2",
-    "@fluentui/react-icons": "^2.0.292",
-    "azure-devops-node-api": "^14.1.0",
-    "electron-log": "^5.3.2",
-    "react-router-dom": "^7.4.0"
+    "@electron-toolkit/utils": "^4.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@fluentui/react-components": "^9.61.2",
+    "@fluentui/react-icons": "^2.0.292",
     "@rushstack/eslint-patch": "^1.10.5",
     "@tailwindcss/vite": "^4.0.9",
     "@types/node": "^22.13.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "azure-devops-node-api": "^14.1.0",
     "electron": "^34.3.0",
     "electron-builder": "^25.1.8",
     "electron-devtools-installer": "^4.0.0",
+    "electron-log": "^5.3.2",
     "electron-vite": "^3.0.0",
     "eslint": "^9.21.0",
     "eslint-plugin-react": "^7.37.4",
@@ -57,6 +67,7 @@
     "prettier": "^3.5.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-router-dom": "^7.4.0",
     "sass-embedded": "^1.86.0",
     "tailwindcss": "^4.0.9",
     "typescript": "^5.7.3",
