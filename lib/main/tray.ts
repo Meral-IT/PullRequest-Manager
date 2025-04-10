@@ -1,5 +1,4 @@
 import { Menu, nativeImage, Tray } from 'electron'
-import { getAssetPath } from './util'
 import loader from '../tools/loading.service'
 import { TrayManager } from './trayManager'
 import pull from '@/resources/tray/pull@3x.png?asset'
@@ -34,7 +33,7 @@ export default function createTrayIcon(showWindow: () => void, exitApp: () => vo
     }
   })
 
-  trayIcon = new Tray(getAssetPath('tray/pull.png'))
+  trayIcon = new Tray(pull)
   trayManager = new TrayManager(trayIcon, pullColored, pull, [
     loaderFrame1,
     loaderFrame4,
