@@ -36,6 +36,7 @@ jobs:
       contents: write
     outputs:
       semVer: ${{ steps.version.outputs.semVer }}
+      preReleaseLabel: ${{ steps.version.outputs.preReleaseLabel }}
 
     steps:
       - uses: actions/checkout@v4
@@ -103,5 +104,6 @@ jobs:
           name: ${{ needs.build.outputs.semVer }}
           tag_name: v${{ needs.build.outputs.semVer }}
           files: dist/**/*
+          prerelease: ${{ needs.build.outputs.preReleaseLabel != '' }}
           generate_release_notes: true
           token: ${{ secrets.RELEASE_PAT }}
