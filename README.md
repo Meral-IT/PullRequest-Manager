@@ -107,12 +107,13 @@ npm run build
 ├── package.json # Project dependencies and scripts
 └── tsconfig.node.json # Main process tsconfig
 └── tsconfig.web.json # Renderer process tsconfig
+```
+
+## Special thanks
+
+- Microsoft for a great developer ecosystem
+- [@guasam](https://github.com/guasam) for his [electron-react-app](https://github.com/guasam/electron-react-app) template
 
 ## License
 
 PullRequestManager is available for personal and non-commercial use free of charge. For commercial use, please contact us regarding licensing options. Further details can be found in the [LICENSE](LICENSE) file.
-
----
-
-Contributions and feedback are welcome! If you have any suggestions or encounter issues, feel free to open an issue or submit a pull request.
-```
