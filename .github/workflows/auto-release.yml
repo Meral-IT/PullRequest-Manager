@@ -91,7 +91,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     needs: build
-    # if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
