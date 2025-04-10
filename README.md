@@ -56,8 +56,8 @@ Before you begin, ensure you have the following installed:
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/your-username/PullRequestManager.git
-   cd PullRequestManager
+   git clone https://github.com/github.com/Meral-IT/PullRequest-Manager
+   cd PullRequest-Manager
    ```
 
 2. Install dependencies:
@@ -69,7 +69,7 @@ Before you begin, ensure you have the following installed:
 3. Start the application:
 
    ```sh
-   npm run start
+   npm run dev
    ```
 
 ## Building the Application
