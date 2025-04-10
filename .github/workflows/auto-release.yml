@@ -1,4 +1,4 @@
-name: Release PullRequest-Manager
+name: Build
 
 on:
   push:
@@ -68,9 +68,11 @@ jobs:
               "version": "${{ steps.version.outputs.semVer }}"
             }
 
+      - name: Install dependencies
+        run: npm install --prefer-offline --no-audit --progress=false
+
       - name: Build
-        run: |
-          npm run ${{ matrix.buildCommand }}
+        run: ${{ matrix.buildCommand }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
