@@ -36,10 +36,6 @@ We are currently working on deeper integration with Azure DevOps, making it even
 - Enhanced automation for pull request workflows
 - Improved UI/UX for better collaboration
 
-| Main view                              | Azure DevOps configuration                              |
-| -------------------------------------- | ------------------------------------------------------- |
-| ![Screenshot 1](./doc/images/home.png) | ![Screenshot 2](./doc/images/azure-devops-settings.png) |
-
 Stay tuned for updates!
 
 ## Installation
