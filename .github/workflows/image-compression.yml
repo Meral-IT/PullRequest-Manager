@@ -1,4 +1,5 @@
 name: Compress Images
+
 on:
   pull_request:
     paths:
@@ -12,11 +13,13 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+
 jobs:
   build:
     if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     name: calibreapp/image-actions
     runs-on: ubuntu-latest
+    permissions: write-all
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v2
