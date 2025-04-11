@@ -1,19 +1,19 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './components/App'
-import appIcon from '@/resources/build/icon.svg'
 import { WindowContextProvider, menuItems } from '@/lib/window'
 import '@/lib/window/window.css'
-import Layout from './components/layout/layout.component'
+import appIcon from '@/resources/build/icon.svg'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
 import { HashRouter, Route, Routes } from 'react-router-dom'
+import App from './components/App'
+import Layout from './components/layout/layout.component'
 import RouterListener from './components/router-listener/router-listener.component'
-import Settings from './pages/settings/settings.page'
-import GeneralSettings from './components/settings/general/general-settings.component'
-import AzureDevOpsSettings from './components/settings/azdo/settings-azdo.component'
 import AppearanceSettings from './components/settings/appearance/appearance-settings.component'
+import AzureDevOpsSettings from './components/settings/azdo/settings-azdo.component'
+import GeneralSettings from './components/settings/general/general-settings.component'
 import ProfileSettings from './components/settings/profiles/settings-profiles.component'
+import Settings from './pages/settings/settings.page'
 
-ReactDOM.createRoot(document.getElementById('app') as HTMLElement).render(
+ReactDOM.createRoot(document.getElementById('app')!).render(
   <React.StrictMode>
     <Layout>
       <HashRouter>

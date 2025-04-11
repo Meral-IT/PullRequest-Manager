@@ -1,24 +1,15 @@
+import { Button, Field, makeStyles, SelectTabData, SelectTabEvent, Tab, TabList } from '@fluentui/react-components'
 import {
-  Button,
-  Field,
-  makeStyles,
-  SelectTabData,
-  SelectTabEvent,
-  Spinner,
-  Tab,
-  TabList,
-} from '@fluentui/react-components'
-import {
-  SettingsFilled,
-  KeyFilled,
   HomeFilled,
-  PaintBrushFilled,
+  KeyFilled,
   LayerDiagonalPersonFilled,
+  PaintBrushFilled,
+  SettingsFilled,
 } from '@fluentui/react-icons'
 import { useContext } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { SettingsContext } from './context'
 import SplitContainer from '../split-container/split-container.component'
+import { SettingsContext } from './context'
 
 const useStyles = makeStyles({
   gap: { display: 'flex', flexDirection: 'column', gap: '1rem' },
@@ -39,9 +30,9 @@ export default function SettingsComponent() {
     return useContext(SettingsContext)
   }
 
-  const { state, actions, saving } = useSettings()
+  const { actions, saving } = useSettings()
 
-  const onTabSelect = (event: SelectTabEvent, data: SelectTabData) => {
+  const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
     if (data.value) {
       nav(data.value)
     }

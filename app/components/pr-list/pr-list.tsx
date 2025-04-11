@@ -84,7 +84,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       const conflictMessage =
         item.mergeStatus === PullRequestMergeStatus.Conflicts ? 'This PR has conflicts' : undefined
 
-      const infoMessage = failureMessage || conflictMessage
+      const infoMessage = failureMessage ?? conflictMessage
       const click = () => {
         window.api.invoke('web-open-url', item.urls.web)
       }
@@ -149,7 +149,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
 ]
 
 const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
-  const sortedReviewers = reviewers.sort((a, b) => {
+  reviewers.sort((a, b) => {
     if (a.isRequired && !b.isRequired) {
       return -1
     }
@@ -159,7 +159,7 @@ const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
     return a.user.label.localeCompare(b.user.label)
   })
   const { inlineItems, overflowItems } = partitionAvatarGroupItems({
-    items: sortedReviewers,
+    items: reviewers,
   })
   return (
     <AvatarGroup layout="stack" size={24}>
@@ -203,7 +203,7 @@ type Props = {
   data: PullRequest[]
 }
 
-export default function PrList(props: Props) {
+export default function PrList(props: Readonly<Props>) {
   const defaultSortState = React.useMemo<Parameters<NonNullable<DataGridProps['onSortChange']>>[1]>(
     () => ({ sortColumn: 'details', sortDirection: 'ascending' }),
     []

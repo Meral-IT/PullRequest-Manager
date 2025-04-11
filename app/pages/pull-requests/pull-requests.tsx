@@ -17,7 +17,7 @@ import { ThumbLikeFilled } from '@fluentui/react-icons'
 import { useEffect, useRef, useState } from 'react'
 import './pull-requests.scss'
 
-function PullRequestErrors(error: ErrorDetail) {
+function PullRequestErrors(error: Readonly<ErrorDetail>) {
   return <ErrorComponent error={error} />
 }
 
@@ -25,11 +25,11 @@ function TabHeaderMenu({
   open,
   positioning,
   onClick,
-}: {
+}: Readonly<{
   open: boolean
   positioning: PositioningShorthand
   onClick: () => void
-}) {
+}>) {
   return (
     <Menu open={open} positioning={positioning}>
       <MenuPopover>
@@ -44,7 +44,6 @@ function TabHeaderMenu({
 }
 
 export default function PullRequestsOverview() {
-  // const defaultProfileId = profiles.find((profile) => profile.isDefault)?.id || 'builtin:all'
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const [open, setOpen] = useState(false)
   const [selectedValue, setSelectedValue] = useState<TabValue>('builtin:all')
@@ -72,7 +71,7 @@ export default function PullRequestsOverview() {
   useEffect(() => {
     window.api.invoke('get-settings').then((settings) => {
       setProfiles(settings.profiles)
-      setSelectedValue(settings.profiles.find((profile) => profile.isDefault)?.id || 'builtin:all')
+      setSelectedValue(settings.profiles.find((profile) => profile.isDefault)?.id ?? 'builtin:all')
     })
   }, [])
 

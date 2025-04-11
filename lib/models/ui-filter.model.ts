@@ -74,7 +74,7 @@ export class FilterEvaluator {
       ((!filter.label || user.label === filter.label) &&
         (!filter.id || user.id === filter.id) &&
         (!filter.isMySelf || user.isMySelf === filter.isMySelf) &&
-        (!filter.isBot || (user && user.isBot))) ??
+        (!filter.isBot || user?.isBot)) ??
       false
     )
   }

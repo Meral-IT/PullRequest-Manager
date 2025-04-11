@@ -1,4 +1,5 @@
 import * as azdev from 'azure-devops-node-api'
+import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
 import {
   CommentThreadStatus,
   CommentType,
@@ -6,21 +7,15 @@ import {
   PullRequestAsyncStatus,
   PullRequestStatus,
 } from 'azure-devops-node-api/interfaces/GitInterfaces'
-import path from 'path'
-import { app, BrowserWindow } from 'electron'
-import { PullRequestData } from '../models/pr-data'
-import { AzDoSettings } from '../models/settings.model'
-import { PullRequest, PullRequestThreadState } from '../models/pull-request.model'
-import { ErrorType } from '../models/error-detail'
-import log from 'electron-log/main'
-import loader from '../tools/loading.service'
-import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces'
+import { BrowserWindow } from 'electron'
+import log from 'electron-log/main'
+import { ErrorType } from '../models/error-detail'
+import { PullRequestData } from '../models/pr-data'
 import { PrVote } from '../models/pr-vote'
-
-const cacheDir = path.join(app.getPath('userData'), 'Cache', 'AzureDevOnpom psImages')
-const settingFile = path.join(cacheDir, 'azdo-image-cache.json')
-const cacheEvictionInterval = 1000 * 60 * 60 * 24 * 7 // 1 week
+import { PullRequest, PullRequestThreadState } from '../models/pull-request.model'
+import { AzDoSettings } from '../models/settings.model'
+import loader from '../tools/loading.service'
 
 let settings: AzDoSettings
 let api: azdev.WebApi
@@ -167,12 +162,10 @@ async function onTickCore(): Promise<void> {
         const thread = threads.find((thread) => thread.pr === pr.id)
         if (thread) {
           pr.interactions.threads = thread.threads
-            .filter((x) => !(x.properties && x.properties.CodeReviewThreadType))
+            .filter((x) => !x.properties?.CodeReviewThreadType)
             .filter((x) => x.status === CommentThreadStatus.Active || x.status === CommentThreadStatus.Pending)
             .filter((x) => x.comments && x.comments.length > 0)
-            .filter(
-              (x) => x.comments && x.comments.every((c) => c.commentType !== CommentType.System && c.isDeleted !== true)
-            )
+            .filter((x) => x.comments?.every((c) => c.commentType !== CommentType.System && c.isDeleted !== true))
             .map((thread) => {
               return {
                 id: thread.id ?? 0,
@@ -227,8 +220,6 @@ async function onTickCore(): Promise<void> {
     }
   }
 
-  // await enrichImages(data.items)
-
   loader.stop()
   pullRequests = data
   try {
@@ -237,78 +228,6 @@ async function onTickCore(): Promise<void> {
     log.error(error)
   }
 }
-
-// async function readImageCacheIndex(): Promise<ImageCacheIndex> {
-//   try {
-//     await fs.access(settingFile)
-//   } catch (error) {
-//     fs.mkdir(cacheDir, { recursive: true })
-//     await fs.writeFile(settingFile, JSON.stringify({ data: {} }, null, 2))
-//   }
-//   const data = await fs.readFile(settingFile, 'utf-8')
-//   return JSON.parse(data)
-// }
-
-// async function getLocalUserImageFileName(
-//   id: string,
-//   imageUrl: string,
-//   ImageCacheIndex: ImageCacheIndex
-// ): Promise<string> {
-//   if (!imageUrl) {
-//     return ''
-//   }
-//   const profileApi = await api.getProfileApi(settings.organizationUrl, [api.authHandler])
-//   const cache = ImageCacheIndex.data[id]
-//   if (cache) {
-//     const lastUpdated = new Date(cache.lastUpdated)
-//     const now = new Date()
-
-//     // check if the image is still valid
-//     if (now.getTime() - lastUpdated.getTime() > cacheEvictionInterval) {
-//       delete ImageCacheIndex.data[id]
-//     }
-//   }
-
-//   // const avatar = await profileApi.getAvatar(id, 'medium')
-//   // const imageFileName = path.join(cacheDir, `${id}.png`)
-//   // await fs.writeFile(imageFileName, response.result)
-
-//   ImageCacheIndex.data[id] = {
-//     imageFileName,
-//     lastUpdated: Date.now(),
-//   }
-
-//   return imageFileName
-// }
-
-// async function getUserImageBase64(id: string, imageUrl: string, ImageCacheIndex: ImageCacheIndex): Promise<string> {
-//   const imageFileName = await getLocalUserImageFileName(id, imageUrl, ImageCacheIndex)
-//   if (!imageFileName) {
-//     return ''
-//   }
-
-//   return fs.readFile(imageFileName, 'base64')
-// }
-
-// async function enrichImages(data: PullRequest[]): Promise<void> {
-//   const cacheIndex = await readImageCacheIndex()
-
-//   // Enrich author and reviewer images
-//   for (const pr of data) {
-//     if (pr.author.imageUrl) {
-//       pr.author.imageBase64 = await getUserImageBase64(pr.author.id, pr.author.imageUrl, cacheIndex)
-//     }
-
-//     for (const reviewer of pr.reviewers) {
-//       if (reviewer.user.imageUrl) {
-//         reviewer.user.imageBase64 = await getUserImageBase64(reviewer.user.id, reviewer.user.imageUrl, cacheIndex)
-//       }
-//     }
-//   }
-
-//   // save cache index
-//   await fs.writeFile(settingFile, JSON.stringify(cacheIndex, null, 2))
-// }
 
 function initializeApi(): azdev.WebApi {
   if (!settings) {
@@ -370,17 +289,4 @@ export function start(): void {
 
 interface AzError extends Error {
   statusCode: number
-}
-
-interface ImageCacheIndex {
-  data: CachedImageData
-}
-
-interface CachedImageData {
-  [key: string]: CachedImage
-}
-
-interface CachedImage {
-  imageFileName: string
-  lastUpdated: number
 }

@@ -1,11 +1,11 @@
-import * as React from 'react'
 import { Body1, Button, Image, Link, Title1 } from '@fluentui/react-components'
-import './zero.data.scss'
+import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { IZeroDataItem, IZeroDataMultipleProps, IZeroDataProps, ZeroDataActionType } from './zerodata.props'
 import { css } from '../../util'
+import './zero.data.scss'
+import { IZeroDataItem, IZeroDataMultipleProps, IZeroDataProps, ZeroDataActionType } from './zerodata.props'
 
-function RenderAction(item: IZeroDataItem) {
+function RenderAction(item: Readonly<IZeroDataItem>) {
   const navigate = useNavigate()
   const { actionText, actionType, onActionClick, actionHref, actionButtonProps, renderAction } = item
 
@@ -19,13 +19,13 @@ function RenderAction(item: IZeroDataItem) {
   if (actionType === ZeroDataActionType.button) {
     const onActionClickWrapper = (ev: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
       if (onActionClick) {
-        onActionClick.call(null, ev, item)
+        onActionClick(ev, item)
       } else if (actionHref) {
         navigate(actionHref)
       }
     }
     const buttonProps = {
-      ...(actionButtonProps || {}),
+      ...(actionButtonProps ?? {}),
       text: actionText,
       onClick: onActionClickWrapper,
       href: actionHref,
@@ -49,7 +49,7 @@ function RenderAction(item: IZeroDataItem) {
 /**
  * Represents a single item for the ZeroData component.
  */
-function ZeroDataItem({ item, multiple }: { item: IZeroDataItem; multiple: boolean }) {
+function ZeroDataItem({ item, multiple }: Readonly<{ item: IZeroDataItem; multiple: boolean }>) {
   const { imagePath, imageAltText, primaryText, secondaryText } = item
 
   return (
@@ -81,7 +81,7 @@ function ZeroDataMultiple({ items, className }: IZeroDataMultipleProps) {
     items.map((item) => {
       return (
         <ZeroDataItem
-          key={(item.primaryText || '') + (item.secondaryText || '') + item.imagePath + item.imageAltText}
+          key={(item.primaryText ?? '') + (item.secondaryText ?? '') + item.imagePath + item.imageAltText}
           item={item}
           multiple={multiple}
         />
@@ -93,7 +93,7 @@ function ZeroDataMultiple({ items, className }: IZeroDataMultipleProps) {
 /**
  * Component for displaying helpful information when there is no data to show.
  */
-export default function ZeroData(props: IZeroDataProps) {
+export default function ZeroData(props: Readonly<IZeroDataProps>) {
   const { className } = props
   return <ZeroDataMultiple items={[props]} className={className} />
 }

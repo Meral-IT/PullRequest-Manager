@@ -22,7 +22,7 @@ export default function ProfileSettings() {
     return useContext(SettingsContext)
   }
 
-  const { state, actions, validatingAzDo } = useSettings()
+  const { state, actions } = useSettings()
   const stack = useStackClassName()
   const styles = useStyles()
 

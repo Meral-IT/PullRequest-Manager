@@ -1,9 +1,8 @@
 import { app, safeStorage } from 'electron'
-import path from 'node:path'
 import fs from 'node:fs/promises'
-import { SettingsModel, TableSize } from '../models/settings.model'
-import Logger from 'electron-log/main'
+import path from 'node:path'
 import { defaultProfiles } from '../models/pr-profile'
+import { SettingsModel, TableSize } from '../models/settings.model'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
 const defaultSettings: SettingsModel = {
