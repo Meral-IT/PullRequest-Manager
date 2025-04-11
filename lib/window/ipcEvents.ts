@@ -1,8 +1,13 @@
+import * as azdev from 'azure-devops-node-api'
 import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import os from 'os'
+import {
+  approvePullRequests,
+  getPullRequests,
+  setConfiguration,
+  updateDataImmediately,
+} from '../azure-devops/azure-devops.service'
 import { loadSettings, saveSettings } from '../main/settings'
-import * as azdev from 'azure-devops-node-api'
-import { approvePullRequests, getPullRequests, setConfiguration } from '../azure-devops/azure-devops.service'
 import { PullRequest } from '../models/pull-request.model'
 
 export const registerNativeThemeEventListeners = (allBrowserWindows: BrowserWindow[]) => {
@@ -74,6 +79,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     // Load the settings from the store
     const settings = await saveSettings(data)
     setConfiguration(settings.azDo)
+    updateDataImmediately()
 
     mainWindow.webContents.send('theme-changed', settings.appearance.theme)
     mainWindow.webContents.send('settings', settings)

@@ -80,7 +80,7 @@ function createPrWebUri(pr: GitPullRequest): string {
   return template.replace('_apis/git/repositories', '_git').replace('pullRequests', 'pullRequest')
 }
 
-async function onTickCore(): Promise<void> {
+async function updateData(): Promise<void> {
   const data: PullRequestData = {
     items: [],
     error: null,
@@ -252,7 +252,7 @@ async function onTick(): Promise<void> {
     return
   }
 
-  await onTickCore()
+  await updateData()
   setTimeout(onTick, settings.updateInterval * 1000)
 }
 
@@ -277,7 +277,15 @@ export function setConfiguration(input: AzDoSettings): void {
 
   if (hasChanged) {
     reInitializeApi()
-    onTickCore()
+  }
+}
+
+export function updateDataImmediately(): Promise<void> {
+  if (active) {
+    return updateData()
+  } else {
+    log.error('Azure DevOps API is not active')
+    return Promise.reject(new Error('Azure DevOps API is not active'))
   }
 }
 

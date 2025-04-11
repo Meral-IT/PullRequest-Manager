@@ -10,7 +10,7 @@ const defaultSettings: SettingsModel = {
     organizationUrl: '',
     project: '',
     pat: '',
-    updateInterval: 60,
+    updateInterval: 180,
   },
   appearance: {
     theme: 'system',
