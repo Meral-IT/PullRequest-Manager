@@ -1,4 +1,6 @@
 name: Build
+permissions:
+  contents: read
 
 on:
   push:
@@ -36,8 +38,6 @@ jobs:
           - os: macos-latest
             buildCommand: 'npm run build:mac'
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     outputs:
       semVer: ${{ steps.version.outputs.semVer }}
       preReleaseLabel: ${{ steps.version.outputs.preReleaseLabel }}
@@ -95,6 +95,8 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: write
     if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Download build artifacts
