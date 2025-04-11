@@ -52,7 +52,7 @@ Before you begin, ensure you have the following installed:
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/github.com/Meral-IT/PullRequest-Manager
+   git clone https://github.com/Meral-IT/PullRequest-Manager
    cd PullRequest-Manager
    ```
 
