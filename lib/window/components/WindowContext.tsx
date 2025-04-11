@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { Titlebar } from './Titlebar'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { TitlebarMenu } from '../titlebarMenus'
+import { Titlebar } from './Titlebar'
 import { TitlebarContextProvider } from './TitlebarContext'
 
 interface WindowContextProps {
@@ -54,8 +54,10 @@ export const WindowContextProvider = ({ children, titlebar }: WindowContextProvi
     }
   }, [])
 
+  const providerValue = useMemo(() => ({ titlebar, window: initProps! }), [titlebar, initProps])
+
   return (
-    <WindowContext.Provider value={{ titlebar, window: initProps! }}>
+    <WindowContext.Provider value={providerValue}>
       <TitlebarContextProvider>
         <Titlebar />
       </TitlebarContextProvider>

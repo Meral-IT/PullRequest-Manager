@@ -1,8 +1,8 @@
-import { Combobox, Option, Field, makeResetStyles, tokens, Select } from '@fluentui/react-components'
+import { TableSize } from '@/lib/models/settings.model'
+import { nameof } from '@/lib/tools/nameof'
+import { Field, makeResetStyles, Select, tokens } from '@fluentui/react-components'
 import { useContext, useEffect, useState } from 'react'
 import { SettingsContext, SettingStateProps } from '../context'
-import { nameof } from '@/lib/tools/nameof'
-import { TableSize } from '@/lib/models/settings.model'
 
 interface OptionItem {
   value: string
@@ -47,20 +47,20 @@ const tableSizeOptions: OptionItem[] = [
 export default function AppearanceSettings() {
   const { state, actions } = useContext(SettingsContext)
   const [themeItem, setThemeItem] = useState<OptionItem>(
-    themeOptions.find((option) => option.value === state.appearanceTheme) || themeOptions[0]
+    themeOptions.find((option) => option.value === state.appearanceTheme) ?? themeOptions[0]
   )
 
   const [tableSizeItem, setTableSizeItem] = useState<OptionItem>(
-    tableSizeOptions.find((option) => option.value === state.appearanceTableSize) || tableSizeOptions[0]
+    tableSizeOptions.find((option) => option.value === state.appearanceTableSize) ?? tableSizeOptions[0]
   )
 
   useEffect(() => {
-    setThemeItem(themeOptions.find((option) => option.value === state.appearanceTheme) || themeOptions[0])
+    setThemeItem(themeOptions.find((option) => option.value === state.appearanceTheme) ?? themeOptions[0])
   }, [state.appearanceTheme])
 
   useEffect(() => {
     setTableSizeItem(
-      tableSizeOptions.find((option) => option.value === state.appearanceTableSize) || tableSizeOptions[0]
+      tableSizeOptions.find((option) => option.value === state.appearanceTableSize) ?? tableSizeOptions[0]
     )
   }, [state.appearanceTableSize])
 

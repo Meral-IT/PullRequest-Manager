@@ -21,7 +21,7 @@ interface Props {
   children: ReactNode
 }
 
-function Layout({ children }: Props) {
+function Layout({ children }: Readonly<Props>) {
   const [theme, setTheme] = useState<string>('system')
 
   useEffect(() => {

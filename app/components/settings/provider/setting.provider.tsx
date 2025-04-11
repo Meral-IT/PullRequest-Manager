@@ -1,6 +1,6 @@
-import { ChangeEvent, ReactNode, useEffect, useState } from 'react'
-import { SettingPageProps, SettingsContext, SettingStateProps } from '../context'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
+import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from 'react'
+import { SettingPageProps, SettingsContext, SettingStateProps } from '../context'
 
 interface Props {
   children: ReactNode
@@ -105,16 +105,19 @@ export const SettingProvider = ({ children }: Props) => {
     }
   }
 
-  const value: SettingPageProps = {
-    state: formData,
-    actions: {
-      onChangeHandler: handleChange,
-      validateAzDo,
-      saveSettings,
-    },
-    saving: saving,
-    validatingAzDo: validatingAzDo,
-  }
+  const value: SettingPageProps = useMemo(
+    () => ({
+      state: formData,
+      actions: {
+        onChangeHandler: handleChange,
+        validateAzDo,
+        saveSettings,
+      },
+      saving: saving,
+      validatingAzDo: validatingAzDo,
+    }),
+    [formData, saving, validatingAzDo]
+  )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

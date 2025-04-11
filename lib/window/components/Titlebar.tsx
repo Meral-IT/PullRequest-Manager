@@ -1,7 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
-import { useWindowContext } from './WindowContext'
-import { useTitlebarContext } from './TitlebarContext'
-import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
 import {
   Button,
   makeStyles,
@@ -17,8 +13,12 @@ import {
   tokens,
   Tooltip,
 } from '@fluentui/react-components'
-import { useNavigate } from 'react-router-dom'
 import { DismissFilled, LineHorizontal1Filled, MaximizeFilled } from '@fluentui/react-icons'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
+import { useTitlebarContext } from './TitlebarContext'
+import { useWindowContext } from './WindowContext'
 
 const useStyles = makeStyles({
   titlebar: {
@@ -119,7 +119,7 @@ export const Titlebar = () => {
   )
 }
 
-const TitlebarMenu = () => {
+function TitlebarMenu() {
   const styles = useStyles()
   const { menuItems } = useWindowContext().titlebar
 
@@ -128,12 +128,12 @@ const TitlebarMenu = () => {
 
   return (
     <div className={styles.titleBarMenu}>
-      {menuItems?.map((menu, index) => <TitlebarMenuItem key={index} menu={menu} index={index} />)}
+      {menuItems?.map((menu, index) => <TitlebarMenuItem key={menu.name} menu={menu} index={index} />)}
     </div>
   )
 }
 
-const TitlebarMenuItem = ({ menu, index }: { menu: TitlebarMenu; index: number }) => {
+function TitlebarMenuItem({ menu, index }: Readonly<{ menu: TitlebarMenu; index: number }>) {
   const { activeMenuIndex, setActiveMenuIndex } = useTitlebarContext()
   const menuItemRef = useRef<HTMLDivElement | null>(null)
 
@@ -182,8 +182,8 @@ const TitlebarMenuItem = ({ menu, index }: { menu: TitlebarMenu; index: number }
 const TitlebarMenuPopup = ({ menu }: { menu: TitlebarMenu }) => {
   return (
     <div>
-      {menu.items.map((item, index) => (
-        <TitlebarMenuPopupItem key={index} item={item} />
+      {menu.items.map((item) => (
+        <TitlebarMenuPopupItem key={item.name} item={item} />
       ))}
     </div>
   )
@@ -224,8 +224,8 @@ const TitlebarMenuPopupItem = ({ item }: { item: TitlebarMenuItem }) => {
 
         <MenuPopover>
           <MenuList>
-            {item.items.map((subItem, index) => (
-              <TitlebarMenuPopupItem key={index} item={subItem} />
+            {item.items.map((subItem) => (
+              <TitlebarMenuPopupItem key={subItem.name} item={subItem} />
             ))}
           </MenuList>
         </MenuPopover>

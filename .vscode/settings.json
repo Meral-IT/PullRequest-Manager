@@ -1,0 +1,11 @@
+{
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit",
+    "source.fixAll": "explicit"
+  },
+  "sonarlint.connectedMode.project": {
+    "connectionId": "meral-it",
+    "projectKey": "Meral-IT_PullRequest-Manager"
+  }
+}

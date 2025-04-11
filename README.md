@@ -3,17 +3,33 @@
 [![Build](https://github.com/Meral-IT/PullRequest-Manager/actions/workflows/auto-release.yml/badge.svg)](https://github.com/Meral-IT/PullRequest-Manager/actions/workflows/auto-release.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Meral-IT_PullRequest-Manager&metric=alert_status&token=eb9de62e47686090463d7936796a34b3d5f60bd7)](https://sonarcloud.io/summary/new_code?id=Meral-IT_PullRequest-Manager)
 
+For potential, existing users and developers - how would you improve the README file?
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Technologies Used](#technologies-used)
+- [Help Wanted](#help-wanted)
+- [Contributing](#contributing)
+- [DevOps Integration](#devops-integration-work-in-progress)
+- [Installation](#installation)
+- [Building the Application](#building-the-application)
+- [Project Structure](#project-structure)
+- [Special Thanks](#special-thanks)
+- [License](#license)
+
 ## Overview
 
 PullRequestManager is a powerful desktop application designed to simplify the management of pull requests in Azure DevOps. With an intuitive user interface and seamless integration, it helps developers efficiently review, filter, and manage pull requests directly from their desktop.
 
 ## Features
 
-- **Comprehensive Pull Request Management** – View, filter, and organize pull requests with ease.
-- **Advanced Search & Filtering** – Quickly find relevant pull requests using robust search options.
-- **User-Friendly Interface** – Built with Fluent UI for a clean and modern experience.
-- **Multi-Project Support** – Seamlessly switch between different Azure DevOps projects.
-- **Git Integration** – Easily manage branches and streamline the development workflow.
+- 🛠️ **Comprehensive Pull Request Management** – View, filter, and organize pull requests with ease.
+- 🔍 **Advanced Search & Filtering** – Quickly find relevant pull requests using robust search options.
+- 🎨 **User-Friendly Interface** – Built with Fluent UI for a clean and modern experience.
+- 🔄 **Multi-Project Support** – Seamlessly switch between different Azure DevOps projects.
+- 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
 
 ## Technologies Used
 
@@ -27,6 +43,18 @@ PullRequestManager is built with the following modern technologies:
 ## Help Wanted
 
 We are actively looking for contributors to improve PullRequestManager! If you're interested in helping out, feel free to check out the issues tab or submit a pull request. Any contributions, whether code, documentation, or feedback, are highly appreciated!
+
+## Contributing
+
+We welcome contributions from the community! See the [contribution guide](./CONTRIBUTING.md) if you want to participate in this project.
+
+### Guidelines
+
+- Ensure your code passes all tests and adheres to the project's linting rules.
+- Include documentation updates if your changes affect the user interface or functionality.
+- Be responsive to feedback during the review process.
+
+Thank you for contributing to PullRequestManager!
 
 ## DevOps Integration (Work in Progress)
 
@@ -52,7 +80,7 @@ Before you begin, ensure you have the following installed:
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/github.com/Meral-IT/PullRequest-Manager
+   git clone https://github.com/Meral-IT/PullRequest-Manager
    cd PullRequest-Manager
    ```
 

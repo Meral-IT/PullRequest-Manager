@@ -10,6 +10,18 @@
 
 .zero-data {
   flex-wrap: wrap;
+
+  .image,
+  .primary,
+  .secondary {
+    margin-bottom: 15px;
+    max-width: 100%;
+  }
+
+  .margin-horizontal-16 {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
 }
 
 .justify-center {
@@ -23,18 +35,4 @@
 
 .flex-center {
   align-items: center;
-}
-
-.zero-data {
-  .image,
-  .primary,
-  .secondary {
-    margin-bottom: 15px;
-    max-width: 100%;
-  }
-
-  .margin-horizontal-16 {
-    margin-left: 16px;
-    margin-right: 16px;
-  }
 }

@@ -13,8 +13,6 @@ class LoadingService implements ILoadingService {
   public loadingEvent: EventEmitter = new EventEmitter()
   public isLoading: boolean = false
 
-  constructor() {}
-
   public start() {
     if (++this.index > 0) {
       this.setLoading(true)

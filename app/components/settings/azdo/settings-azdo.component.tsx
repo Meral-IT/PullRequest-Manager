@@ -9,9 +9,9 @@ import {
   Spinner,
   tokens,
 } from '@fluentui/react-components'
+import { CheckmarkFilled, DismissFilled } from '@fluentui/react-icons'
 import { useContext } from 'react'
 import { SettingsContext } from '../context'
-import { CheckmarkFilled, DismissFilled } from '@fluentui/react-icons'
 
 const useStackClassName = makeResetStyles({
   display: 'flex',
@@ -51,29 +51,38 @@ export default function AzureDevOpsSettings() {
   const { state, actions, validatingAzDo } = useSettings()
 
   const validateAgain = ' - Validate again?'
-  const validatingText = validatingAzDo
-    ? 'Validating...'
-    : state.azDoValidationState === 'success'
-      ? state.azDoValidationMessage
-      : state.azDoValidationState === 'error'
-        ? state.azDoValidationMessage + validateAgain
-        : 'Validate'
+  let validationMessage = 'Validate'
+  if (state.azDoValidationState === 'success') {
+    validationMessage = state.azDoValidationMessage
+  } else if (state.azDoValidationState === 'error') {
+    validationMessage = state.azDoValidationMessage + validateAgain
+  }
 
-  const validatingIcon = validatingAzDo ? (
-    <Spinner size="tiny" />
-  ) : state.azDoValidationState === 'success' ? (
-    <CheckmarkFilled />
-  ) : state.azDoValidationState === 'error' ? (
-    <DismissFilled />
-  ) : undefined
+  const validatingText = validatingAzDo ? 'Validating...' : validationMessage
 
-  const buttonClass = validatingAzDo
-    ? styles.loadingButton
-    : state.azDoValidationState === 'success'
-      ? styles.succeededButton
-      : state.azDoValidationState === 'error'
-        ? styles.failedButton
-        : undefined
+  let validatingIcon: React.ReactNode = undefined
+  if (validatingAzDo) {
+    validatingIcon = <Spinner size="tiny" />
+  } else if (state.azDoValidationState === 'success') {
+    validatingIcon = <CheckmarkFilled />
+  } else if (state.azDoValidationState === 'error') {
+    validatingIcon = <DismissFilled />
+  }
+
+  const getButtonClass = () => {
+    if (validatingAzDo) {
+      return styles.loadingButton
+    }
+    if (state.azDoValidationState === 'success') {
+      return styles.succeededButton
+    }
+    if (state.azDoValidationState === 'error') {
+      return styles.failedButton
+    }
+    return undefined
+  }
+
+  const buttonClass = getButtonClass()
 
   return (
     <div className={useStackClassName()}>

@@ -10,7 +10,7 @@
 type CssArg = string | undefined | null | { toString(): string }
 
 export function isArray(arg: any): arg is any[] {
-  return Array.isArray && Array.isArray(arg)
+  return Array.isArray?.(arg)
 }
 
 export function css(...args: CssArg[]): string {

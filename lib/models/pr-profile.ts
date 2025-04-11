@@ -38,7 +38,6 @@ export const defaultProfiles: PrProfile[] = [
     },
   },
   {
-    // TODO
     id: 'todo',
     label: 'To do',
     isDefault: true,

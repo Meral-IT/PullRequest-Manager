@@ -64,6 +64,9 @@ jobs:
         with:
           useConfigFile: true
 
+      - name: Install dependencies
+        run: npm install --prefer-offline --no-audit --progress=false
+
       - name: Set version
         id: info
         uses: jaywcjlove/github-action-package@main
@@ -72,9 +75,6 @@ jobs:
             {
               "version": "${{ steps.version.outputs.semVer }}"
             }
-
-      - name: Install dependencies
-        run: npm install --prefer-offline --no-audit --progress=false
 
       - name: Build
         run: ${{ matrix.buildCommand }}

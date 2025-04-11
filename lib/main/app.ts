@@ -79,8 +79,6 @@ export function createAppWindow(): BrowserWindow {
 }
 
 export default function getOrCreateAppWindow(): BrowserWindow {
-  if (!mainWindow) {
-    mainWindow = createAppWindow()
-  }
+  mainWindow ??= createAppWindow()
   return mainWindow
 }

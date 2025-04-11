@@ -1,20 +1,12 @@
-/*
- * Filename: f:\Projekte\PullRequestManager\src\renderer\components\split-container\split-container.component.ts
- * Path: f:\Projekte\PullRequestManager
- * Created Date: Wednesday, November 27th 2024, 8:58:19 pm
- * Author: Necati Meral https://meral.cloud
- *
- * Copyright (c) 2024 Meral IT
- */
 import { tokens } from '@fluentui/react-components'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 
 interface Props {
   sidebarContent?: ReactNode
   mainContent?: ReactNode
 }
 
-export default function SplitContainer({ sidebarContent = null, mainContent = null }: Props) {
+export default function SplitContainer({ sidebarContent = null, mainContent = null }: Readonly<Props>) {
   return (
     <div
       style={{
