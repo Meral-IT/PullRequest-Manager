@@ -116,7 +116,7 @@ export const SettingProvider = ({ children }: Props) => {
       saving: saving,
       validatingAzDo: validatingAzDo,
     }),
-    []
+    [formData, saving, validatingAzDo]
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

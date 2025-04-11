@@ -149,7 +149,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
 ]
 
 const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
-  reviewers.sort((a, b) => {
+  const sortedReviewers = reviewers.toSorted((a, b) => {
     if (a.isRequired && !b.isRequired) {
       return -1
     }
@@ -159,7 +159,7 @@ const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
     return a.user.label.localeCompare(b.user.label)
   })
   const { inlineItems, overflowItems } = partitionAvatarGroupItems({
-    items: reviewers,
+    items: sortedReviewers,
   })
   return (
     <AvatarGroup layout="stack" size={24}>
@@ -253,7 +253,7 @@ export default function PrList(props: Readonly<Props>) {
     >
       <DataGridHeader>
         <DataGridRow>
-          {({ renderHeaderCell, columnId }, dataGrid) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
+          {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
         </DataGridRow>
       </DataGridHeader>
       <DataGridBody<PullRequest>>
