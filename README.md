@@ -38,7 +38,7 @@ Below are screenshots showcasing the PullRequestManager interface:
 
 | **Pull Requests List**                         | **Azure DevOps settings**                              |
 |:----------------------------------------------:|:------------------------------------------------------:|
-| ![Pull Requests List](./docs/pr-list-demo.png) | ![Pull Request Details](./docs/azdo-settings-demo.png) |
+| ![Pull Requests List](./docs/pr-list-demo.png) | ![Azure DevOps settings](./docs/azdo-settings-demo.png) |
 
 ## Technologies Used
 
