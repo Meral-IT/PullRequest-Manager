@@ -9,6 +9,7 @@ For potential, existing users and developers - how would you improve the README 
 
 - [Overview](#overview)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Technologies Used](#technologies-used)
 - [Help Wanted](#help-wanted)
 - [Contributing](#contributing)
@@ -30,6 +31,14 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🎨 **User-Friendly Interface** – Built with Fluent UI for a clean and modern experience.
 - 🔄 **Multi-Project Support** – Seamlessly switch between different Azure DevOps projects.
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
+
+## Screenshots
+
+Below are screenshots showcasing the PullRequestManager interface:
+
+| **Pull Requests List**                         | **Azure DevOps settings**                              |
+|:----------------------------------------------:|:------------------------------------------------------:|
+| ![Pull Requests List](./docs/pr-list-demo.png) | ![Pull Request Details](./docs/azdo-settings-demo.png) |
 
 ## Technologies Used
 
