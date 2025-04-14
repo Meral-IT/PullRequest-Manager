@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.0.0",
-    "@electron-toolkit/eslint-config-ts": "^3.0.0",
+    "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@fluentui/react-components": "^9.61.6",
     "@fluentui/react-icons": "^2.0.295",
