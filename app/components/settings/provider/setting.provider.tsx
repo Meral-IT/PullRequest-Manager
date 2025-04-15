@@ -109,6 +109,9 @@ export const SettingProvider = ({ children }: Props) => {
     () => ({
       state: formData,
       actions: {
+        getInitialSettings: async () => {
+          return convertSettings(await window.api.invoke('get-settings'))
+        },
         onChangeHandler: handleChange,
         validateAzDo,
         saveSettings,

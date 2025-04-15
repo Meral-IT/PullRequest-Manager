@@ -3,7 +3,7 @@ import appIcon from '@/resources/build/icon.png?asset'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
 import { join } from 'path'
-import { setConfiguration, start } from '../azure-devops/azure-devops.service'
+import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { loadSettings } from './settings'
 import createTrayIcon from './tray'
 
@@ -11,13 +11,15 @@ let mainWindow: BrowserWindow | null = null
 
 async function initializeAzureDevOps(): Promise<void> {
   const settings = await loadSettings()
-  setConfiguration(settings.azDo)
-  start()
+
+  AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
+  AzureDevOpsService.getInstance().start()
 }
 
 export function exitApp(): void {
   app.exit()
 }
+
 export function showWindow(): void {
   if (!mainWindow) {
     log.error('"mainWindow" is not defined')
@@ -42,6 +44,7 @@ export function createAppWindow(): BrowserWindow {
     frame: false,
     titleBarStyle: 'hiddenInset',
     title: 'PullRequest-Manager',
+    skipTaskbar: true,
     maximizable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
@@ -52,9 +55,15 @@ export function createAppWindow(): BrowserWindow {
   // Register IPC events for the main window.
   registerWindowIPC(mainWindow)
 
-  mainWindow.on('ready-to-show', async () => {
-    createTrayIcon(showWindow, exitApp)
-    await initializeAzureDevOps()
+  mainWindow.on('ready-to-show', () => {
+    createTrayIcon(
+      () => {
+        mainWindow?.isVisible() ? mainWindow.hide() : showWindow()
+      },
+      () => AzureDevOpsService.getInstance().updateDataImmediately(),
+      exitApp
+    )
+    initializeAzureDevOps()
   })
 
   // Hide the window instead of closing it, so it can be reopened quickly

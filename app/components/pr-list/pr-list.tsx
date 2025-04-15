@@ -8,6 +8,7 @@ import {
   AvatarGroup,
   AvatarGroupItem,
   AvatarGroupPopover,
+  Badge,
   DataGrid,
   DataGridBody,
   DataGridCell,
@@ -15,7 +16,6 @@ import {
   DataGridHeaderCell,
   DataGridProps,
   DataGridRow,
-  InfoLabel,
   PresenceBadgeStatus,
   TableCellLayout,
   TableColumnDefinition,
@@ -23,7 +23,6 @@ import {
   Tooltip,
   createTableColumn,
   partitionAvatarGroupItems,
-  tokens,
 } from '@fluentui/react-components'
 import { BotFilled, ChatRegular, CheckmarkRegular } from '@fluentui/react-icons'
 import * as React from 'react'
@@ -78,34 +77,36 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     renderCell: (item) => {
       const failedOrConflicted =
         item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
-      const color = failedOrConflicted ? tokens.colorStatusDangerForeground1 : undefined
 
-      const failureMessage = item.mergeStatus === PullRequestMergeStatus.Failure ? item.mergeFailureMessage : undefined
-      const conflictMessage =
-        item.mergeStatus === PullRequestMergeStatus.Conflicts ? 'This PR has conflicts' : undefined
-
-      const infoMessage = failureMessage ?? conflictMessage
       const click = () => {
         window.api.invoke('web-open-url', item.urls.web)
       }
 
+      const draftBadge = item.isDraft ? (
+        <Badge appearance="outline" style={{ marginLeft: '4px' }}>
+          Draft
+        </Badge>
+      ) : null
+      const conflictBadge = failedOrConflicted ? (
+        <Badge appearance="outline" color="danger" style={{ marginLeft: '4px' }}>
+          Conflicts
+        </Badge>
+      ) : null
+
       return (
-        <TableCellLayout
-          description={`
-          ${item.details.repository}`}
-          appearance="primary"
-          truncate
-        >
-          <span style={{ color: color }}>
-            <InfoLabel size="small" info={infoMessage} onClick={click}>
-              <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
-                <Text className="pr-title" weight="semibold" truncate>
-                  {item.details.label}
-                </Text>
-              </Tooltip>
-            </InfoLabel>
-          </span>
-        </TableCellLayout>
+        <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+          <TableCellLayout
+            className="pr-title"
+            description={`${item.details.repository}`}
+            appearance="primary"
+            truncate
+            onClick={click}
+          >
+            <Text truncate>{item.details.label}</Text>
+            {draftBadge}
+            {conflictBadge}
+          </TableCellLayout>
+        </Tooltip>
       )
     },
   }),
