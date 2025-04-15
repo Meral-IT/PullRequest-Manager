@@ -1,12 +1,7 @@
 import * as azdev from 'azure-devops-node-api'
 import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import os from 'os'
-import {
-  approvePullRequests,
-  getPullRequests,
-  setConfiguration,
-  updateDataImmediately,
-} from '../azure-devops/azure-devops.service'
+import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { loadSettings, saveSettings } from '../main/settings'
 import { PullRequest } from '../models/pull-request.model'
 
@@ -78,8 +73,8 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   handleIPC('save-settings', async (_e, data) => {
     // Load the settings from the store
     const settings = await saveSettings(data)
-    setConfiguration(settings.azDo)
-    updateDataImmediately()
+    AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
+    AzureDevOpsService.getInstance().updateDataImmediately()
 
     mainWindow.webContents.send('theme-changed', settings.appearance.theme)
     mainWindow.webContents.send('settings', settings)
@@ -104,10 +99,14 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   })
 
   handleIPC('get-pr-data', async (_e) => {
-    return getPullRequests()
+    return AzureDevOpsService.getInstance().getPullRequests()
+  })
+
+  handleIPC('update-pr-data', async (_e) => {
+    return AzureDevOpsService.getInstance().updateDataImmediately()
   })
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
-    await approvePullRequests(data)
+    await AzureDevOpsService.getInstance().approvePullRequests(data)
   })
 }

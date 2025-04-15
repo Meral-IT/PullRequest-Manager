@@ -2,7 +2,7 @@ import { NativeImage, Tray } from 'electron'
 
 export class TrayManager {
   tray: Tray
-  trayAnimationFrames: NativeImage | string[]
+  trayAnimationFrames: NativeImage[] | string[]
   animationInterval: NodeJS.Timeout | undefined
   activeImage: NativeImage | string
   idleImage: NativeImage | string
@@ -12,7 +12,7 @@ export class TrayManager {
     tray: Tray,
     activeImage: NativeImage | string,
     idleImage: NativeImage | string,
-    trayAnimationFrames: NativeImage | string[]
+    trayAnimationFrames: NativeImage[] | string[]
   ) {
     this.tray = tray
     this.trayAnimationFrames = trayAnimationFrames

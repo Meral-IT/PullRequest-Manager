@@ -19,6 +19,7 @@ export interface SettingStateProps {
 export interface SettingPageProps {
   state: SettingStateProps
   actions: {
+    getInitialSettings: () => Promise<SettingStateProps>
     onChangeHandler: any
     validateAzDo: any
     saveSettings: any
@@ -42,6 +43,7 @@ export const SettingsContext = createContext<SettingPageProps>({
     profiles: [],
   },
   actions: {
+    getInitialSettings: () => Promise.resolve({} as SettingStateProps),
     onChangeHandler: () => {},
     validateAzDo: () => {},
     saveSettings: () => {},

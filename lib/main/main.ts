@@ -1,9 +1,9 @@
-import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
-import getOrCreateAppWindow, { createAppWindow } from './app'
+import { app, BrowserWindow } from 'electron'
+import { installExtension, REACT_DEVELOPER_TOOLS, REDUX_DEVTOOLS } from 'electron-devtools-installer'
 import log from 'electron-log/main'
-import { installExtension, REACT_DEVELOPER_TOOLS } from 'electron-devtools-installer'
 import { registerNativeThemeEventListeners } from '../window/ipcEvents'
+import getOrCreateAppWindow, { createAppWindow } from './app'
 
 // initialize the logger for any renderer process
 log.initialize()
@@ -15,8 +15,8 @@ app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('meralit.pullrequest-manager')
 
-  installExtension(REACT_DEVELOPER_TOOLS)
-    .then((ext) => log.debug(`Added Extension: ${ext.name}`))
+  installExtension([REACT_DEVELOPER_TOOLS, REDUX_DEVTOOLS])
+    .then((ext) => log.debug(`Added Extension: ${ext.map((e) => e.name).join(', ')}`))
     .catch((err) => log.debug('An error occurred: ', err))
 
   // Create app window
