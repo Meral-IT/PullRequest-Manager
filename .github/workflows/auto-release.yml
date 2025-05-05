@@ -64,6 +64,19 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
+      - name: Set release type
+        shell: pwsh
+        run: |
+          if ($Env:$GITHUB_REF_NAME -eq 'main') {
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_RELEASE=true"
+          }
+          elseif ($Env:$GITHUB_REF_NAME -eq 'develop') {
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_PRE_RELEASE=true"
+          }
+          else {
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_DRAFT=true"
+          }
+
       - name: Determine Version
         id: version
         uses: gittools/actions/gitversion/execute@v3
