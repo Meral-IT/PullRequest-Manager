@@ -101,7 +101,8 @@ jobs:
             dist/*.zip
             dist/*.dmg
             dist/*.blockmap
-            dist/*.yml
+            dist/latest.yml
+            dist/latest-mac.yml
 
   release:
     name: Release
