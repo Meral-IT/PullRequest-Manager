@@ -4,13 +4,13 @@
   "description": "PullRequest-Manager",
   "main": "./out/main/main.js",
   "license": "PullRequestManager License",
-  "homepage": "https://github.com/Meral-IT/PullRequestManager#readme",
+  "homepage": "https://github.com/Meral-IT/PullRequest-Manager#readme",
   "bugs": {
-    "url": "https://github.com/Meral-IT/PullRequestManager/issues"
+    "url": "https://github.com/Meral-IT/PullRequest-Manager/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Meral-IT/PullRequestManager.git"
+    "url": "https://github.com/Meral-IT/PullRequest-Manager.git"
   },
   "author": {
     "name": "Necati Meral",
@@ -37,7 +37,8 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-redux": "^2.0.0"
+    "electron-redux": "^2.0.0",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",

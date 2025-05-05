@@ -91,7 +91,10 @@ jobs:
           name: Installer-${{ matrix.os }}
           path: |
             dist/*-setup.exe
+            dist/*.zip
             dist/*.dmg
+            dist/*.blockmap
+            dist/*.yml
 
   release:
     name: Release
