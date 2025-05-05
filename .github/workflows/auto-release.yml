@@ -67,11 +67,16 @@ jobs:
       - name: Set release type
         shell: pwsh
         run: |
-          if ($Env:GITHUB_REF_NAME -eq 'main') {
+          $RefName = $Env:GITHUB_REF_NAME
+          $RefName = $RefName -replace 'refs/heads/', ''
+
+          Write-Host "RefName: $RefName"
+
+          if ($RefName -eq 'main') {
             Write-Host "Release type: EP_RELEASE"
             Add-Content -Path $env:GITHUB_ENV -Value "EP_RELEASE=true"
           }
-          elseif ($Env:GITHUB_REF_NAME -eq 'develop') {
+          elseif ($RefName -eq 'develop') {
             Write-Host "Release type: EP_PRE_RELEASE"
             Add-Content -Path $env:GITHUB_ENV -Value "EP_PRE_RELEASE=true"
           }
