@@ -104,7 +104,7 @@ jobs:
       - name: List compiled files
         shell: pwsh
         run: |
-          Get-ChildItem -Path dist -Recurse | ForEach-Object {
+          Get-ChildItem -Path dist | ForEach-Object {
             Write-Host "File: $($_.FullName)"
           }
 
