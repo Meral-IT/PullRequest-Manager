@@ -101,7 +101,7 @@ jobs:
       - name: Build
         run: ${{ matrix.buildCommand }}
         env:
-          GH_TOKEN: ${{ secrets.GitHubPublishToken }}
+          GH_TOKEN: ${{ secrets.GITHUBPUBLISHTOKEN }}
 
       - name: List compiled files
         shell: pwsh
