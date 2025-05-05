@@ -85,13 +85,24 @@ jobs:
       - name: Build
         run: ${{ matrix.buildCommand }}
 
+      - name: List compiled files
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path dist -Recurse | ForEach-Object {
+            Write-Host "File: $($_.FullName)"
+          }
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Installer-${{ matrix.os }}
           path: |
             dist/*-setup.exe
+            dist/*.zip
             dist/*.dmg
+            dist/*.blockmap
+            dist/latest.yml
+            dist/latest-mac.yml
 
   release:
     name: Release

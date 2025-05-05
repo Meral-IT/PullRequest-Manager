@@ -46,6 +46,7 @@ export function createAppWindow(): BrowserWindow {
     title: 'PullRequest-Manager',
     skipTaskbar: true,
     maximizable: false,
+    alwaysOnTop: true,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
       sandbox: false,
