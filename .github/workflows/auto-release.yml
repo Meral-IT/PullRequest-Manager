@@ -64,6 +64,27 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
+      - name: Set release type
+        shell: pwsh
+        run: |
+          $RefName = $Env:GITHUB_REF_NAME
+          $RefName = $RefName -replace 'refs/heads/', ''
+
+          Write-Host "RefName: $RefName"
+
+          if ($RefName -eq 'main') {
+            Write-Host "Release type: EP_RELEASE"
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_RELEASE=true"
+          }
+          elseif ($RefName -eq 'develop') {
+            Write-Host "Release type: EP_PRE_RELEASE"
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_PRE_RELEASE=true"
+          }
+          else {
+            Write-Host "Release type: EP_DRAFT"
+            Add-Content -Path $env:GITHUB_ENV -Value "EP_DRAFT=true"
+          }
+
       - name: Determine Version
         id: version
         uses: gittools/actions/gitversion/execute@v3
@@ -84,11 +105,13 @@ jobs:
 
       - name: Build
         run: ${{ matrix.buildCommand }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUBPUBLISHTOKEN }}
 
       - name: List compiled files
         shell: pwsh
         run: |
-          Get-ChildItem -Path dist -Recurse | ForEach-Object {
+          Get-ChildItem -Path dist | ForEach-Object {
             Write-Host "File: $($_.FullName)"
           }
 
