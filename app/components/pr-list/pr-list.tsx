@@ -2,6 +2,7 @@ import { PrVote } from '@/lib/models/pr-vote'
 import {
   PullRequest,
   PullRequestMergeStatus,
+  PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,
   Reviewer,
 } from '@/lib/models/pull-request.model'
@@ -144,11 +145,19 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
     renderHeaderCell: () => 'Status Checks',
     renderCell: (item) => {
-      const failedChecks = item.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
-      )
-      const pendingChecks = item.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Queued
+      const { failedChecks, pendingChecks } = item.evaluations.reduce(
+        (acc, status) => {
+          if (status.status === PullRequestPolicyEvaluationStatus.Rejected) {
+            acc.failedChecks.push(status)
+          } else if (status.status === PullRequestPolicyEvaluationStatus.Queued) {
+            acc.pendingChecks.push(status)
+          }
+          return acc
+        },
+        { failedChecks: [], pendingChecks: [] } as {
+          failedChecks: PullRequestPolicyEvaluationRecord[]
+          pendingChecks: PullRequestPolicyEvaluationRecord[]
+        }
       )
 
       if (failedChecks.length === 0 && pendingChecks.length === 0) {

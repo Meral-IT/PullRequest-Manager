@@ -13,6 +13,7 @@ import { PullRequestData } from '../models/pr-data'
 import { PrVote } from '../models/pr-vote'
 import {
   PullRequest,
+  PullRequestMergeStatus,
   PullRequestPolicyConfig,
   PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,
@@ -145,7 +146,7 @@ export class AzureDevOpsService {
               isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
             },
             evaluations: [],
-            mergeStatus: pr.mergeStatus as any,
+            mergeStatus: pr.mergeStatus as unknown as PullRequestMergeStatus,
             mergeFailureMessage: pr.mergeFailureMessage,
             reviewers: pr.reviewers?.map((reviewer) => {
               return {
