@@ -205,14 +205,14 @@ export class AzureDevOpsService {
             } as PullRequestPolicyEvaluationRecord
           })
           return {
-            id: pr.id,
+            prId: pr.id,
             evaluations: evaluations,
           }
         })
       )
 
       policyEvaluations.forEach((evaluation) => {
-        const pr = data.items.find((pr) => pr.id === evaluation.id)
+        const pr = data.items.find((pr) => pr.id === evaluation.prId)
         if (pr) {
           pr.evaluations = evaluation.evaluations
         }
