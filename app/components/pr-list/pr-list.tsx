@@ -14,7 +14,6 @@ import {
   DataGridCell,
   DataGridHeader,
   DataGridHeaderCell,
-  DataGridProps,
   DataGridRow,
   PresenceBadgeStatus,
   TableCellLayout,
@@ -25,7 +24,6 @@ import {
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
 import { BotFilled, ChatRegular, CheckmarkRegular } from '@fluentui/react-icons'
-import * as React from 'react'
 import { useEffect } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
@@ -205,11 +203,6 @@ type Props = {
 }
 
 export default function PrList(props: Readonly<Props>) {
-  const defaultSortState = React.useMemo<Parameters<NonNullable<DataGridProps['onSortChange']>>[1]>(
-    () => ({ sortColumn: 'details', sortDirection: 'ascending' }),
-    []
-  )
-
   const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
   const { data } = props
 
@@ -243,7 +236,6 @@ export default function PrList(props: Readonly<Props>) {
     <DataGrid
       items={data}
       columns={columns}
-      defaultSortState={defaultSortState}
       columnSizingOptions={columnSizingOptions}
       // selectionMode="multiselect"
       sortable
