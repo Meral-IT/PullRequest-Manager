@@ -64,51 +64,61 @@ export type ReviewerState = {
 export type PullRequest = {
   id: number
   author: User
+  creationDate?: Date
   lastUpdated: LastUpdatedCell
   details: DetailsCell
   reviewers: Reviewer[]
   isDraft: boolean
-  interactions: PullRequestThreads
   urls: PullRequestUrls
   mergeStatus: PullRequestMergeStatus
   mergeFailureMessage?: string
+  evaluations: PullRequestPolicyEvaluationRecord[]
+}
+
+export type PullRequestPolicyEvaluationRecord = {
+  id: string
+  config: PullRequestPolicyConfig
+  status: PullRequestPolicyEvaluationStatus
+  displayName: string
+}
+
+export type PullRequestPolicyType = {
+  id: string
+  displayName: string
+  url: string
+}
+
+export type PullRequestPolicyConfig = {
+  type: PullRequestPolicyType
+}
+
+export enum PullRequestPolicyEvaluationStatus {
+  /**
+   * The policy is either queued to run, or is waiting for some event before progressing.
+   */
+  Queued = 0,
+  /**
+   * The policy is currently running.
+   */
+  Running = 1,
+  /**
+   * The policy has been fulfilled for this pull request.
+   */
+  Approved = 2,
+  /**
+   * The policy has rejected this pull request.
+   */
+  Rejected = 3,
+  /**
+   * The policy does not apply to this pull request.
+   */
+  NotApplicable = 4,
+  /**
+   * The policy has encountered an unexpected error.
+   */
+  Broken = 5,
 }
 
 export type PullRequestUrls = {
   web: string
-}
-
-export type PullRequestThreads = {
-  threads: PullRequestThread[]
-  activeThreads: number
-  activeFromBots: number
-}
-
-export type PullRequestThread = {
-  id: number
-  state: PullRequestThreadState
-  comments: PullRequestComment[]
-}
-
-export type PullRequestComment = {
-  id: number
-  content: string
-  author: User
-}
-
-export enum PullRequestThreadState {
-  Unknown = 0,
-  Active = 1,
-  Fixed = 2,
-  Closed = 4,
-  ByDesign = 5,
-  Pending = 6,
-}
-
-export const PullRequestThreadStateMap = {
-  active: PullRequestThreadState.Active,
-  fixed: PullRequestThreadState.Fixed,
-  closed: PullRequestThreadState.Closed,
-  byDesign: PullRequestThreadState.ByDesign,
-  pending: PullRequestThreadState.Pending,
 }
