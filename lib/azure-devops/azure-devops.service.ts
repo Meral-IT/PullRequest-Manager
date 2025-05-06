@@ -1,11 +1,9 @@
 import * as azdev from 'azure-devops-node-api'
 import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
 import {
-  CommentThreadStatus,
-  CommentType,
+  PullRequestStatus as AzDoPrStatus,
   GitPullRequest,
   PullRequestAsyncStatus,
-  PullRequestStatus,
 } from 'azure-devops-node-api/interfaces/GitInterfaces'
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces'
 import { BrowserWindow } from 'electron'
@@ -13,7 +11,14 @@ import log from 'electron-log/main'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
 import { PrVote } from '../models/pr-vote'
-import { PullRequest, PullRequestThreadState } from '../models/pull-request.model'
+import {
+  PullRequest,
+  PullRequestMergeStatus,
+  PullRequestPolicyConfig,
+  PullRequestPolicyEvaluationRecord,
+  PullRequestPolicyEvaluationStatus,
+  PullRequestPolicyType,
+} from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import loader from '../tools/loading.service'
 
@@ -87,13 +92,6 @@ export class AzureDevOpsService {
     }
   }
 
-  private static convertThreadStatus(rowState: CommentThreadStatus | undefined): PullRequestThreadState {
-    if (!rowState) {
-      return PullRequestThreadState.Unknown
-    }
-    return PullRequestThreadState[CommentThreadStatus[rowState] as keyof typeof PullRequestThreadState]
-  }
-
   private static createPrWebUri(pr: GitPullRequest): string {
     const template = pr._links.self.href
 
@@ -116,106 +114,110 @@ export class AzureDevOpsService {
       data.teams = await AzureDevOpsService.loadMyTeams(api, settings)
       log.debug('Fetching data from Azure DevOps')
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+      const policyApi = await api.getPolicyApi(settings.organizationUrl, [api.authHandler])
       const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
         includeLinks: true,
-        status: PullRequestStatus.Active,
+        status: AzDoPrStatus.Active,
       })
-      data.items = azDoBuilds.map((pr) => {
-        return {
-          id: pr.pullRequestId,
-          author: {
-            id: pr.createdBy?.id ?? '',
-            label: pr.createdBy?.displayName ?? '',
-            isBot: pr.createdBy?.descriptor?.startsWith('svc') ?? false,
-            isMySelf: pr.createdBy?.id == data.myself?.id || data.teams.some((team) => team.id === pr.createdBy?.id),
-          },
-          lastUpdated: {
-            label: pr.lastMergeCommit?.comment ?? '',
-            timestamp: pr.lastMergeCommit?.push?.date ?? 0,
-          },
-          interactions: {
-            threads: [],
-            activeThreads: 0,
-            activeFromBots: 0,
-          },
-          isDraft: pr.isDraft,
-          details: {
-            label: pr.title,
-            number: pr.pullRequestId,
-            repositoryId: pr.repository?.id ?? '',
-            repository: pr.repository?.name ?? '',
-            projectId: pr.repository?.project?.id ?? '',
-            branch: pr.sourceRefName,
-            isDraft: pr.isDraft,
-            isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
-          },
-          mergeStatus: pr.mergeStatus as any,
-          mergeFailureMessage: pr.mergeFailureMessage,
-          reviewers: pr.reviewers?.map((reviewer) => {
-            return {
-              user: {
-                id: reviewer.id,
-                label: reviewer.displayName,
-                isBot: reviewer.isAadIdentity,
-                isMySelf: reviewer.id == data.myself?.id || data.teams.some((team) => team.id === reviewer.id),
-                imageUrl: reviewer.imageUrl,
-                imageBase64: undefined,
-              },
-              isRequired: reviewer.isRequired,
-              vote: reviewer.vote as PrVote,
-            }
-          }),
-          urls: {
-            web: this.createPrWebUri(pr),
-          },
-        } as PullRequest
-      })
-
-      const threads = await Promise.all(
-        data.items.map(async (pr) => {
+      data.items = azDoBuilds
+        .map((pr) => {
           return {
-            pr: pr.id,
-            threads: await buildApi.getThreads(pr.details.repositoryId, pr.id, pr.details.projectId),
+            id: pr.pullRequestId,
+            author: {
+              id: pr.createdBy?.id ?? '',
+              label: pr.createdBy?.displayName ?? '',
+              isBot: pr.createdBy?.descriptor?.startsWith('svc') ?? false,
+              isMySelf: pr.createdBy?.id == data.myself?.id || data.teams.some((team) => team.id === pr.createdBy?.id),
+            },
+            creationDate: pr.creationDate,
+            lastUpdated: {
+              label: pr.lastMergeCommit?.comment ?? '',
+              timestamp: pr.lastMergeCommit?.push?.date ?? 0,
+            },
+            isDraft: pr.isDraft,
+            details: {
+              label: pr.title,
+              number: pr.pullRequestId,
+              repositoryId: pr.repository?.id ?? '',
+              repository: pr.repository?.name ?? '',
+              projectId: pr.repository?.project?.id ?? '',
+              branch: pr.sourceRefName,
+              isDraft: pr.isDraft,
+              isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
+            },
+            evaluations: [],
+            mergeStatus: pr.mergeStatus as unknown as PullRequestMergeStatus,
+            mergeFailureMessage: pr.mergeFailureMessage,
+            reviewers: pr.reviewers?.map((reviewer) => {
+              return {
+                user: {
+                  id: reviewer.id,
+                  label: reviewer.displayName,
+                  isBot: reviewer.isAadIdentity,
+                  isMySelf: reviewer.id == data.myself?.id || data.teams.some((team) => team.id === reviewer.id),
+                  imageUrl: reviewer.imageUrl,
+                  imageBase64: undefined,
+                },
+                isRequired: reviewer.isRequired,
+                vote: reviewer.vote as PrVote,
+              }
+            }),
+            urls: {
+              web: this.createPrWebUri(pr),
+            },
+          } as PullRequest
+        })
+        .toSorted((a, b) => {
+          if (a.creationDate && b.creationDate) {
+            return b.creationDate.getTime() - a.creationDate.getTime()
+          }
+          return 0
+        })
+
+      const policyEvaluations = await Promise.all(
+        data.items.map(async (pr) => {
+          const artifactId = `vstfs:///CodeReview/CodeReviewId/${pr.details.projectId}/${pr.id}`
+          const policies = await policyApi.getPolicyEvaluations(settings.project, artifactId, false)
+          const evaluations = policies.map((policy) => {
+            let displayName = policy.configuration?.type?.displayName ?? ''
+            if (policy.configuration?.type?.id === '0609b952-1397-4640-95ec-e00a01b2c241') {
+              const buildName = policy.configuration.settings.displayName ?? policy.context?.buildDefinitionName
+              if (buildName) {
+                displayName = `${displayName} (${buildName})`
+              }
+            } else if (policy.configuration?.type?.id === 'cbdc66da-9728-4af8-aada-9a5a32e4a226') {
+              const statusName = policy.configuration.settings.statusName
+              if (statusName) {
+                displayName = `${displayName} (${statusName})`
+              }
+            }
+
+            return {
+              id: policy?.evaluationId ?? '',
+              displayName: displayName,
+              status: policy.status as unknown as PullRequestPolicyEvaluationStatus,
+              config: {
+                type: {
+                  id: policy.configuration?.type?.id ?? '',
+                  displayName: policy.configuration?.type?.displayName ?? '',
+                  url: policy.configuration?.type?.url ?? '',
+                } as PullRequestPolicyType,
+              } as PullRequestPolicyConfig,
+            } as PullRequestPolicyEvaluationRecord
+          })
+          return {
+            prId: pr.id,
+            evaluations: evaluations,
           }
         })
       )
 
-      for (const pr of data.items) {
-        const thread = threads.find((thread) => thread.pr === pr.id)
-        if (thread) {
-          pr.interactions.threads = thread.threads
-            .filter((x) => !x.properties?.CodeReviewThreadType)
-            .filter((x) => x.status === CommentThreadStatus.Active || x.status === CommentThreadStatus.Pending)
-            .filter((x) => x.comments && x.comments.length > 0)
-            .filter((x) => x.comments?.every((c) => c.commentType !== CommentType.System && c.isDeleted !== true))
-            .map((thread) => {
-              return {
-                id: thread.id ?? 0,
-                state: this.convertThreadStatus(thread.status),
-                comments:
-                  thread.comments?.map((comment) => {
-                    return {
-                      id: comment.id ?? 0,
-                      content: comment.content ?? '',
-                      author: {
-                        id: comment.author?.id ?? '',
-                        label: comment.author?.displayName ?? '',
-                        isBot:
-                          (comment.author?.descriptor?.startsWith('svc') ||
-                            comment.author?.descriptor?.startsWith('s2s')) ??
-                          false,
-                        imageUrl: comment.author?.imageUrl,
-                      },
-                    }
-                  }) ?? [],
-              }
-            })
-          pr.interactions.activeThreads = pr.interactions.threads.length
-          pr.interactions.activeFromBots = pr.interactions.threads.filter((x) =>
-            x.comments.some((c) => c.author.isBot)
-          ).length
+      policyEvaluations.forEach((evaluation) => {
+        const pr = data.items.find((pr) => pr.id === evaluation.prId)
+        if (pr) {
+          pr.evaluations = evaluation.evaluations
         }
-      }
+      })
 
       log.debug('Completed to fetch data')
     } catch (error) {

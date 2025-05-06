@@ -1,5 +1,11 @@
 import { PrVote } from '@/lib/models/pr-vote'
-import { PullRequest, PullRequestMergeStatus, Reviewer } from '@/lib/models/pull-request.model'
+import {
+  PullRequest,
+  PullRequestMergeStatus,
+  PullRequestPolicyEvaluationRecord,
+  PullRequestPolicyEvaluationStatus,
+  Reviewer,
+} from '@/lib/models/pull-request.model'
 import { SettingsModel } from '@/lib/models/settings.model'
 import { usePersistentState } from '@/lib/tools/persistent-state.hook'
 import emptyImage from '@/resources/emptyPRList.svg'
@@ -23,7 +29,7 @@ import {
   createTableColumn,
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
-import { BotFilled, ChatRegular, CheckmarkRegular } from '@fluentui/react-icons'
+import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
 import { useEffect } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
@@ -127,21 +133,63 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
   }),
   createTableColumn<PullRequest>({
-    columnId: 'comments',
+    columnId: 'statusChecks',
     compare: (a, b) => {
-      return a.interactions.activeThreads - b.interactions.activeThreads
+      const aFailed = a.evaluations.filter(
+        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
+      ).length
+      const bFailed = b.evaluations.filter(
+        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
+      ).length
+      return aFailed - bFailed
     },
-    renderHeaderCell: () => 'Comments',
+    renderHeaderCell: () => 'Status Checks',
     renderCell: (item) => {
-      if (item.interactions.activeThreads === 0) {
+      const { failedChecks, pendingChecks } = item.evaluations.reduce(
+        (acc, status) => {
+          if (status.status === PullRequestPolicyEvaluationStatus.Rejected) {
+            acc.failedChecks.push(status)
+          } else if (status.status === PullRequestPolicyEvaluationStatus.Queued) {
+            acc.pendingChecks.push(status)
+          }
+          return acc
+        },
+        { failedChecks: [], pendingChecks: [] } as {
+          failedChecks: PullRequestPolicyEvaluationRecord[]
+          pendingChecks: PullRequestPolicyEvaluationRecord[]
+        }
+      )
+
+      if (failedChecks.length === 0 && pendingChecks.length === 0) {
         return <CheckmarkRegular />
       }
 
-      const desc = item.interactions.activeFromBots > 0 ? `${item.interactions.activeFromBots} from bots` : ''
       return (
-        <TableCellLayout description={desc} media={<ChatRegular />}>
-          {item.interactions.activeThreads}
-        </TableCellLayout>
+        <Tooltip
+          content={
+            <>
+              {failedChecks.length > 0 &&
+                failedChecks.map((status) => <div key={status.id}>{status.displayName} failed.</div>)}
+              {pendingChecks.length > 0 &&
+                pendingChecks.map((status) => <div key={status.id}>{status.displayName} pending.</div>)}
+            </>
+          }
+          relationship="label"
+          withArrow
+        >
+          <TableCellLayout>
+            {failedChecks.length > 0 && (
+              <Badge appearance="outline" color="danger" style={{ marginRight: '4px' }}>
+                {failedChecks.length} failed
+              </Badge>
+            )}
+            {pendingChecks.length > 0 && (
+              <Badge appearance="outline" color="brand">
+                {pendingChecks.length} pending
+              </Badge>
+            )}
+          </TableCellLayout>
+        </Tooltip>
       )
     },
   }),
@@ -193,8 +241,8 @@ const columnSizingOptions = {
   reviews: {
     idealWidth: 80,
   },
-  comments: {
-    idealWidth: 80,
+  statusChecks: {
+    idealWidth: 100,
   },
 }
 
