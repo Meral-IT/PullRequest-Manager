@@ -13,7 +13,8 @@
       "runtimeArgs": ["--sourcemap"],
       "env": {
         "REMOTE_DEBUGGING_PORT": "9222"
-      }
+      },
+      "experimentalNetworking": "off"
     },
     {
       "name": "Debug Renderer Process",

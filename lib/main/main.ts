@@ -2,25 +2,20 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { app, BrowserWindow } from 'electron'
 import { installExtension, REACT_DEVELOPER_TOOLS } from 'electron-devtools-installer'
 import log from 'electron-log/main'
-import electronUpdater, { type AppUpdater } from 'electron-updater'
 import { registerNativeThemeEventListeners } from '../window/ipcEvents'
+import { name } from './../../package.json'
 import getOrCreateAppWindow, { createAppWindow } from './app'
 
 // initialize the logger for any renderer process
 log.initialize()
 
-export function getAutoUpdater(): AppUpdater {
-  // Using destructuring to access autoUpdater due to the CommonJS module of 'electron-updater'.
-  // It is a workaround for ESM compatibility issues, see https://github.com/electron-userland/electron-builder/issues/7976.
-  const { autoUpdater } = electronUpdater
+const lockData = { myKey: name }
+const gotTheLock = app.requestSingleInstanceLock(lockData)
 
-  autoUpdater.logger = log
-  autoUpdater.disableWebInstaller = true
-
-  return autoUpdater
+if (!gotTheLock) {
+  log.debug('Another instance is running. Exiting...')
+  app.quit()
 }
-
-getAutoUpdater().checkForUpdatesAndNotify()
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -51,6 +46,14 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createAppWindow()
     }
+  })
+
+  app.on('second-instance', () => {
+    // Someone tried to run a second instance, we should focus our window.
+    const window = getOrCreateAppWindow()
+
+    window.show()
+    window.focus()
   })
 })
 

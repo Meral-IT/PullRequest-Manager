@@ -1,6 +1,6 @@
 {
   "name": "meralit-pullrequestmanager",
-  "version": "0.0.1",
+  "version": "0.0.1-alpha.1",
   "description": "PullRequest-Manager",
   "main": "./out/main/main.js",
   "license": "PullRequestManager License",
