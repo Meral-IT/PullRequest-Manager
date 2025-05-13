@@ -72,7 +72,7 @@ function UpdateNotification() {
       <Toast>
         <ToastTitle>Downloading update</ToastTitle>
         <ToastBody>
-          <Text>Downloading update ({info.bytesPerSecond}bytes/second)...</Text>
+          <Text>Downloading update ({info.bytesPerSecond} bytes/second)...</Text>
           <ProgressBar value={info.percent} max={100} />
         </ToastBody>
       </Toast>,
@@ -85,7 +85,7 @@ function UpdateNotification() {
         <Toast>
           <ToastTitle>Downloading update</ToastTitle>
           <ToastBody>
-            <Text>Downloading update ({info.bytesPerSecond}bytes/second)...</Text>
+            <Text>Downloading update ({info.bytesPerSecond} bytes/second)...</Text>
             <ProgressBar value={info.percent} max={100} />
           </ToastBody>
         </Toast>
