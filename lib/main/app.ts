@@ -6,6 +6,7 @@ import { join } from 'path'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { loadSettings } from './settings'
 import createTrayIcon from './tray'
+import { PullRequestUpdateManager } from './update'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -56,7 +57,7 @@ export function createAppWindow(): BrowserWindow {
   // Register IPC events for the main window.
   registerWindowIPC(mainWindow)
 
-  mainWindow.on('ready-to-show', () => {
+  mainWindow.on('ready-to-show', async () => {
     createTrayIcon(
       () => {
         mainWindow?.isVisible() ? mainWindow.hide() : showWindow()
@@ -65,6 +66,8 @@ export function createAppWindow(): BrowserWindow {
       exitApp
     )
     initializeAzureDevOps()
+
+    await PullRequestUpdateManager.getInstance().checkForUpdates()
   })
 
   // Hide the window instead of closing it, so it can be reopened quickly

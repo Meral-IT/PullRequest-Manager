@@ -1,5 +1,6 @@
 import { FluentProvider, webDarkTheme, webLightTheme } from '@fluentui/react-components'
 import { ReactNode, useEffect, useState } from 'react'
+import UpdateNotification from '../update-notification/update-notification.component'
 
 const shouldUseDarkColors = (): boolean =>
   window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -25,7 +26,7 @@ function Layout({ children }: Readonly<Props>) {
   const [theme, setTheme] = useState<string>('system')
 
   useEffect(() => {
-    window.api.receive('nativeThemeChanged', () => {
+    return window.api.receive('nativeThemeChanged', () => {
       if (theme === 'system') {
         setTheme(shouldUseDarkColors() ? 'dark' : 'light')
       }
@@ -46,6 +47,7 @@ function Layout({ children }: Readonly<Props>) {
 
   return (
     <FluentProvider theme={fluentTheme} style={{ height: '100vh' }}>
+      <UpdateNotification />
       {children}
     </FluentProvider>
   )

@@ -3,6 +3,7 @@ import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import os from 'os'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { loadSettings, saveSettings } from '../main/settings'
+import { PullRequestUpdateManager } from '../main/update'
 import { PullRequest } from '../models/pull-request.model'
 
 export const registerNativeThemeEventListeners = (allBrowserWindows: BrowserWindow[]) => {
@@ -108,5 +109,10 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
     await AzureDevOpsService.getInstance().approvePullRequests(data)
+  })
+
+  handleIPC('update:install-update', async (_e) => {
+    const updater = PullRequestUpdateManager.getInstance()
+    await updater.downloadUpdate()
   })
 }

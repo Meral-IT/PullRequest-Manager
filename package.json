@@ -1,6 +1,6 @@
 {
   "name": "meralit-pullrequestmanager",
-  "version": "0.0.1",
+  "version": "0.0.1-alpha.1",
   "description": "PullRequest-Manager",
   "main": "./out/main/main.js",
   "license": "PullRequestManager License",
@@ -48,12 +48,12 @@
     "@fluentui/react-icons": "^2.0.297",
     "@reduxjs/toolkit": "^2.7.0",
     "@rushstack/eslint-patch": "^1.10.5",
-    "@tailwindcss/vite": "^4.1.6",
     "@types/node": "^22.15.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.4.1",
     "azure-devops-node-api": "^14.1.0",
+    "dompurify": "^3.2.5",
     "electron": "^35.3.0",
     "electron-builder": "^26.0.12",
     "electron-devtools-installer": "^4.0.0",
@@ -67,7 +67,6 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.6.0",
     "sass-embedded": "^1.87.0",
-    "tailwindcss": "^4.1.6",
     "typescript": "^5.8.3",
     "vite": "^6.3.4"
   }
