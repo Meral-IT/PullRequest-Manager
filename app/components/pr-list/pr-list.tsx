@@ -275,7 +275,7 @@ const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
       <PopoverSurface tabIndex={-1}>
         <List navigationMode="items">
           {sortedReviewers.map((rev) => (
-            <ListItem key={rev.user.label} aria-label={`${rev}`}>
+            <ListItem key={rev.user.id} aria-label={`${rev}`}>
               <Persona
                 avatar={{
                   name: rev.user.label,
