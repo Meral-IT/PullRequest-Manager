@@ -42,17 +42,23 @@ export class PullRequestUpdateManager {
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       log.info('Update available:', info)
-      BrowserWindow.getAllWindows()[0].webContents.send('update:update-available', info)
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('update:update-available', info)
+      })
     })
 
     autoUpdater.on('download-progress', (info: ProgressInfo) => {
       log.info('Download progress:', info)
-      BrowserWindow.getAllWindows()[0].webContents.send('update:download-progress', info)
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('update:download-progress', info)
+      })
     })
 
     autoUpdater.on('update-downloaded', (info: UpdateDownloadedEvent) => {
       log.info('Update downloaded:', info)
-      BrowserWindow.getAllWindows()[0].webContents.send('update:update-downloaded', info)
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send('update:update-downloaded', info)
+      })
     })
 
     return autoUpdater
