@@ -21,6 +21,12 @@ import {
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
+  List,
+  ListItem,
+  Persona,
+  Popover,
+  PopoverSurface,
+  PopoverTrigger,
   PresenceBadgeStatus,
   TableCellLayout,
   TableColumnDefinition,
@@ -30,7 +36,7 @@ import {
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
 import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
 
@@ -208,26 +214,85 @@ const ReviewerGroup = ({ reviewers }: { reviewers: Reviewer[] }) => {
   const { inlineItems, overflowItems } = partitionAvatarGroupItems({
     items: sortedReviewers,
   })
+
+  const getVoteDescription = (rev: Reviewer): string => {
+    if (rev.vote === PrVote.NoVote) {
+      return 'No review yet'
+    }
+    if (!rev.isRequired || rev.reviewedBy === undefined || rev.reviewedBy?.length === 0) {
+      return PrVote[rev.vote]
+    }
+    const voters = rev.reviewedBy.filter((r) => r.vote !== PrVote.NoVote)
+    if (voters.length === 0) {
+      return PrVote[rev.vote]
+    }
+    return (
+      PrVote[rev.vote] +
+      ' by ' +
+      rev.reviewedBy
+        .filter((r) => r.vote !== PrVote.NoVote)
+        .map((r) => r.user.label)
+        .join(', ')
+    )
+  }
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
   return (
-    <AvatarGroup layout="stack" size={24}>
-      {inlineItems.map((review) => (
-        <Tooltip key={review.user.id} content={review.user.label} relationship="label" withArrow>
-          <AvatarGroupItem
-            active={review.isRequired ? 'active' : undefined}
-            name={review.user.label}
-            key={review.user.id}
-            badge={{ status: voteToBadge(review.vote) }}
-          />
-        </Tooltip>
-      ))}
-      {overflowItems && (
-        <AvatarGroupPopover>
-          {overflowItems.map((review) => (
-            <AvatarGroupItem name={review.user.label} key={review.user.id} />
+    <Popover
+      open={open}
+      onOpenChange={(e, data) => {
+        if (e.target === buttonRef.current) {
+          // Ignore events that are triggered by the button to avoid re-opening the popover
+          return
+        }
+
+        setOpen(data.open)
+      }}
+    >
+      <PopoverTrigger disableButtonEnhancement>
+        <AvatarGroup layout="stack" size={24} onMouseOver={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+          {inlineItems.map((review) => (
+            // <Tooltip key={review.user.id} content={review.user.label} relationship="label" withArrow>
+            <AvatarGroupItem
+              active={review.isRequired ? 'active' : undefined}
+              name={review.user.label}
+              key={review.user.id}
+              badge={{ status: voteToBadge(review.vote) }}
+            />
+            // </Tooltip>
           ))}
-        </AvatarGroupPopover>
-      )}
-    </AvatarGroup>
+          {overflowItems && (
+            <AvatarGroupPopover>
+              {overflowItems.map((review) => (
+                <AvatarGroupItem name={review.user.label} key={review.user.id} />
+              ))}
+            </AvatarGroupPopover>
+          )}
+        </AvatarGroup>
+      </PopoverTrigger>
+
+      <PopoverSurface tabIndex={-1}>
+        <List navigationMode="items">
+          {sortedReviewers.map((rev) => (
+            <ListItem key={rev.user.id} aria-label={rev.user.label}>
+              <Persona
+                avatar={{
+                  name: rev.user.label,
+                  active: rev.isRequired ? 'active' : undefined,
+                  badge: { status: voteToBadge(rev.vote) },
+                  color: 'colorful',
+                  size: 24,
+                }}
+                name={rev.user.label}
+                secondaryText={getVoteDescription(rev)}
+                key={rev.user.id}
+              ></Persona>
+            </ListItem>
+          ))}
+        </List>
+      </PopoverSurface>
+    </Popover>
   )
 }
 
