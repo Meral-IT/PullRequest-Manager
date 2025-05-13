@@ -6,8 +6,10 @@ import { PrProfile } from '@/lib/models/pr-profile'
 import { PullRequest } from '@/lib/models/pull-request.model'
 import { FilterEvaluator } from '@/lib/models/ui-filter.model'
 import type {
+  MenuProps,
   PositioningImperativeRef,
   PositioningShorthand,
+  PositioningVirtualElement,
   SelectTabData,
   SelectTabEvent,
   TabValue,
@@ -25,13 +27,15 @@ function TabHeaderMenu({
   open,
   positioning,
   onClick,
+  onOpenChange,
 }: Readonly<{
   open: boolean
   positioning: PositioningShorthand
+  onOpenChange: MenuProps['onOpenChange']
   onClick: () => void
 }>) {
   return (
-    <Menu open={open} positioning={positioning}>
+    <Menu open={open} positioning={positioning} onOpenChange={onOpenChange}>
       <MenuPopover>
         <MenuList>
           <MenuItem icon={<ThumbLikeFilled />} onClick={onClick}>
@@ -46,6 +50,9 @@ function TabHeaderMenu({
 export default function PullRequestsOverview() {
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const [open, setOpen] = useState(false)
+  const onOpenChange: MenuProps['onOpenChange'] = (e, data) => {
+    setOpen(data.open)
+  }
   const [selectedValue, setSelectedValue] = useState<TabValue>('builtin:all')
   const [pullRequests, setPullRequests] = useState<PullRequestData>({
     error: null,
@@ -83,7 +90,7 @@ export default function PullRequestsOverview() {
     setSelectedValue(data.value)
   }
 
-  const onHeaderAuxClick = (e) => {
+  const onHeaderAuxClick = (e: { target: (HTMLElement | PositioningVirtualElement) | null }) => {
     positioningRef.current?.setTarget(e.target)
     setOpen(!open)
   }
@@ -117,7 +124,12 @@ export default function PullRequestsOverview() {
 
   return (
     <>
-      <TabHeaderMenu open={open} positioning={{ positioningRef }} onClick={onApproveClick} />
+      <TabHeaderMenu
+        open={open}
+        positioning={{ positioningRef }}
+        onClick={onApproveClick}
+        onOpenChange={onOpenChange}
+      />
       <div className="container">
         <div className="section">
           <div className="content header">
