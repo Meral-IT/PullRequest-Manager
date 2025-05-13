@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import electronUpdater, { ProgressInfo, UpdateDownloadedEvent, UpdateInfo, type AppUpdater } from 'electron-updater'
 
@@ -37,7 +37,7 @@ export class PullRequestUpdateManager {
     autoUpdater.logger = log
     autoUpdater.disableWebInstaller = true
     autoUpdater.autoDownload = false
-    autoUpdater.forceDevUpdateConfig = true
+    autoUpdater.forceDevUpdateConfig = !app.isPackaged
     autoUpdater.autoInstallOnAppQuit = true
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
