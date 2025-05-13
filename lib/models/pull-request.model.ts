@@ -50,15 +50,15 @@ export type DetailsCell = {
   isConflict?: boolean
 }
 
-export type ReviewerItem = {
+export type BasicReviewerProps = {
   user: User
   vote: PrVote
 }
 
 export type Reviewer = {
   isRequired?: boolean
-  reviewedBy?: ReviewerItem[]
-} & ReviewerItem
+  reviewedBy?: BasicReviewerProps[]
+} & BasicReviewerProps
 
 export type ReviewerState = {
   id: string
