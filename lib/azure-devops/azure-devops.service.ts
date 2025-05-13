@@ -3,6 +3,7 @@ import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
 import {
   PullRequestStatus as AzDoPrStatus,
   GitPullRequest,
+  IdentityRefWithVote,
   PullRequestAsyncStatus,
 } from 'azure-devops-node-api/interfaces/GitInterfaces'
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces'
@@ -18,6 +19,7 @@ import {
   PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,
   PullRequestPolicyType,
+  Reviewer,
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import loader from '../tools/loading.service'
@@ -148,20 +150,7 @@ export class AzureDevOpsService {
             evaluations: [],
             mergeStatus: pr.mergeStatus as unknown as PullRequestMergeStatus,
             mergeFailureMessage: pr.mergeFailureMessage,
-            reviewers: pr.reviewers?.map((reviewer) => {
-              return {
-                user: {
-                  id: reviewer.id,
-                  label: reviewer.displayName,
-                  isBot: reviewer.isAadIdentity,
-                  isMySelf: reviewer.id == data.myself?.id || data.teams.some((team) => team.id === reviewer.id),
-                  imageUrl: reviewer.imageUrl,
-                  imageBase64: undefined,
-                },
-                isRequired: reviewer.isRequired,
-                vote: reviewer.vote as PrVote,
-              }
-            }),
+            reviewers: this.mapReviewers(pr.reviewers, data.myself, data.teams),
             urls: {
               web: this.createPrWebUri(pr),
             },
@@ -235,6 +224,66 @@ export class AzureDevOpsService {
       }
     }
     return data
+  }
+
+  private static mapReviewers(
+    reviewers: IdentityRefWithVote[] | undefined,
+    myself: Identity | undefined,
+    teams: WebApiTeam[]
+  ): Reviewer[] {
+    if (!reviewers) {
+      return []
+    }
+
+    const mappedReviewers: Reviewer[] = []
+
+    // Group reviewers by their "voted for" status
+    reviewers
+      .filter((x) => !x.votedFor)
+      .forEach((rev) => {
+        const mappedRev = {
+          user: {
+            id: rev.id,
+            label: rev.displayName,
+            isBot: rev.isAadIdentity,
+            isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
+            imageUrl: rev.imageUrl,
+            imageBase64: undefined,
+          },
+          isRequired: rev.isRequired,
+          vote: rev.vote as PrVote,
+        } as Reviewer
+
+        mappedReviewers.push(mappedRev)
+      })
+
+    // Add the "voted for" reviewers
+    reviewers
+      .filter((x) => x.votedFor)
+      .forEach((rev) => {
+        const votedForItems = mappedReviewers.filter((x) => rev.votedFor?.some((v) => v.id == x.user.id))
+
+        const mappedRev = {
+          user: {
+            id: rev.id,
+            label: rev.displayName,
+            isBot: rev.isAadIdentity,
+            isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
+            imageUrl: rev.imageUrl,
+            imageBase64: undefined,
+          },
+          isRequired: votedForItems.length > 0,
+          reviewedBy: votedForItems,
+          vote: rev.vote as PrVote,
+        } as Reviewer
+
+        votedForItems.forEach((item) => {
+          item.reviewedBy = item.reviewedBy || []
+          item.reviewedBy.push(mappedRev)
+        })
+      })
+
+    return mappedReviewers
   }
 
   private async updateData(): Promise<void> {
