@@ -3,12 +3,7 @@ import { useContext } from 'react'
 import { SettingsContext } from '../context'
 
 export default function GeneralSettings() {
-  const useSettings = () => {
-    return useContext(SettingsContext)
-  }
-
-  const { state, actions } = useSettings()
-
+  const { state, actions } = useContext(SettingsContext)
   return (
     <Checkbox
       label="Start at system startup"
