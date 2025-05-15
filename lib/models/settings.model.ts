@@ -18,7 +18,12 @@ export enum TableSize {
   Medium = 'medium',
 }
 
+export interface GeneralSettings {
+  openAtLogin: boolean
+}
+
 export interface SettingsModel {
+  general: GeneralSettings
   appearance: AppearanceSettings
   azDo: AzDoSettings
   profiles: PrProfile[]

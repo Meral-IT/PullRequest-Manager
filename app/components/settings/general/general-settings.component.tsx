@@ -1,12 +1,25 @@
-import unauthorized from '@/resources/configuration-required.svg'
-import ZeroData from '../../zero-data/zero-data.component'
+import { Checkbox } from '@fluentui/react-components'
+import { useContext } from 'react'
+import { SettingsContext } from '../context'
 
-export default function GeneralSettings(): JSX.Element {
+export default function GeneralSettings() {
+  const { state, actions } = useContext(SettingsContext)
   return (
-    <ZeroData
-      primaryText="General settings"
-      secondaryText="There are no settings to configure"
-      imagePath={unauthorized}
+    <Checkbox
+      label="Start at system startup"
+      name="openAtLogin"
+      checked={state.openAtLogin}
+      onChange={(e) => {
+        const wrapper = {
+          target: {
+            ...e.target,
+            name: 'openAtLogin',
+            value: e.target.checked,
+          },
+        }
+
+        actions.onChangeHandler(wrapper)
+      }}
     />
   )
 }
