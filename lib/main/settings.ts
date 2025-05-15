@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { defaultProfiles } from '../models/pr-profile'
 import { SettingsModel, TableSize } from '../models/settings.model'
+import { updateTrayProfiles } from './tray'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
 const defaultSettings: SettingsModel = {
@@ -46,6 +47,8 @@ export async function saveSettings(input: SettingsModel): Promise<SettingsModel>
     openAtLogin: cachedSettings.general.openAtLogin,
     openAsHidden: false,
   })
+
+  updateTrayProfiles(cachedSettings.profiles)
 
   return cachedSettings
 }

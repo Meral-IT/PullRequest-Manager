@@ -58,13 +58,7 @@ export function createAppWindow(): BrowserWindow {
   registerWindowIPC(mainWindow)
 
   mainWindow.on('ready-to-show', async () => {
-    createTrayIcon(
-      () => {
-        mainWindow?.isVisible() ? mainWindow.hide() : showWindow()
-      },
-      () => AzureDevOpsService.getInstance().updateDataImmediately(),
-      exitApp
-    )
+    await createTrayIcon(mainWindow)
     initializeAzureDevOps()
 
     await PullRequestUpdateManager.getInstance().checkForUpdates()
