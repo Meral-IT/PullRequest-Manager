@@ -10,6 +10,7 @@ export const SettingProvider = ({ children }: Props) => {
   const [saving, setSaving] = useState(false)
   const [validatingAzDo, setValidatingAzDo] = useState(false)
   const [formData, setFormData] = useState<SettingStateProps>({
+    openAtLogin: false,
     name: '',
     email: '',
     azDoOrganizationUrl: '',
@@ -25,6 +26,7 @@ export const SettingProvider = ({ children }: Props) => {
 
   const convertSettings = (settings: SettingsModel): SettingStateProps => {
     return {
+      openAtLogin: settings.general.openAtLogin,
       appearanceTheme: settings.appearance.theme,
       name: '',
       email: '',
@@ -87,6 +89,9 @@ export const SettingProvider = ({ children }: Props) => {
     setSaving(true)
     try {
       const model: SettingsModel = {
+        general: {
+          openAtLogin: formData.openAtLogin,
+        },
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,
           project: formData.azDoProject,

@@ -6,6 +6,9 @@ import { SettingsModel, TableSize } from '../models/settings.model'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
 const defaultSettings: SettingsModel = {
+  general: {
+    openAtLogin: false,
+  },
   azDo: {
     organizationUrl: '',
     project: '',
@@ -38,6 +41,12 @@ export async function saveSettings(input: SettingsModel): Promise<SettingsModel>
   input.azDo.pat = originalPat
 
   cachedSettings = normalizeSettings(input)
+
+  app.setLoginItemSettings({
+    openAtLogin: cachedSettings.general.openAtLogin,
+    openAsHidden: false,
+  })
+
   return cachedSettings
 }
 
@@ -56,11 +65,15 @@ export async function loadSettings(): Promise<SettingsModel> {
   loaded.azDo.pat = loaded.azDo.pat ? decryptString(loaded.azDo.pat) : ''
 
   cachedSettings = normalizeSettings(loaded)
+  cachedSettings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
   return cachedSettings
 }
 
 function normalizeSettings(input: SettingsModel): SettingsModel {
   return {
+    general: {
+      openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
+    },
     azDo: {
       organizationUrl: input.azDo.organizationUrl || defaultSettings.azDo.organizationUrl,
       project: input.azDo.project || defaultSettings.azDo.project,

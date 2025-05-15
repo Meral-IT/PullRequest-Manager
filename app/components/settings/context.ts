@@ -3,6 +3,7 @@ import { TableSize } from '@/lib/models/settings.model'
 import { createContext } from 'react'
 
 export interface SettingStateProps {
+  openAtLogin: boolean
   name: string
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
@@ -30,6 +31,7 @@ export interface SettingPageProps {
 
 export const SettingsContext = createContext<SettingPageProps>({
   state: {
+    openAtLogin: false,
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     name: '',
