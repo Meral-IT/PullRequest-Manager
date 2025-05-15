@@ -22,7 +22,7 @@ if (!gotTheLock) {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('meralit.pullrequest-manager')
+  electronApp.setAppUserModelId('PullRequest-Manager')
 
   installExtension([REACT_DEVELOPER_TOOLS])
     .then((ext) => log.debug(`Added Extension: ${ext.map((e) => e.name).join(', ')}`))

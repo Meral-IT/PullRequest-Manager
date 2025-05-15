@@ -171,6 +171,12 @@ function UpdateNotification() {
     })
   }, [])
 
+  useEffect(() => {
+    return window.api.receive('update:show-releaseNotes', () => {
+      setIsReleaseNotesDialogOpened(true)
+    })
+  }, [])
+
   return (
     <>
       <Toaster toasterId={toasterId} />
