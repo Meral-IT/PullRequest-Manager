@@ -7,6 +7,8 @@ import {
   PullRequestAsyncStatus,
 } from 'azure-devops-node-api/interfaces/GitInterfaces'
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces'
+import { ConnectionData } from 'azure-devops-node-api/interfaces/LocationsInterfaces'
+import { IPolicyApi } from 'azure-devops-node-api/PolicyApi'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
@@ -23,6 +25,12 @@ import {
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import loader from '../tools/loading.service'
+import { throttleAll } from '../tools/promise-throttle'
+
+type PolicyEvaluation = {
+  prId: number
+  evaluations: PullRequestPolicyEvaluationRecord[]
+}
 
 export class AzureDevOpsService {
   private static instance: AzureDevOpsService
@@ -61,18 +69,79 @@ export class AzureDevOpsService {
 
     const buildApi = await this.api.getGitApi(this.settings.organizationUrl, [this.api.authHandler])
     const connectionData = await this.api.connect()
+    const data = this.pullRequests
 
     prs.forEach(async (pr) => {
-      await buildApi.createPullRequestReviewer(
-        {
-          vote: 10,
-        },
-        pr.details.repositoryId,
-        pr.id,
-        connectionData.authenticatedUser?.id ?? '',
-        pr.details.projectId
-      )
+      try {
+        const reviewer = await buildApi.createPullRequestReviewer(
+          {
+            vote: 10,
+          },
+          pr.details.repositoryId,
+          pr.id,
+          connectionData.authenticatedUser?.id ?? '',
+          pr.details.projectId
+        )
+
+        // update the related pull request
+        AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
+      } catch (error) {
+        log.error('Failed to approve pull request', error)
+      }
     })
+
+    this.pullRequests = data
+    BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
+  }
+
+  private static appendReviewer(
+    data: PullRequestData,
+    connectionData: ConnectionData,
+    pr: PullRequest,
+    reviewer: IdentityRefWithVote
+  ) {
+    const pullRequest = data.items.find((x) => x.id === pr.id)
+    if (pullRequest) {
+      const votedForIdentities = reviewer.votedFor?.map((x) => x.id) ?? []
+      let votedFor = false
+      pullRequest.reviewers.forEach((x) => {
+        if (x.user.id === reviewer.id) {
+          votedFor = true
+          x.vote = 10
+        } else if (votedForIdentities.includes(x.user.id)) {
+          votedFor = true
+          x.vote = 10
+          x.reviewedBy = x.reviewedBy || []
+
+          const reviewerItem = x.reviewedBy.find((y) => y.user.id === reviewer.id)
+          if (!reviewerItem) {
+            x.reviewedBy.push({
+              user: {
+                id: reviewer.id ?? '',
+                label: reviewer.displayName ?? '',
+                isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
+                imageUrl: reviewer.imageUrl,
+              },
+              vote: 10,
+            })
+          } else {
+            reviewerItem.vote = 10
+          }
+        }
+      })
+
+      if (!votedFor) {
+        pullRequest.reviewers.push({
+          user: {
+            id: reviewer.id ?? '',
+            label: reviewer.displayName ?? '',
+            isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
+            imageUrl: reviewer.imageUrl,
+          },
+          vote: 10,
+        } as Reviewer)
+      }
+    }
   }
 
   public async updateDataImmediately(): Promise<void> {
@@ -116,46 +185,12 @@ export class AzureDevOpsService {
       data.teams = await AzureDevOpsService.loadMyTeams(api, settings)
       log.debug('Fetching data from Azure DevOps')
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-      const policyApi = await api.getPolicyApi(settings.organizationUrl, [api.authHandler])
       const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
         includeLinks: true,
         status: AzDoPrStatus.Active,
       })
       data.items = azDoBuilds
-        .map((pr) => {
-          return {
-            id: pr.pullRequestId,
-            author: {
-              id: pr.createdBy?.id ?? '',
-              label: pr.createdBy?.displayName ?? '',
-              isBot: pr.createdBy?.descriptor?.startsWith('svc') ?? false,
-              isMySelf: pr.createdBy?.id == data.myself?.id || data.teams.some((team) => team.id === pr.createdBy?.id),
-            },
-            creationDate: pr.creationDate,
-            lastUpdated: {
-              label: pr.lastMergeCommit?.comment ?? '',
-              timestamp: pr.lastMergeCommit?.push?.date ?? 0,
-            },
-            isDraft: pr.isDraft,
-            details: {
-              label: pr.title,
-              number: pr.pullRequestId,
-              repositoryId: pr.repository?.id ?? '',
-              repository: pr.repository?.name ?? '',
-              projectId: pr.repository?.project?.id ?? '',
-              branch: pr.sourceRefName,
-              isDraft: pr.isDraft,
-              isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
-            },
-            evaluations: [],
-            mergeStatus: pr.mergeStatus as unknown as PullRequestMergeStatus,
-            mergeFailureMessage: pr.mergeFailureMessage,
-            reviewers: this.mapReviewers(pr.reviewers, data.myself, data.teams),
-            urls: {
-              web: this.createPrWebUri(pr),
-            },
-          } as PullRequest
-        })
+        .map((pr) => AzureDevOpsService.mapPullRequests(pr, data))
         .toSorted((a, b) => {
           if (a.creationDate && b.creationDate) {
             return b.creationDate.getTime() - a.creationDate.getTime()
@@ -163,50 +198,7 @@ export class AzureDevOpsService {
           return 0
         })
 
-      const policyEvaluations = await Promise.all(
-        data.items.map(async (pr) => {
-          const artifactId = `vstfs:///CodeReview/CodeReviewId/${pr.details.projectId}/${pr.id}`
-          const policies = await policyApi.getPolicyEvaluations(settings.project, artifactId, false)
-          const evaluations = policies.map((policy) => {
-            let displayName = policy.configuration?.type?.displayName ?? ''
-            if (policy.configuration?.type?.id === '0609b952-1397-4640-95ec-e00a01b2c241') {
-              const buildName = policy.configuration.settings.displayName ?? policy.context?.buildDefinitionName
-              if (buildName) {
-                displayName = `${displayName} (${buildName})`
-              }
-            } else if (policy.configuration?.type?.id === 'cbdc66da-9728-4af8-aada-9a5a32e4a226') {
-              const statusName = policy.configuration.settings.statusName
-              if (statusName) {
-                displayName = `${displayName} (${statusName})`
-              }
-            }
-
-            return {
-              id: policy?.evaluationId ?? '',
-              displayName: displayName,
-              status: policy.status as unknown as PullRequestPolicyEvaluationStatus,
-              config: {
-                type: {
-                  id: policy.configuration?.type?.id ?? '',
-                  displayName: policy.configuration?.type?.displayName ?? '',
-                  url: policy.configuration?.type?.url ?? '',
-                } as PullRequestPolicyType,
-              } as PullRequestPolicyConfig,
-            } as PullRequestPolicyEvaluationRecord
-          })
-          return {
-            prId: pr.id,
-            evaluations: evaluations,
-          }
-        })
-      )
-
-      policyEvaluations.forEach((evaluation) => {
-        const pr = data.items.find((pr) => pr.id === evaluation.prId)
-        if (pr) {
-          pr.evaluations = evaluation.evaluations
-        }
-      })
+      await AzureDevOpsService.enrichPolicyEvaluations(api, settings, data)
 
       log.debug('Completed to fetch data')
     } catch (error) {
@@ -224,6 +216,95 @@ export class AzureDevOpsService {
       }
     }
     return data
+  }
+
+  private static mapPullRequests(pr: GitPullRequest, data: AzureDevOpsData): PullRequest {
+    return {
+      id: pr.pullRequestId,
+      author: {
+        id: pr.createdBy?.id ?? '',
+        label: pr.createdBy?.displayName ?? '',
+        isBot: pr.createdBy?.descriptor?.startsWith('svc') ?? false,
+        isMySelf: pr.createdBy?.id == data.myself?.id || data.teams.some((team) => team.id === pr.createdBy?.id),
+      },
+      creationDate: pr.creationDate,
+      lastUpdated: {
+        label: pr.lastMergeCommit?.comment ?? '',
+        timestamp: pr.lastMergeCommit?.push?.date ?? 0,
+      },
+      isDraft: pr.isDraft,
+      details: {
+        label: pr.title,
+        number: pr.pullRequestId,
+        repositoryId: pr.repository?.id ?? '',
+        repository: pr.repository?.name ?? '',
+        projectId: pr.repository?.project?.id ?? '',
+        branch: pr.sourceRefName,
+        isDraft: pr.isDraft,
+        isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
+      },
+      evaluations: [],
+      mergeStatus: pr.mergeStatus as unknown as PullRequestMergeStatus,
+      mergeFailureMessage: pr.mergeFailureMessage,
+      reviewers: this.mapReviewers(pr.reviewers, data.myself, data.teams),
+      urls: {
+        web: this.createPrWebUri(pr),
+      },
+    } as PullRequest
+  }
+
+  private static async enrichPolicyEvaluations(api: azdev.WebApi, settings: AzDoSettings, data: AzureDevOpsData) {
+    const policyApi = await api.getPolicyApi(settings.organizationUrl, [api.authHandler])
+
+    const tasks = data.items.map((pr) => {
+      return () => AzureDevOpsService.GetPolicyEvaluations(pr, policyApi, settings)
+    })
+
+    const results = await throttleAll<PolicyEvaluation>(4, tasks)
+
+    results.forEach((evaluation) => {
+      const pr = data.items.find((pr) => pr.id === evaluation.prId)
+      if (pr) {
+        pr.evaluations = evaluation.evaluations
+      }
+    })
+  }
+
+  private static async GetPolicyEvaluations(pr: PullRequest, policyApi: IPolicyApi, settings: AzDoSettings) {
+    const artifactId = `vstfs:///CodeReview/CodeReviewId/${pr.details.projectId}/${pr.id}`
+    const policies = await policyApi.getPolicyEvaluations(settings.project, artifactId, false)
+    const evaluations = policies.map((policy) => {
+      let displayName = policy.configuration?.type?.displayName ?? ''
+      if (policy.configuration?.type?.id === '0609b952-1397-4640-95ec-e00a01b2c241') {
+        const buildName = policy.configuration.settings.displayName ?? policy.context?.buildDefinitionName
+        if (buildName) {
+          displayName = `${displayName} (${buildName})`
+        }
+      } else if (policy.configuration?.type?.id === 'cbdc66da-9728-4af8-aada-9a5a32e4a226') {
+        const statusName = policy.configuration.settings.statusName
+        if (statusName) {
+          displayName = `${displayName} (${statusName})`
+        }
+      }
+
+      return {
+        id: policy?.evaluationId ?? '',
+        displayName: displayName,
+        status: policy.status as unknown as PullRequestPolicyEvaluationStatus,
+        config: {
+          type: {
+            id: policy.configuration?.type?.id ?? '',
+            displayName: policy.configuration?.type?.displayName ?? '',
+            url: policy.configuration?.type?.url ?? '',
+          } as PullRequestPolicyType,
+        } as PullRequestPolicyConfig,
+      } as PullRequestPolicyEvaluationRecord
+    })
+
+    return {
+      prId: pr.id,
+      evaluations: evaluations,
+    } as PolicyEvaluation
   }
 
   private static mapReviewers(
