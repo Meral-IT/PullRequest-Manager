@@ -101,46 +101,49 @@ export class AzureDevOpsService {
     reviewer: IdentityRefWithVote
   ) {
     const pullRequest = data.items.find((x) => x.id === pr.id)
-    if (pullRequest) {
-      const votedForIdentities = reviewer.votedFor?.map((x) => x.id) ?? []
-      let votedFor = false
-      pullRequest.reviewers.forEach((x) => {
-        if (x.user.id === reviewer.id) {
-          votedFor = true
-          x.vote = 10
-        } else if (votedForIdentities.includes(x.user.id)) {
-          votedFor = true
-          x.vote = 10
-          x.reviewedBy = x.reviewedBy || []
+    if (!pullRequest) {
+      return
+    }
 
-          const reviewerItem = x.reviewedBy.find((y) => y.user.id === reviewer.id)
-          if (!reviewerItem) {
-            x.reviewedBy.push({
-              user: {
-                id: reviewer.id ?? '',
-                label: reviewer.displayName ?? '',
-                isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
-                imageUrl: reviewer.imageUrl,
-              },
-              vote: 10,
-            })
-          } else {
-            reviewerItem.vote = 10
-          }
+    const votedForIdentities = reviewer.votedFor?.map((x) => x.id) ?? []
+    let votedFor = false
+    pullRequest.reviewers.forEach((x) => {
+      if (x.user.id === reviewer.id) {
+        // Direct vote
+        votedFor = true
+        x.vote = 10
+      } else if (votedForIdentities.includes(x.user.id)) {
+        // Indirect vote
+        votedFor = true
+        x.vote = 10
+
+        const reviewerItem = x.reviewedBy.find((y) => y.user.id === reviewer.id)
+        if (!reviewerItem) {
+          x.reviewedBy.push({
+            user: {
+              id: reviewer.id ?? '',
+              label: reviewer.displayName ?? '',
+              isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
+              imageUrl: reviewer.imageUrl,
+            },
+            vote: 10,
+          })
+        } else {
+          reviewerItem.vote = 10
         }
-      })
-
-      if (!votedFor) {
-        pullRequest.reviewers.push({
-          user: {
-            id: reviewer.id ?? '',
-            label: reviewer.displayName ?? '',
-            isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
-            imageUrl: reviewer.imageUrl,
-          },
-          vote: 10,
-        } as Reviewer)
       }
+    })
+
+    if (!votedFor) {
+      pullRequest.reviewers.push({
+        user: {
+          id: reviewer.id ?? '',
+          label: reviewer.displayName ?? '',
+          isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
+          imageUrl: reviewer.imageUrl,
+        },
+        vote: 10,
+      } as Reviewer)
     }
   }
 
@@ -333,6 +336,7 @@ export class AzureDevOpsService {
           },
           isRequired: rev.isRequired,
           vote: rev.vote as PrVote,
+          reviewedBy: [],
         } as Reviewer
 
         mappedReviewers.push(mappedRev)
