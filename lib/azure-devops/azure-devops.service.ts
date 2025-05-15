@@ -13,6 +13,7 @@ import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
+import { PrProfile } from '../models/pr-profile'
 import { PrVote } from '../models/pr-vote'
 import {
   PullRequest,
@@ -24,6 +25,7 @@ import {
   Reviewer,
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
+import { FilterEvaluator } from '../models/ui-filter.model'
 import loader from '../tools/loading.service'
 import { throttleAll } from '../tools/promise-throttle'
 
@@ -60,6 +62,15 @@ export class AzureDevOpsService {
 
   public getPullRequests(): PullRequestData {
     return this.pullRequests
+  }
+
+  public async approvePullRequestsForProfile(profile: PrProfile): Promise<void> {
+    const prs = FilterEvaluator.evaluate(this.pullRequests.items, profile.filter!)
+
+    if (prs.length === 0) {
+      return
+    }
+    return this.approvePullRequests(prs)
   }
 
   public async approvePullRequests(prs: PullRequest[]): Promise<void> {
@@ -200,8 +211,10 @@ export class AzureDevOpsService {
           }
           return 0
         })
+      log.debug('Got pull requests from Azure DevOps', data.items.length)
 
       await AzureDevOpsService.enrichPolicyEvaluations(api, settings, data)
+      log.debug('Got policy evaluations from Azure DevOps')
 
       log.debug('Completed to fetch data')
     } catch (error) {
