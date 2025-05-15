@@ -1,6 +1,7 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import log from 'electron-log/main'
 import electronUpdater, { ProgressInfo, UpdateDownloadedEvent, UpdateInfo, type AppUpdater } from 'electron-updater'
+import getOrCreateAppWindow, { showWindow } from './app'
 
 export class PullRequestUpdateManager {
   private static instance: PullRequestUpdateManager | null = null
@@ -45,6 +46,23 @@ export class PullRequestUpdateManager {
       BrowserWindow.getAllWindows().forEach((window) => {
         window.webContents.send('update:update-available', info)
       })
+
+      const NOTIFICATION_TITLE = 'Update available'
+      const NOTIFICATION_BODY = 'Click to view the release notes'
+
+      const desktopNotification = new Notification({
+        title: NOTIFICATION_TITLE,
+        body: NOTIFICATION_BODY,
+        closeButtonText: 'Close',
+      })
+
+      desktopNotification.on('click', (_) => {
+        const appWindow = getOrCreateAppWindow()
+        showWindow()
+        appWindow.webContents.send('update:show-releaseNotes')
+      })
+
+      desktopNotification.show()
     })
 
     autoUpdater.on('download-progress', (info: ProgressInfo) => {
