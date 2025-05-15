@@ -100,30 +100,32 @@ export default function PullRequestsOverview() {
     setOpen(false)
   }
 
-  const details = profiles.map((profile) => {
-    const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter ?? { filters: [], op: 'AND' })
-    const badge = <CounterBadge>{filtered.length}</CounterBadge>
+  const details = profiles
+    .filter((x) => x.visible)
+    .map((profile) => {
+      const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter ?? { filters: [], op: 'AND' })
+      const badge = <CounterBadge>{filtered.length}</CounterBadge>
 
-    const onProfileHeaderAuxClick = profile.enableAcceptAll
-      ? (e) => {
-          setMenuData(filtered)
-          onHeaderAuxClick(e)
-        }
-      : undefined
+      const onProfileHeaderAuxClick = profile.enableAcceptAll
+        ? (e) => {
+            setMenuData(filtered)
+            onHeaderAuxClick(e)
+          }
+        : undefined
 
-    const tab: React.ReactNode = (
-      <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
-        {profile.label} {badge}
-      </Tab>
-    )
+      const tab: React.ReactNode = (
+        <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
+          {profile.label} {badge}
+        </Tab>
+      )
 
-    const list: React.ReactNode = selectedValue === profile.id && <PrList key={profile.id} data={filtered} />
+      const list: React.ReactNode = selectedValue === profile.id && <PrList key={profile.id} data={filtered} />
 
-    return {
-      tab,
-      list,
-    }
-  })
+      return {
+        tab,
+        list,
+      }
+    })
 
   return (
     <>

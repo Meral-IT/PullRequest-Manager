@@ -73,7 +73,7 @@ export async function loadSettings(): Promise<SettingsModel> {
 }
 
 function normalizeSettings(input: SettingsModel): SettingsModel {
-  return {
+  const settings = {
     general: {
       openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
     },
@@ -89,4 +89,10 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
     },
     profiles: input.profiles || defaultSettings.profiles,
   }
+
+  settings.profiles.forEach((profile) => {
+    profile.visible ??= true
+  })
+
+  return settings
 }
