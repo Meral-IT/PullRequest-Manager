@@ -103,10 +103,13 @@ export default function PullRequestsOverview() {
   const details = profiles.map((profile) => {
     const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter ?? { filters: [], op: 'AND' })
     const badge = <CounterBadge>{filtered.length}</CounterBadge>
-    const onProfileHeaderAuxClick = (e) => {
-      setMenuData(filtered)
-      onHeaderAuxClick(e)
-    }
+
+    const onProfileHeaderAuxClick = profile.enableAcceptAll
+      ? (e) => {
+          setMenuData(filtered)
+          onHeaderAuxClick(e)
+        }
+      : undefined
 
     const tab: React.ReactNode = (
       <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>

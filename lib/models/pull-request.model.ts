@@ -57,7 +57,7 @@ export type BasicReviewerProps = {
 
 export type Reviewer = {
   isRequired?: boolean
-  reviewedBy?: BasicReviewerProps[]
+  reviewedBy: BasicReviewerProps[]
 } & BasicReviewerProps
 
 export type ReviewerState = {
