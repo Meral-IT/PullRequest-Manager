@@ -6,6 +6,7 @@ export interface PrProfile {
   label: string
   isDefault?: boolean
   enableAcceptAll: boolean
+  visible: boolean
   filter?: PullRequestFilter
 }
 
@@ -15,11 +16,13 @@ export const defaultProfiles: PrProfile[] = [
     label: 'All',
     isDefault: false,
     enableAcceptAll: false,
+    visible: true,
   },
   {
     id: 'automations',
     label: 'Automations',
     isDefault: false,
+    visible: true,
     enableAcceptAll: true,
     filter: {
       op: 'AND',
@@ -41,6 +44,7 @@ export const defaultProfiles: PrProfile[] = [
     id: 'todo',
     label: 'To do',
     isDefault: true,
+    visible: true,
     enableAcceptAll: false,
     filter: {
       op: 'AND',
@@ -65,6 +69,7 @@ export const defaultProfiles: PrProfile[] = [
     id: 'my',
     label: 'My own',
     isDefault: false,
+    visible: true,
     enableAcceptAll: false,
     filter: {
       op: 'AND',
@@ -82,6 +87,7 @@ export const defaultProfiles: PrProfile[] = [
     id: 'my-team',
     label: 'My Team',
     isDefault: false,
+    visible: true,
     enableAcceptAll: false,
     filter: {
       op: 'AND',
