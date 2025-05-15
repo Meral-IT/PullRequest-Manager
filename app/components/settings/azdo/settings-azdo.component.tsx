@@ -3,6 +3,7 @@ import {
   buttonClassNames,
   Field,
   Input,
+  Link,
   makeResetStyles,
   makeStyles,
   SpinButton,
@@ -83,6 +84,19 @@ export default function AzureDevOpsSettings() {
   }
 
   const buttonClass = getButtonClass()
+  const isValidOrganizationUrl = state.azDoOrganizationUrl.match(/https:\/\/dev\.azure\.com\/[a-zA-Z0-9\-]+/g)
+  const patUrl = `${state.azDoOrganizationUrl}/_usersSettings/tokens`
+
+  const InfoLabel = isValidOrganizationUrl ? (
+    <span>
+      Personal Access Token{' '}
+      <Link href={patUrl} target="_blank" rel="noreferrer">
+        (Create one here)
+      </Link>
+    </span>
+  ) : (
+    <span>Personal Access Token</span>
+  )
 
   return (
     <div className={useStackClassName()}>
@@ -92,7 +106,7 @@ export default function AzureDevOpsSettings() {
       <Field label="Project" hint="The project name">
         <Input name="azDoProject" value={state.azDoProject} onChange={actions.onChangeHandler} />
       </Field>
-      <Field label="Personal access token" hint="Your personal access token">
+      <Field label={InfoLabel} hint="Your personal access token. Required scopes: 'Build (Read); Code (Read & write)'">
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
       </Field>
       <Field label="Refresh interval in seconds" hint="The interval in seconds to refresh the pull requests">
