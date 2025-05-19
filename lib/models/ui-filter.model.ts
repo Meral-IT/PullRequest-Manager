@@ -64,7 +64,7 @@ export class FilterEvaluator {
     return (
       ((!filter.user || this.evaluateUser(reviewer.user, filter.user)) &&
         (!filter.isRequired || reviewer.isRequired) &&
-        (!filter.vote || reviewer.vote === filter.vote)) ??
+        (filter.vote === undefined || reviewer.vote === filter.vote)) ??
       false
     )
   }
