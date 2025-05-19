@@ -26,7 +26,7 @@ ReactDOM.createRoot(document.getElementById('app')!).render(
               <Route path="general" element={<GeneralSettings />} />
               <Route path="appearance" element={<AppearanceSettings />} />
               <Route path="azure-devops" element={<AzureDevOpsSettings />} />
-              <Route path="profiles" element={<ProfileSettings />} />
+              <Route path="profiles/:profileId" element={<ProfileSettings />} />
             </Route>
           </Routes>
         </WindowContextProvider>

@@ -24,6 +24,9 @@ export interface SettingPageProps {
     onChangeHandler: any
     validateAzDo: any
     saveSettings: any
+    deleteProfile: (id: string) => void
+    addProfile: () => void
+    duplicateProfile: (id: string) => void
   }
   saving: boolean
   validatingAzDo: boolean

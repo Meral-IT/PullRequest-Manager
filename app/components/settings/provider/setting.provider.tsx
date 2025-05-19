@@ -60,6 +60,29 @@ export const SettingProvider = ({ children }: Props) => {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { value } = e.target
 
+    if ('profileId' in e) {
+      const profileId = e.profileId
+      const updatedProfile = formData.profiles.find((profile) => profile.id === profileId)
+      if (!updatedProfile) {
+        return
+      }
+
+      if (updatedProfile.isDefault) {
+        formData.profiles.forEach((profile) => {
+          if (profile.id !== profileId) {
+            profile.isDefault = false
+          }
+        })
+      }
+
+      setFormData((prevFormData) => ({
+        ...prevFormData,
+        profiles: prevFormData.profiles.map((profile) =>
+          profile.id === profileId ? { ...profile, [e.target.name]: value } : profile
+        ),
+      }))
+    }
+
     setFormData((prevFormData) => ({
       ...prevFormData,
       [e.target.name]: value,
@@ -110,6 +133,41 @@ export const SettingProvider = ({ children }: Props) => {
     }
   }
 
+  const handleDeleteProfile = (id: string) => {
+    setFormData((prevFormData) => ({
+      ...prevFormData,
+      profiles: prevFormData.profiles.filter((profile) => profile.id !== id),
+    }))
+  }
+
+  const handleDuplicateProfile = (profileId: string) => {
+    const profile = formData.profiles.find((p) => p.id === profileId)
+    if (!profile) return
+    const newProfile = {
+      ...profile,
+      id: crypto.randomUUID(),
+      label: `${profile.label} (copy)`,
+    }
+    setFormData((prevFormData) => ({
+      ...prevFormData,
+      profiles: [...prevFormData.profiles, newProfile],
+    }))
+  }
+
+  const handleAddProfile = () => {
+    const newProfile = {
+      id: crypto.randomUUID(),
+      label: 'New profile',
+      visible: true,
+      enableAcceptAll: false,
+      isDefault: false,
+    }
+    setFormData((prevFormData) => ({
+      ...prevFormData,
+      profiles: [...prevFormData.profiles, newProfile],
+    }))
+  }
+
   const value: SettingPageProps = useMemo(
     () => ({
       state: formData,
@@ -120,6 +178,9 @@ export const SettingProvider = ({ children }: Props) => {
         onChangeHandler: handleChange,
         validateAzDo,
         saveSettings,
+        deleteProfile: handleDeleteProfile,
+        duplicateProfile: handleDuplicateProfile,
+        addProfile: handleAddProfile,
       },
       saving: saving,
       validatingAzDo: validatingAzDo,
