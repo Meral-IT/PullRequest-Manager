@@ -1,4 +1,5 @@
 import {
+  Body1Strong,
   Button,
   Dialog,
   DialogActions,
@@ -7,6 +8,7 @@ import {
   DialogSurface,
   DialogTitle,
   DialogTrigger,
+  Divider,
   Field,
   makeStyles,
   SelectTabData,
@@ -15,13 +17,7 @@ import {
   TabList,
   tokens,
 } from '@fluentui/react-components'
-import {
-  HomeFilled,
-  KeyFilled,
-  LayerDiagonalPersonFilled,
-  PaintBrushFilled,
-  SettingsFilled,
-} from '@fluentui/react-icons'
+import { AddFilled, HomeFilled, KeyFilled, LayerRegular, PaintBrushFilled, SettingsFilled } from '@fluentui/react-icons'
 import { useContext, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import SplitContainer from '../split-container/split-container.component'
@@ -127,6 +123,15 @@ export default function SettingsComponent() {
     }
   }
 
+  const profiles = state.profiles.map((profile) => {
+    const profileUri = `/settings/profiles/${profile.id}`
+    return (
+      <Tab icon={<LayerRegular />} value={profileUri} key={profile.id}>
+        {profile.label}
+      </Tab>
+    )
+  })
+
   return (
     <>
       {unsavedChangesDialog}
@@ -147,8 +152,14 @@ export default function SettingsComponent() {
               <Tab icon={<KeyFilled />} value="/settings/azure-devops">
                 Azure DevOps
               </Tab>
-              <Tab icon={<LayerDiagonalPersonFilled />} value="/settings/profiles">
-                Profiles
+            </TabList>
+            <Divider></Divider>
+            <Body1Strong>Profiles</Body1Strong>
+
+            <TabList vertical appearance="subtle" selectedValue={pathName} onTabSelect={onTabSelect}>
+              {profiles}
+              <Tab icon={<AddFilled />} value="/settings/profiles/new">
+                Add new Profile
               </Tab>
             </TabList>
           </div>
