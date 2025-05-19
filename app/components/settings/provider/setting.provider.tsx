@@ -81,6 +81,7 @@ export const SettingProvider = ({ children }: Props) => {
           profile.id === profileId ? { ...profile, [e.target.name]: value } : profile
         ),
       }))
+      return
     }
 
     setFormData((prevFormData) => ({
