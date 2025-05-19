@@ -85,7 +85,9 @@ export class AzureDevOpsService {
     // Filter for PRs where the user is already a reviewer
     if (this.settings.intelligentApproval) {
       const myApproverIds = this.data.teams.map((team) => team.id)
-      myApproverIds.push(connectionData.authenticatedUser?.id ?? '')
+      if (connectionData.authenticatedUser?.id) {
+        myApproverIds.push(connectionData.authenticatedUser.id)
+      }
 
       prs = prs.filter((pr) => {
         return (
