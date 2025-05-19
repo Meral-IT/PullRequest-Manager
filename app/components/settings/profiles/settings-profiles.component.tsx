@@ -4,7 +4,6 @@ import {
   Checkbox,
   Field,
   Input,
-  Label,
   makeResetStyles,
   makeStyles,
   Popover,
@@ -15,7 +14,7 @@ import {
   Title1,
   tokens,
 } from '@fluentui/react-components'
-import { AddFilled, BinRecycleRegular, CopyRegular } from '@fluentui/react-icons'
+import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
 import { useContext, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
@@ -42,8 +41,6 @@ const useStyles = makeStyles({
     height: '100%',
     minHeight: '200px',
   },
-  row: { display: 'flex', flexDirection: 'row' },
-  column: { display: 'flex', flexDirection: 'column' },
   gap: { display: 'flex', gap: '1rem' },
   bottom: { marginTop: 'auto' },
   dangerButton: {
@@ -62,7 +59,7 @@ const useStyles = makeStyles({
 
 function NewProfile() {
   const { state, actions } = useContext(SettingsContext)
-  const [duplicateProfile, setDuplicateProfile] = useState(state.profiles[0].id)
+  const [duplicateProfile, setDuplicateProfile] = useState(state.profiles.length > 0 ? state.profiles[0].id : '')
 
   return (
     <div className={useStackClassName()}>
@@ -201,30 +198,71 @@ export default function ProfileSettings() {
             />
           </div>
         </div>
-        <Label>Filter</Label>
-        <Textarea
-          className={styles.height}
-          textarea={{
-            className: styles.textarea,
-          }}
-          name="profiles"
-          value={profile.filter ? JSON.stringify(profile.filter, null, 2) : ''}
-          onChange={(e) => {
-            const filter = JSON.parse(e.target.value)
-            const wrapper = {
-              profileId: profile.id,
-              target: {
-                name: 'filter',
-                value: filter,
-              },
-            }
+        <Field
+          label={'Filter'}
+          validationState="error"
+          validationMessage={'Danger zone: Make sure you know what you are doing. This is a JSON object.'}
+        >
+          <Textarea
+            className={styles.height}
+            textarea={{
+              className: styles.textarea,
+            }}
+            name="profiles"
+            value={profile.filter ? JSON.stringify(profile.filter, null, 2) : ''}
+            onChange={(e) => {
+              let filter
+              try {
+                filter = JSON.parse(e.target.value)
+              } catch (error) {
+                console.error('Invalid JSON input:', error)
+                return // Exit early to prevent further processing
+              }
+              const wrapper = {
+                profileId: profile.id,
+                target: {
+                  name: 'filter',
+                  value: filter,
+                },
+              }
 
-            actions.onChangeHandler(wrapper)
-          }}
-        />
+              actions.onChangeHandler(wrapper)
+            }}
+          />
+        </Field>
       </div>
       <div className={styles.bottom}>
-        <DeleteProfileButton />
+        <div className={styles.gap}>
+          <Button
+            onClick={() => {
+              const filter = JSON.stringify(profile.filter, null, 2)
+              navigator.clipboard.writeText(filter)
+            }}
+            icon={<CopyRegular />}
+          >
+            Copy filter
+          </Button>
+          <Button
+            onClick={() => {
+              navigator.clipboard.readText().then((text) => {
+                const filter = JSON.parse(text)
+                const wrapper = {
+                  profileId: profile.id,
+                  target: {
+                    name: 'filter',
+                    value: filter,
+                  },
+                }
+
+                actions.onChangeHandler(wrapper)
+              })
+            }}
+            icon={<ClipboardPasteFilled />}
+          >
+            Paste filter
+          </Button>
+          <DeleteProfileButton />
+        </div>
       </div>
     </div>
   )
