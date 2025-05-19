@@ -15,6 +15,7 @@ const defaultSettings: SettingsModel = {
     project: '',
     pat: '',
     updateInterval: 180,
+    intelligentApproval: true,
   },
   appearance: {
     theme: 'system',
@@ -82,6 +83,7 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       project: input.azDo.project || defaultSettings.azDo.project,
       pat: input.azDo.pat || defaultSettings.azDo.pat,
       updateInterval: input.azDo.updateInterval || defaultSettings.azDo.updateInterval,
+      intelligentApproval: input.azDo.intelligentApproval ?? defaultSettings.azDo.intelligentApproval,
     },
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance,

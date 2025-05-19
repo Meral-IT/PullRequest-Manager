@@ -12,6 +12,7 @@ export interface SettingStateProps {
   azDoProject: string
   azDoPat: string
   azDoInterval: number
+  azDoIntelligentApproval: boolean
   azDoValidationMessage: string
   azDoValidationState: 'none' | 'error' | 'success' | 'warning' | undefined
   profiles: PrProfile[]
@@ -42,6 +43,7 @@ export const SettingsContext = createContext<SettingPageProps>({
     azDoOrganizationUrl: '',
     azDoProject: '',
     azDoPat: '',
+    azDoIntelligentApproval: true,
     azDoInterval: 60,
     azDoValidationMessage: '',
     azDoValidationState: 'none',
@@ -52,6 +54,9 @@ export const SettingsContext = createContext<SettingPageProps>({
     onChangeHandler: () => {},
     validateAzDo: () => {},
     saveSettings: () => {},
+    deleteProfile: (id: string) => {},
+    addProfile: () => {},
+    duplicateProfile: (id: string) => {},
   },
   saving: false,
   validatingAzDo: false,

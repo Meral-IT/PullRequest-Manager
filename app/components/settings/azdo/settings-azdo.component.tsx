@@ -1,6 +1,7 @@
 import {
   Button,
   buttonClassNames,
+  Checkbox,
   Field,
   Input,
   Link,
@@ -108,6 +109,27 @@ export default function AzureDevOpsSettings() {
       </Field>
       <Field label={InfoLabel} hint="Your personal access token. Required scopes: 'Build (Read); Code (Read & write)'">
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
+      </Field>
+      <Field
+        label="Intelligent Approval"
+        hint="Enable smart approval for pull requests by only approving the changes that matter."
+      >
+        <Checkbox
+          label={'Enable intelligent approval'}
+          name="azDoIntelligentApproval"
+          checked={state.azDoIntelligentApproval}
+          onChange={(e) => {
+            const wrapper = {
+              target: {
+                ...e.target,
+                name: 'azDoIntelligentApproval',
+                value: e.target.checked,
+              },
+            }
+
+            actions.onChangeHandler(wrapper)
+          }}
+        />
       </Field>
       <Field label="Refresh interval in seconds" hint="The interval in seconds to refresh the pull requests">
         <SpinButton

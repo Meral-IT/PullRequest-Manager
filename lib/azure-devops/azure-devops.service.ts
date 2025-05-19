@@ -47,6 +47,7 @@ export class AzureDevOpsService {
   private api?: azdev.WebApi
   private active: boolean
   private pullRequests: PullRequestData
+  private data: AzureDevOpsData = new AzureDevOpsData()
 
   constructor() {
     this.active = false
@@ -80,26 +81,54 @@ export class AzureDevOpsService {
 
     const buildApi = await this.api.getGitApi(this.settings.organizationUrl, [this.api.authHandler])
     const connectionData = await this.api.connect()
-    const data = this.pullRequests
 
-    prs.forEach(async (pr) => {
-      try {
-        const reviewer = await buildApi.createPullRequestReviewer(
-          {
-            vote: 10,
-          },
-          pr.details.repositoryId,
-          pr.id,
-          connectionData.authenticatedUser?.id ?? '',
-          pr.details.projectId
+    // Filter for PRs where the user is already a reviewer
+    if (this.settings.intelligentApproval) {
+      const myApproverIds = this.data.teams.map((team) => team.id)
+      myApproverIds.push(connectionData.authenticatedUser?.id ?? '')
+
+      prs = prs.filter((pr) => {
+        return (
+          pr.reviewers.length == 0 ||
+          pr.reviewers.some((reviewer) => {
+            return (
+              myApproverIds.includes(reviewer.user.id) ||
+              reviewer.reviewedBy.some((reviewer) => {
+                return myApproverIds.includes(reviewer.user.id)
+              })
+            )
+          })
         )
+      })
+    }
 
-        // update the related pull request
-        AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
-      } catch (error) {
-        log.error('Failed to approve pull request', error)
+    log.debug(
+      'Approving pull requests: ',
+      prs.map((x) => x.id)
+    )
+    const data = this.pullRequests
+    const tasks = prs.map((pr) => {
+      return async () => {
+        try {
+          const reviewer = await buildApi.createPullRequestReviewer(
+            {
+              vote: 10,
+            },
+            pr.details.repositoryId,
+            pr.id,
+            connectionData.authenticatedUser?.id ?? '',
+            pr.details.projectId
+          )
+
+          // update the related pull request
+          AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
+        } catch (error) {
+          log.error('Failed to approve pull request', error)
+        }
       }
     })
+
+    await throttleAll<void>(4, tasks)
 
     this.pullRequests = data
     BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
@@ -394,6 +423,7 @@ export class AzureDevOpsService {
       loader.start()
 
       const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
+      this.data = newData
       data.items = newData.items
       data.error = newData.error
     } else {

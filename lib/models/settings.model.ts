@@ -5,6 +5,7 @@ export interface AzDoSettings {
   project: string
   pat: string
   updateInterval: number
+  intelligentApproval: boolean
 }
 
 export interface AppearanceSettings {
