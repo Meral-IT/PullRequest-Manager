@@ -111,11 +111,11 @@ export default function AzureDevOpsSettings() {
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
       </Field>
       <Field
-        label="Intelligent Approval"
+        label="Smart Approval"
         hint="Enable smart approval for pull requests by only approving the changes that matter."
       >
         <Checkbox
-          label={'Enable intelligent approval'}
+          label={'Enable smart approval'}
           name="azDoIntelligentApproval"
           checked={state.azDoIntelligentApproval}
           onChange={(e) => {
