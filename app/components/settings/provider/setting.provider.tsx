@@ -19,6 +19,7 @@ export const SettingProvider = ({ children }: Props) => {
     azDoInterval: 60,
     azDoValidationMessage: '',
     azDoValidationState: 'none',
+    azDoIntelligentApproval: true,
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     profiles: [],
@@ -34,6 +35,7 @@ export const SettingProvider = ({ children }: Props) => {
       azDoProject: settings.azDo.project,
       azDoPat: settings.azDo.pat,
       azDoInterval: settings.azDo.updateInterval,
+      azDoIntelligentApproval: settings.azDo.intelligentApproval,
       azDoValidationMessage: '',
       azDoValidationState: 'none',
       appearanceTableSize: settings.appearance.tableSize,
@@ -121,6 +123,7 @@ export const SettingProvider = ({ children }: Props) => {
           project: formData.azDoProject,
           pat: formData.azDoPat,
           updateInterval: formData.azDoInterval,
+          intelligentApproval: formData.azDoIntelligentApproval,
         },
         appearance: {
           theme: formData.appearanceTheme,
