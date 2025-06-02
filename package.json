@@ -59,7 +59,7 @@
     "electron-devtools-installer": "^4.0.0",
     "electron-log": "^5.3.4",
     "electron-vite": "^3.1.0",
-    "eslint": "^9.27.0",
+    "eslint": "^9.28.0",
     "eslint-plugin-react": "^7.37.5",
     "framer-motion": "^12.10.6",
     "prettier": "^3.5.2",
