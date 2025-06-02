@@ -66,7 +66,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.6.1",
-    "sass-embedded": "^1.87.0",
+    "sass-embedded": "^1.89.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }
