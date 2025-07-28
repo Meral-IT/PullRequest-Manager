@@ -45,7 +45,7 @@
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@fluentui/react-components": "^9.66.6",
-    "@fluentui/react-icons": "^2.0.305",
+    "@fluentui/react-icons": "^2.0.307",
     "@reduxjs/toolkit": "^2.8.2",
     "@rushstack/eslint-patch": "^1.10.5",
     "@types/node": "^22.16.0",
