@@ -107,7 +107,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
           <TableCellLayout
             className="pr-title"
-            description={`${item.details.repository}`}
+            description={`${item.details.repository} · ${item.details.branch} → ${item.details.targetBranch}`}
             appearance="primary"
             truncate
             onClick={click}
