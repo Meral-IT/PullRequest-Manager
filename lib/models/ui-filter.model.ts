@@ -51,9 +51,12 @@ export class FilterEvaluator {
   }
 
   private static evaluateTargetBranch(pr: PullRequest, filter: CombinationFilter<string>): boolean {
+    const normalizeBranch = (branch: string) =>
+      branch.startsWith('refs/heads/') ? branch.substring('refs/heads/'.length) : branch;
+    const prBranch = normalizeBranch(pr.details.targetBranch);
     return filter.op === 'AND'
-      ? filter.filters.every((f) => pr.details.targetBranch === f)
-      : filter.filters.some((f) => pr.details.targetBranch === f)
+      ? filter.filters.every((f) => prBranch === normalizeBranch(f))
+      : filter.filters.some((f) => prBranch === normalizeBranch(f));
   }
 
   private static evaluateAuthor(pr: PullRequest, filter: CombinationFilter<UserFilter>): boolean {
