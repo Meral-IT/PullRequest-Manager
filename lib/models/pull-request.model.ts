@@ -46,6 +46,7 @@ export type DetailsCell = {
   repository: string
   projectId: string
   branch: string
+  targetBranch: string
   isDraft?: boolean
   isConflict?: boolean
 }
