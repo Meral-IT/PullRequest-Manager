@@ -287,6 +287,7 @@ export class AzureDevOpsService {
         repository: pr.repository?.name ?? '',
         projectId: pr.repository?.project?.id ?? '',
         branch: pr.sourceRefName,
+        targetBranch: pr.targetRefName,
         isDraft: pr.isDraft,
         isConflict: pr.mergeStatus === PullRequestAsyncStatus.Conflicts,
       },
