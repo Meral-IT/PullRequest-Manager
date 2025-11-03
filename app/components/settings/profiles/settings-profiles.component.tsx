@@ -32,14 +32,25 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     flex: 1,
+    height: '100%',
   },
   height: {
     height: '100%',
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
   },
   textarea: {
     maxHeight: 'unset',
     height: '100%',
     minHeight: '200px',
+    flexGrow: 1,
+  },
+  textareaField: {
+    flexGrow: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    paddingBottom: '20px'
   },
   gap: { display: 'flex', gap: '1rem' },
   bottom: { marginTop: 'auto' },
@@ -202,6 +213,7 @@ export default function ProfileSettings() {
           label={'Filter'}
           validationState="error"
           validationMessage={'Danger zone: Make sure you know what you are doing. This is a JSON object.'}
+          className={styles.textareaField}
         >
           <Textarea
             className={styles.height}
