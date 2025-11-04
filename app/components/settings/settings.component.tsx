@@ -17,7 +17,7 @@ import {
   TabList,
   tokens,
 } from '@fluentui/react-components'
-import { AddFilled, HomeFilled, KeyFilled, LayerRegular, PaintBrushFilled, SettingsFilled } from '@fluentui/react-icons'
+import { AddFilled, HomeFilled, KeyFilled, LayerRegular, PaintBrushFilled, SettingsFilled, WarningRegular } from '@fluentui/react-icons'
 import { useContext, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import SplitContainer from '../split-container/split-container.component'
@@ -45,6 +45,9 @@ const useStyles = makeStyles({
       backgroundColor: tokens.colorStatusDangerBackground3Pressed,
     },
   },
+  profileError: {
+    color: tokens.colorStatusDangerForeground1,
+  },
 })
 
 export default function SettingsComponent() {
@@ -62,13 +65,22 @@ export default function SettingsComponent() {
     }
   }
 
+  const isValid = state.profiles.every((p) => p.filterValid)
+
   const loc = useLocation()
   let pathName = loc.pathname
   if (loc.pathname === '/settings') {
     pathName = '/settings/general'
   }
 
-  const buttonContent = saving ? 'Saving settings' : 'Save Settings'
+  let buttonContent: string
+  if (saving) {
+    buttonContent = 'Saving settings'
+  } else if (isValid) {
+    buttonContent = 'Save Settings'
+  } else {
+    buttonContent = 'Invalid Profile(s)'
+  }
   const [open, setOpen] = useState(false)
   const unsavedChangesDialog = (
     <Dialog
@@ -126,7 +138,7 @@ export default function SettingsComponent() {
   const profiles = state.profiles.map((profile) => {
     const profileUri = `/settings/profiles/${profile.id}`
     return (
-      <Tab icon={<LayerRegular />} value={profileUri} key={profile.id}>
+      <Tab icon={profile.filterValid ? <LayerRegular /> : <WarningRegular className={styles.profileError} />} value={profileUri} key={profile.id}>
         {profile.label}
       </Tab>
     )
@@ -168,7 +180,7 @@ export default function SettingsComponent() {
           <div className={styles.container}>
             <Outlet />
             <Field className={(styles.fullWidth, styles.bottom)}>
-              <Button onClick={actions.saveSettings} appearance="primary" disabled={saving}>
+              <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
                 {buttonContent}
               </Button>
             </Field>

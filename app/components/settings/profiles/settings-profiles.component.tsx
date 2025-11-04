@@ -211,8 +211,8 @@ export default function ProfileSettings() {
         </div>
         <Field
           label={'Filter'}
-          validationState="error"
-          validationMessage={'Danger zone: Make sure you know what you are doing. This is a JSON object.'}
+          validationState={profile.filterValid ? 'success' : 'error'}
+          validationMessage={profile.filterValid ? 'JSON schema is valid.' : 'Invalid schema! Please check your JSON syntax.'}
           className={styles.textareaField}
         >
           <Textarea
@@ -221,20 +221,13 @@ export default function ProfileSettings() {
               className: styles.textarea,
             }}
             name="profiles"
-            value={profile.filter ? JSON.stringify(profile.filter, null, 2) : ''}
+            value={profile.filter}
             onChange={(e) => {
-              let filter
-              try {
-                filter = JSON.parse(e.target.value)
-              } catch (error) {
-                console.error('Invalid JSON input:', error)
-                return // Exit early to prevent further processing
-              }
               const wrapper = {
                 profileId: profile.id,
                 target: {
                   name: 'filter',
-                  value: filter,
+                  value: e.target.value,
                 },
               }
 
@@ -247,7 +240,7 @@ export default function ProfileSettings() {
         <div className={styles.gap}>
           <Button
             onClick={() => {
-              const filter = JSON.stringify(profile.filter, null, 2)
+              const filter = profile.filter ?? ''
               navigator.clipboard.writeText(filter)
             }}
             icon={<CopyRegular />}
@@ -257,12 +250,11 @@ export default function ProfileSettings() {
           <Button
             onClick={() => {
               navigator.clipboard.readText().then((text) => {
-                const filter = JSON.parse(text)
                 const wrapper = {
                   profileId: profile.id,
                   target: {
                     name: 'filter',
-                    value: filter,
+                    value: text,
                   },
                 }
 
