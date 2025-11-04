@@ -73,7 +73,14 @@ export default function SettingsComponent() {
     pathName = '/settings/general'
   }
 
-  const buttonContent = saving ? 'Saving settings' : isValid ? 'Save Settings' : 'Invalid Profile(s)'
+  let buttonContent: string
+  if (saving) {
+    buttonContent = 'Saving settings'
+  } else if (isValid) {
+    buttonContent = 'Save Settings'
+  } else {
+    buttonContent = 'Invalid Profile(s)'
+  }
   const [open, setOpen] = useState(false)
   const unsavedChangesDialog = (
     <Dialog
