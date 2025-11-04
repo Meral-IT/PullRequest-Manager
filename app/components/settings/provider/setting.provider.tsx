@@ -34,7 +34,7 @@ export const SettingProvider = ({ children }: Props) => {
       isDefault: profile.isDefault,
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
-      filter: JSON.stringify(profile.filter, null, 2) || '',
+      filter: profile.filter ? JSON.stringify(profile.filter, null, 2) : '',
       filterValid: true
     }
   }
