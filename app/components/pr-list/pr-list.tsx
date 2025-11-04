@@ -7,6 +7,7 @@ import {
   Reviewer,
 } from '@/lib/models/pull-request.model'
 import { SettingsModel } from '@/lib/models/settings.model'
+import { normalizeBranchName } from '@/lib/tools/name-normalizer'
 import { usePersistentState } from '@/lib/tools/persistent-state.hook'
 import emptyImage from '@/resources/emptyPRList.svg'
 import {
@@ -92,6 +93,9 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         window.api.invoke('web-open-url', item.urls.web)
       }
 
+      const sourceBranch = normalizeBranchName(item.details.branch);
+      const targetBranch = normalizeBranchName(item.details.targetBranch);
+
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
           Draft
@@ -107,7 +111,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
           <TableCellLayout
             className="pr-title"
-            description={`${item.details.repository} · ${item.details.branch} → ${item.details.targetBranch}`}
+            description={`${item.details.repository} · ${sourceBranch} → ${targetBranch}`}
             appearance="primary"
             truncate
             onClick={click}

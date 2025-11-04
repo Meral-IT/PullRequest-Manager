@@ -1,3 +1,4 @@
+import { normalizeBranchName as normalizeBranch } from '../tools/name-normalizer'
 import { PrVote } from './pr-vote'
 import { PullRequest, Reviewer } from './pull-request.model'
 import { User } from './user.model'
@@ -9,6 +10,7 @@ export interface FilterNode {
   reviewers?: CombinationFilter<ReviewerFilter>
   isDraft?: boolean
   targetBranch?: CombinationFilter<string>
+  sourceBranch?: CombinationFilter<string>
 }
 
 export interface UserFilter {
@@ -30,8 +32,22 @@ export interface CombinationFilter<TFilter> {
 }
 
 export class FilterEvaluator {
-  public static evaluate(data: PullRequest[], filter: PullRequestFilter): PullRequest[] {
-    return data.filter((pr) => this.evaluatePullRequest(pr, filter))
+  public static evaluate(data: PullRequest[], filter: string | PullRequestFilter): PullRequest[] {
+    let parsedFilter: PullRequestFilter;
+
+    if (typeof filter === 'string') {
+      try {
+        parsedFilter = JSON.parse(filter);
+      } catch (error) {
+        // If JSON parsing fails, return all data unfiltered or handle as needed
+        console.warn('Failed to parse filter JSON:', error);
+        return data; // Return original data when filter parsing fails
+      }
+    } else {
+      parsedFilter = filter;
+    }
+
+    return data.filter((pr) => this.evaluatePullRequest(pr, parsedFilter))
   }
 
   private static evaluatePullRequest(pr: PullRequest, filter: PullRequestFilter): boolean {
@@ -45,15 +61,21 @@ export class FilterEvaluator {
       ((!filter.author || this.evaluateAuthor(pr, filter.author)) &&
         (!filter.reviewers || this.evaluateReviewers(pr, filter.reviewers)) &&
         (filter.isDraft === undefined || pr.isDraft === filter.isDraft) &&
-        (!filter.targetBranch || this.evaluateTargetBranch(pr, filter.targetBranch))) ??
+        (!filter.targetBranch || this.evaluateTargetBranch(pr, filter.targetBranch)) &&
+        (!filter.sourceBranch || this.evaluateSourceBranch(pr, filter.sourceBranch))) ??
       false
     )
   }
 
   private static evaluateTargetBranch(pr: PullRequest, filter: CombinationFilter<string>): boolean {
-    const normalizeBranch = (branch: string) =>
-      branch.startsWith('refs/heads/') ? branch.substring('refs/heads/'.length) : branch;
     const prBranch = normalizeBranch(pr.details.targetBranch);
+    return filter.op === 'AND'
+      ? filter.filters.every((f) => prBranch === normalizeBranch(f))
+      : filter.filters.some((f) => prBranch === normalizeBranch(f));
+  }
+
+  private static evaluateSourceBranch(pr: PullRequest, filter: CombinationFilter<string>): boolean {
+    const prBranch = normalizeBranch(pr.details.branch);
     return filter.op === 'AND'
       ? filter.filters.every((f) => prBranch === normalizeBranch(f))
       : filter.filters.some((f) => prBranch === normalizeBranch(f));

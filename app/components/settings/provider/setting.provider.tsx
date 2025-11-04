@@ -1,6 +1,8 @@
+import { PrProfile } from '@/lib/models/pr-profile'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
 import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from 'react'
-import { SettingPageProps, SettingsContext, SettingStateProps } from '../context'
+import { SettingPageProps, SettingsContext, SettingStateProps, SettingStatePrProfile } from '../context'
+import { validateProfileFilter } from '../validation-helper'
 
 interface Props {
   children: ReactNode
@@ -25,6 +27,29 @@ export const SettingProvider = ({ children }: Props) => {
     profiles: [],
   })
 
+  const convertProfiles = (profile: PrProfile): SettingStatePrProfile => {
+    return {
+      id: profile.id,
+      label: profile.label,
+      isDefault: profile.isDefault,
+      enableAcceptAll: profile.enableAcceptAll,
+      visible: profile.visible,
+      filter: JSON.stringify(profile.filter, null, 2) || '',
+      filterValid: true
+    }
+  }
+
+  const convertProfilesToModel = (profile: SettingStatePrProfile): PrProfile => {
+    return {
+      id: profile.id,
+      label: profile.label,
+      isDefault: profile.isDefault,
+      enableAcceptAll: profile.enableAcceptAll,
+      visible: profile.visible,
+      filter: profile.filter ? JSON.parse(profile.filter) : undefined,
+    }
+  }
+
   const convertSettings = (settings: SettingsModel): SettingStateProps => {
     return {
       openAtLogin: settings.general.openAtLogin,
@@ -39,7 +64,7 @@ export const SettingProvider = ({ children }: Props) => {
       azDoValidationMessage: '',
       azDoValidationState: 'none',
       appearanceTableSize: settings.appearance.tableSize,
-      profiles: settings.profiles,
+      profiles: settings.profiles.map(convertProfiles),
     }
   }
 
@@ -67,6 +92,11 @@ export const SettingProvider = ({ children }: Props) => {
       const updatedProfile = formData.profiles.find((profile) => profile.id === profileId)
       if (!updatedProfile) {
         return
+      }
+
+      if (e.target.name === 'filter') {
+        const isValid = validateProfileFilter(value)
+        updatedProfile.filterValid = isValid
       }
 
       if (updatedProfile.isDefault) {
@@ -129,7 +159,7 @@ export const SettingProvider = ({ children }: Props) => {
           theme: formData.appearanceTheme,
           tableSize: formData.appearanceTableSize,
         },
-        profiles: formData.profiles,
+        profiles: formData.profiles.map(convertProfilesToModel),
       }
       await window.api.invoke('save-settings', model)
     } finally {
@@ -159,12 +189,14 @@ export const SettingProvider = ({ children }: Props) => {
   }
 
   const handleAddProfile = () => {
-    const newProfile = {
+    const newProfile: SettingStatePrProfile = {
       id: crypto.randomUUID(),
       label: 'New profile',
       visible: true,
       enableAcceptAll: false,
       isDefault: false,
+      filter: '',
+      filterValid: true
     }
     setFormData((prevFormData) => ({
       ...prevFormData,

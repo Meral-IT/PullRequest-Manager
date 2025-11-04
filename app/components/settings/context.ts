@@ -1,6 +1,15 @@
-import { PrProfile } from '@/lib/models/pr-profile'
 import { TableSize } from '@/lib/models/settings.model'
 import { createContext } from 'react'
+
+export interface SettingStatePrProfile {
+  id: string
+  label: string
+  isDefault?: boolean
+  enableAcceptAll: boolean
+  visible: boolean
+  filter?: string
+  filterValid: boolean
+}
 
 export interface SettingStateProps {
   openAtLogin: boolean
@@ -15,7 +24,7 @@ export interface SettingStateProps {
   azDoIntelligentApproval: boolean
   azDoValidationMessage: string
   azDoValidationState: 'none' | 'error' | 'success' | 'warning' | undefined
-  profiles: PrProfile[]
+  profiles: SettingStatePrProfile[]
 }
 
 export interface SettingPageProps {
@@ -51,12 +60,12 @@ export const SettingsContext = createContext<SettingPageProps>({
   },
   actions: {
     getInitialSettings: () => Promise.resolve({} as SettingStateProps),
-    onChangeHandler: () => {},
-    validateAzDo: () => {},
-    saveSettings: () => {},
-    deleteProfile: (id: string) => {},
-    addProfile: () => {},
-    duplicateProfile: (id: string) => {},
+    onChangeHandler: () => { },
+    validateAzDo: () => { },
+    saveSettings: () => { },
+    deleteProfile: (id: string) => { },
+    addProfile: () => { },
+    duplicateProfile: (id: string) => { },
   },
   saving: false,
   validatingAzDo: false,
