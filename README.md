@@ -29,6 +29,7 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🎨 **User-Friendly Interface** – Built with Fluent UI for a clean and modern experience.
 - 🔄 **Multi-Project Support** – Seamlessly switch between different Azure DevOps projects.
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
+- 🔔 **Desktop Notifications** – Get notified when new pull requests arrive, with optional sound alerts.
 
 ## Screenshots
 

@@ -19,22 +19,13 @@ export class NotificationService {
     this.settings = settings
   }
 
-  public notifyNewPullRequests(pullRequests: PullRequest[], profileId?: string): void {
+  public notifyNewPullRequests(pullRequests: PullRequest[]): void {
     if (!this.settings?.enableNotifications) {
       return
     }
 
-    // Filter PRs based on notification profiles if specified
-    let filteredPRs = pullRequests
-    if (this.settings.notificationProfiles && this.settings.notificationProfiles.length > 0) {
-      // If specific profiles are selected and this update is for a profile
-      if (profileId && !this.settings.notificationProfiles.includes(profileId)) {
-        return
-      }
-    }
-
     // Find new PRs that haven't been notified yet
-    const newPRs = filteredPRs.filter((pr) => !this.lastNotifiedPRIds.has(pr.id))
+    const newPRs = pullRequests.filter((pr) => !this.lastNotifiedPRIds.has(pr.id))
 
     if (newPRs.length === 0) {
       return

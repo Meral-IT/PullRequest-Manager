@@ -435,7 +435,11 @@ export class AzureDevOpsService {
       // Detect new PRs and send notifications
       const newPRs = data.items.filter((pr) => !oldPRIds.has(pr.id))
       if (newPRs.length > 0) {
-        NotificationService.getInstance().notifyNewPullRequests(newPRs)
+        try {
+          NotificationService.getInstance().notifyNewPullRequests(newPRs)
+        } catch (error) {
+          log.error('Failed to send notification', error)
+        }
       }
     } else {
       data.error = {
