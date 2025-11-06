@@ -19,6 +19,13 @@ export class NotificationService {
     this.settings = settings
   }
 
+  /**
+   * Notify about new pull requests.
+   * This method tracks which PRs have already been notified to prevent duplicates,
+   * even if called multiple times with the same PR.
+   * 
+   * @param pullRequests - Array of pull requests to potentially notify about
+   */
   public notifyNewPullRequests(pullRequests: PullRequest[]): void {
     if (!this.settings?.enableNotifications) {
       return

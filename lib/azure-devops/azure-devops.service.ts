@@ -427,12 +427,18 @@ export class AzureDevOpsService {
       loader.start()
 
       const oldPRIds = new Set(this.pullRequests.items.map((pr) => pr.id))
+      const isFirstLoad = oldPRIds.size === 0
       const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
       this.data = newData
       data.items = newData.items
       data.error = newData.error
 
-      this.handleNewPRNotifications(oldPRIds, data.items)
+      if (isFirstLoad) {
+        // On first load, mark all existing PRs as known to avoid notifications
+        NotificationService.getInstance().updateKnownPRs(data.items)
+      } else {
+        this.handleNewPRNotifications(oldPRIds, data.items)
+      }
     } else {
       data.error = {
         message: 'Configuration required',
