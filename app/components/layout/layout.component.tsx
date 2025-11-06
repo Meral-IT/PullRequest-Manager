@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import UpdateNotification from '../update-notification/update-notification.component'
 
 const shouldUseDarkColors = (): boolean =>
-  window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  globalThis.matchMedia && globalThis.matchMedia('(prefers-color-scheme: dark)').matches
 
 const getTheme = (name: string) => {
   switch (name) {
@@ -26,7 +26,7 @@ function Layout({ children }: Readonly<Props>) {
   const [theme, setTheme] = useState<string>('system')
 
   useEffect(() => {
-    return window.api.receive('nativeThemeChanged', () => {
+    return globalThis.api.receive('nativeThemeChanged', () => {
       if (theme === 'system') {
         setTheme(shouldUseDarkColors() ? 'dark' : 'light')
       }
@@ -34,11 +34,11 @@ function Layout({ children }: Readonly<Props>) {
   }, [])
 
   useEffect(() => {
-    window.api.invoke('get-theme').then((theme) => {
+    globalThis.api.invoke('get-theme').then((theme) => {
       setTheme(theme)
     })
 
-    window.api.receive('theme-changed', (theme: string) => {
+    globalThis.api.receive('theme-changed', (theme: string) => {
       setTheme(theme)
     })
   }, [])

@@ -16,9 +16,9 @@ export function isArray(arg: any): arg is any[] {
 export function css(...args: CssArg[]): string {
   const classes: string[] = []
 
-  args.forEach((arg) => {
+  for (const arg of args) {
     if (arg === null || arg === undefined) {
-      return
+      continue
     }
     if (typeof arg === 'string') {
       classes.push(arg)
@@ -27,10 +27,10 @@ export function css(...args: CssArg[]): string {
     } else if (isArray(arg)) {
       classes.push(css(...arg))
     }
-  })
+  }
 
   return classes
-    .filter((c) => c)
+    .filter(c => c)
     .join(' ')
     .trim()
 }

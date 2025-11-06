@@ -66,8 +66,9 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
   if (profiles) {
     const approveMenu = contextMenu?.getMenuItemById('approve')
     if (approveMenu) {
-      const enabledProfiles = profiles.filter((x) => x.enableAcceptAll)
-      enabledProfiles.forEach((profile) => {
+
+      const enabledProfiles = profiles.filter((profile) => profile.enableAcceptAll)
+      for (const profile of enabledProfiles) {
         approveMenu.submenu?.append(
           new MenuItem({
             label: profile.label,
@@ -77,7 +78,8 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
             },
           })
         )
-      })
+      }
+
       approveMenu.visible = enabledProfiles.length > 0
     }
   }

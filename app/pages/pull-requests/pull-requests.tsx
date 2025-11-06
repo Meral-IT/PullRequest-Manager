@@ -154,7 +154,7 @@ const OverflowMenu = (props: OverflowMenuProps) => {
 export default function PullRequestsOverview() {
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const [open, setOpen] = useState(false)
-  const onOpenChange: MenuProps['onOpenChange'] = (e, data) => {
+  const onOpenChange: MenuProps['onOpenChange'] = (_, data) => {
     setOpen(data.open)
   }
   const [selectedValue, setSelectedValue] = useState<TabValue>('builtin:all')
@@ -166,7 +166,7 @@ export default function PullRequestsOverview() {
   const [profiles, setProfiles] = useState<PrProfile[]>([])
 
   useEffect(() => {
-    window.api.invoke('get-pr-data').then((data) => {
+    globalThis.api.invoke('get-pr-data').then((data) => {
       if (data) {
         setPullRequests(data)
       }
@@ -174,13 +174,13 @@ export default function PullRequestsOverview() {
   }, [])
 
   useEffect(() => {
-    return window.api.receive('pr-data', (data) => {
+    return globalThis.api.receive('pr-data', (data) => {
       setPullRequests(data)
     })
   }, [])
 
   useEffect(() => {
-    window.api.invoke('get-settings').then((settings) => {
+    globalThis.api.invoke('get-settings').then((settings) => {
       setProfiles(settings.profiles)
       setSelectedValue(settings.profiles.find((profile) => profile.isDefault)?.id ?? 'builtin:all')
     })
@@ -200,7 +200,7 @@ export default function PullRequestsOverview() {
   }
 
   const onApproveClick = () => {
-    window.api.invoke('approve-prs', menuData)
+    globalThis.api.invoke('approve-prs', menuData)
     setOpen(false)
   }
 

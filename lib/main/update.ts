@@ -43,9 +43,10 @@ export class PullRequestUpdateManager {
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       log.info('Update available:', info)
-      BrowserWindow.getAllWindows().forEach((window) => {
+
+      for (const window of BrowserWindow.getAllWindows()) {
         window.webContents.send('update:update-available', info)
-      })
+      }
 
       const NOTIFICATION_TITLE = 'Update available'
       const NOTIFICATION_BODY = 'Click to view the release notes'
@@ -67,16 +68,17 @@ export class PullRequestUpdateManager {
 
     autoUpdater.on('download-progress', (info: ProgressInfo) => {
       log.info('Download progress:', info)
-      BrowserWindow.getAllWindows().forEach((window) => {
+
+      for (const window of BrowserWindow.getAllWindows()) {
         window.webContents.send('update:download-progress', info)
-      })
+      }
     })
 
     autoUpdater.on('update-downloaded', (info: UpdateDownloadedEvent) => {
       log.info('Update downloaded:', info)
-      BrowserWindow.getAllWindows().forEach((window) => {
+      for (const window of BrowserWindow.getAllWindows()) {
         window.webContents.send('update:update-downloaded', info)
-      })
+      }
     })
 
     return autoUpdater

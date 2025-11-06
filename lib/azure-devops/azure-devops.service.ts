@@ -46,14 +46,9 @@ export class AzureDevOpsService {
 
   private settings?: AzDoSettings
   private api?: azdev.WebApi
-  private active: boolean
-  private pullRequests: PullRequestData
+  private active: boolean = false
+  private pullRequests: PullRequestData = { items: [], error: null }
   private data: AzureDevOpsData = new AzureDevOpsData()
-
-  constructor() {
-    this.active = false
-    this.pullRequests = { items: [], error: null }
-  }
 
   public stop(): void {
     if (!this.active) {
@@ -150,7 +145,8 @@ export class AzureDevOpsService {
 
     const votedForIdentities = reviewer.votedFor?.map((x) => x.id) ?? []
     let votedFor = false
-    pullRequest.reviewers.forEach((x) => {
+
+    for (const x of pullRequest.reviewers) {
       if (x.user.id === reviewer.id) {
         // Direct vote
         votedFor = true
@@ -161,7 +157,9 @@ export class AzureDevOpsService {
         x.vote = 10
 
         const reviewerItem = x.reviewedBy.find((y) => y.user.id === reviewer.id)
-        if (!reviewerItem) {
+        if (reviewerItem) {
+          reviewerItem.vote = 10
+        } else {
           x.reviewedBy.push({
             user: {
               id: reviewer.id ?? '',
@@ -171,11 +169,9 @@ export class AzureDevOpsService {
             },
             vote: 10,
           })
-        } else {
-          reviewerItem.vote = 10
         }
       }
-    })
+    }
 
     if (!votedFor) {
       pullRequest.reviewers.push({
@@ -311,12 +307,12 @@ export class AzureDevOpsService {
 
     const results = await throttleAll<PolicyEvaluation>(4, tasks)
 
-    results.forEach((evaluation) => {
+    for (const evaluation of results) {
       const pr = data.items.find((pr) => pr.id === evaluation.prId)
       if (pr) {
         pr.evaluations = evaluation.evaluations
       }
-    })
+    }
   }
 
   private static async GetPolicyEvaluations(pr: PullRequest, policyApi: IPolicyApi, settings: AzDoSettings) {
@@ -368,51 +364,54 @@ export class AzureDevOpsService {
     const mappedReviewers: Reviewer[] = []
 
     // Group reviewers by their "voted for" status
-    reviewers
-      .filter((x) => !x.votedFor)
-      .forEach((rev) => {
-        const mappedRev = {
-          user: {
-            id: rev.id,
-            label: rev.displayName,
-            isBot: rev.isAadIdentity,
-            isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
-            imageUrl: rev.imageUrl,
-            imageBase64: undefined,
-          },
-          isRequired: rev.isRequired,
-          vote: rev.vote as PrVote,
-          reviewedBy: [],
-        } as Reviewer
+    for (const rev of reviewers) {
+      if (rev.votedFor && rev.votedFor.length > 0) {
+        continue
+      }
 
-        mappedReviewers.push(mappedRev)
-      })
+      const mappedRev = {
+        user: {
+          id: rev.id,
+          label: rev.displayName,
+          isBot: rev.isAadIdentity,
+          isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
+          imageUrl: rev.imageUrl,
+          imageBase64: undefined,
+        },
+        isRequired: rev.isRequired,
+        vote: rev.vote as PrVote,
+        reviewedBy: [],
+      } as Reviewer
+
+      mappedReviewers.push(mappedRev)
+    }
 
     // Add the "voted for" reviewers
-    reviewers
-      .filter((x) => x.votedFor)
-      .forEach((rev) => {
-        const votedForItems = mappedReviewers.filter((x) => rev.votedFor?.some((v) => v.id == x.user.id))
+    for (const rev of reviewers) {
+      if (!rev.votedFor || rev.votedFor.length === 0) {
+        continue
+      }
+      const votedForItems = mappedReviewers.filter((x) => rev.votedFor?.some((v) => v.id == x.user.id))
 
-        const mappedRev = {
-          user: {
-            id: rev.id,
-            label: rev.displayName,
-            isBot: rev.isAadIdentity,
-            isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
-            imageUrl: rev.imageUrl,
-            imageBase64: undefined,
-          },
-          isRequired: votedForItems.length > 0,
-          reviewedBy: votedForItems,
-          vote: rev.vote as PrVote,
-        } as Reviewer
+      const mappedRev = {
+        user: {
+          id: rev.id,
+          label: rev.displayName,
+          isBot: rev.isAadIdentity,
+          isMySelf: rev.id == myself?.id || teams.some((team) => team.id === rev.id),
+          imageUrl: rev.imageUrl,
+          imageBase64: undefined,
+        },
+        isRequired: votedForItems.length > 0,
+        reviewedBy: votedForItems,
+        vote: rev.vote as PrVote,
+      } as Reviewer
 
-        votedForItems.forEach((item) => {
-          item.reviewedBy = item.reviewedBy || []
-          item.reviewedBy.push(mappedRev)
-        })
-      })
+      for (const item of votedForItems) {
+        item.reviewedBy = item.reviewedBy || []
+        item.reviewedBy.push(mappedRev)
+      }
+    }
 
     return mappedReviewers
   }
