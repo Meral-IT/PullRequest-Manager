@@ -11,7 +11,6 @@ const defaultSettings: SettingsModel = {
     openAtLogin: false,
     enableNotifications: true,
     notificationSound: false,
-    notificationProfiles: [],
   },
   azDo: {
     organizationUrl: '',
@@ -82,7 +81,6 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
       enableNotifications: input.general?.enableNotifications ?? defaultSettings.general.enableNotifications,
       notificationSound: input.general?.notificationSound ?? defaultSettings.general.notificationSound,
-      notificationProfiles: input.general?.notificationProfiles || defaultSettings.general.notificationProfiles,
     },
     azDo: {
       organizationUrl: input.azDo.organizationUrl || defaultSettings.azDo.organizationUrl,
