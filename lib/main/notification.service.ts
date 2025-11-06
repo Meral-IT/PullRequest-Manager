@@ -58,7 +58,7 @@ export class NotificationService {
     const notification = new Notification({
       title,
       body,
-      silent: !this.settings?.notificationSound,
+      silent: !(this.settings?.notificationSound ?? false),
     })
 
     notification.show()

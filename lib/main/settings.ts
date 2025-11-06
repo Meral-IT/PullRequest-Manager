@@ -92,7 +92,7 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       intelligentApproval: input.azDo.intelligentApproval ?? defaultSettings.azDo.intelligentApproval,
     },
     appearance: {
-      theme: input.appearance.theme || defaultSettings.appearance,
+      theme: input.appearance.theme || defaultSettings.appearance.theme,
       tableSize: input.appearance.tableSize || defaultSettings.appearance.tableSize,
     },
     profiles: input.profiles || defaultSettings.profiles,
