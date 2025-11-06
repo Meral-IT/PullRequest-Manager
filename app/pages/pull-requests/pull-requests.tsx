@@ -248,8 +248,8 @@ export default function PullRequestsOverview() {
             <Overflow minimumVisible={2}>
               <TabList selectedValue={selectedValue} onTabSelect={(_, d) => onTabSelect(d.value as string)}>
                 {details.map((detail) => detail.tab)}
-                <OverflowMenu profiles={details.map(x => x.profile)} onTabSelect={onTabSelect} />
               </TabList>
+              <OverflowMenu profiles={details.map(x => x.profile)} onTabSelect={onTabSelect} />
             </Overflow>
           </div>
           <div className="content scrollable-content">{details.map((detail) => detail.list)}</div>
