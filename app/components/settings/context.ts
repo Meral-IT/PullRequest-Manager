@@ -5,6 +5,7 @@ export interface SettingStatePrProfile {
   id: string
   label: string
   isDefault?: boolean
+  notifyOnNewPrs: boolean
   enableAcceptAll: boolean
   visible: boolean
   filter?: string
@@ -13,6 +14,8 @@ export interface SettingStatePrProfile {
 
 export interface SettingStateProps {
   openAtLogin: boolean
+  enableNotifications: boolean
+  notificationSound: boolean
   name: string
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
@@ -45,6 +48,8 @@ export interface SettingPageProps {
 export const SettingsContext = createContext<SettingPageProps>({
   state: {
     openAtLogin: false,
+    enableNotifications: true,
+    notificationSound: false,
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     name: '',

@@ -4,6 +4,7 @@ import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
 import { join } from 'path'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
+import { NotificationService } from './notification.service'
 import { loadSettings } from './settings'
 import createTrayIcon from './tray'
 import { PullRequestUpdateManager } from './update'
@@ -13,6 +14,7 @@ let mainWindow: BrowserWindow | null = null
 async function initializeAzureDevOps(): Promise<void> {
   const settings = await loadSettings()
 
+  NotificationService.getInstance().setSettings(settings.general, settings.profiles)
   AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
   AzureDevOpsService.getInstance().start()
 }

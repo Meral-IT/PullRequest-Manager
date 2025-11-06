@@ -2,6 +2,7 @@ import * as azdev from 'azure-devops-node-api'
 import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import os from 'os'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
+import { NotificationService } from '../main/notification.service'
 import { loadSettings, saveSettings } from '../main/settings'
 import { PullRequestUpdateManager } from '../main/update'
 import { PullRequest } from '../models/pull-request.model'
@@ -74,6 +75,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   handleIPC('save-settings', async (_e, data) => {
     // Load the settings from the store
     const settings = await saveSettings(data)
+    NotificationService.getInstance().setSettings(settings.general, settings.profiles)
     AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
     AzureDevOpsService.getInstance().updateDataImmediately()
 

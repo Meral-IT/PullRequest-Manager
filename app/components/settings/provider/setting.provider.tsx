@@ -13,6 +13,8 @@ export const SettingProvider = ({ children }: Props) => {
   const [validatingAzDo, setValidatingAzDo] = useState(false)
   const [formData, setFormData] = useState<SettingStateProps>({
     openAtLogin: false,
+    enableNotifications: true,
+    notificationSound: false,
     name: '',
     email: '',
     azDoOrganizationUrl: '',
@@ -35,6 +37,7 @@ export const SettingProvider = ({ children }: Props) => {
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
       filter: profile.filter ? JSON.stringify(profile.filter, null, 2) : '',
+      notifyOnNewPrs: profile.notifyOnNewPrs,
       filterValid: true
     }
   }
@@ -46,6 +49,7 @@ export const SettingProvider = ({ children }: Props) => {
       isDefault: profile.isDefault,
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
+      notifyOnNewPrs: profile.notifyOnNewPrs,
       filter: profile.filter ? JSON.parse(profile.filter) : undefined,
     }
   }
@@ -53,6 +57,8 @@ export const SettingProvider = ({ children }: Props) => {
   const convertSettings = (settings: SettingsModel): SettingStateProps => {
     return {
       openAtLogin: settings.general.openAtLogin,
+      enableNotifications: settings.general.enableNotifications,
+      notificationSound: settings.general.notificationSound,
       appearanceTheme: settings.appearance.theme,
       name: '',
       email: '',
@@ -147,6 +153,8 @@ export const SettingProvider = ({ children }: Props) => {
       const model: SettingsModel = {
         general: {
           openAtLogin: formData.openAtLogin,
+          enableNotifications: formData.enableNotifications,
+          notificationSound: formData.notificationSound,
         },
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,
@@ -194,6 +202,7 @@ export const SettingProvider = ({ children }: Props) => {
       label: 'New profile',
       visible: true,
       enableAcceptAll: false,
+      notifyOnNewPrs: false,
       isDefault: false,
       filter: '',
       filterValid: true

@@ -207,6 +207,24 @@ export default function ProfileSettings() {
               }}
             />
           </div>
+          <div>
+            <Checkbox
+              label="Notify on new PRs"
+              name="notifyOnNewPrs"
+              checked={profile.notifyOnNewPrs}
+              onChange={(e) => {
+                const wrapper = {
+                  profileId: profile.id,
+                  target: {
+                    name: 'notifyOnNewPrs',
+                    value: e.target.checked,
+                  },
+                }
+
+                actions.onChangeHandler(wrapper)
+              }}
+            />
+          </div>
         </div>
         <Field
           label={'Filter'}

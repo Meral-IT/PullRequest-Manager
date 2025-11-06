@@ -11,6 +11,7 @@ import { ConnectionData } from 'azure-devops-node-api/interfaces/LocationsInterf
 import { IPolicyApi } from 'azure-devops-node-api/PolicyApi'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
+import { NotificationService } from '../main/notification.service'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
 import { PrProfile } from '../models/pr-profile'
@@ -425,10 +426,19 @@ export class AzureDevOpsService {
     if (this.settings && this.api && this.isValidSettings(this.settings)) {
       loader.start()
 
+      const oldPRIds = new Set(this.pullRequests.items.map((pr) => pr.id))
+      const isFirstLoad = oldPRIds.size === 0
       const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
       this.data = newData
       data.items = newData.items
       data.error = newData.error
+
+      if (isFirstLoad) {
+        // On first load, mark all existing PRs as known to avoid notifications
+        NotificationService.getInstance().initialize(data.items)
+      } else {
+        this.handleNewPRNotifications(oldPRIds, data.items)
+      }
     } else {
       data.error = {
         message: 'Configuration required',
@@ -441,6 +451,17 @@ export class AzureDevOpsService {
     this.pullRequests = data
     BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
     loader.stop()
+  }
+
+  private handleNewPRNotifications(oldPRIds: Set<number>, newPRs: PullRequest[]): void {
+    const newlyDetectedPRs = newPRs.filter((pr) => !oldPRIds.has(pr.id))
+    if (newlyDetectedPRs.length > 0) {
+      try {
+        NotificationService.getInstance().notifyNewPullRequests(newlyDetectedPRs)
+      } catch (error) {
+        log.error('Failed to send notification', error)
+      }
+    }
   }
 
   private initializeApi(): azdev.WebApi {
