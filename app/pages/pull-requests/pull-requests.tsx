@@ -236,8 +236,6 @@ export default function PullRequestsOverview() {
               </TabList>
             </Overflow>
           </div>
-          <div className="content header">
-          </div>
           <div className="content scrollable-content">{details.map((detail) => detail.list)}</div>
         </div>
       </div>
