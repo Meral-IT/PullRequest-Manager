@@ -21,6 +21,9 @@ export enum TableSize {
 
 export interface GeneralSettings {
   openAtLogin: boolean
+  enableNotifications: boolean
+  notificationSound: boolean
+  notificationProfiles: string[]
 }
 
 export interface SettingsModel {

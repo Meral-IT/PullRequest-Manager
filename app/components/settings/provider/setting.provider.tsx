@@ -13,6 +13,9 @@ export const SettingProvider = ({ children }: Props) => {
   const [validatingAzDo, setValidatingAzDo] = useState(false)
   const [formData, setFormData] = useState<SettingStateProps>({
     openAtLogin: false,
+    enableNotifications: true,
+    notificationSound: false,
+    notificationProfiles: [],
     name: '',
     email: '',
     azDoOrganizationUrl: '',
@@ -53,6 +56,9 @@ export const SettingProvider = ({ children }: Props) => {
   const convertSettings = (settings: SettingsModel): SettingStateProps => {
     return {
       openAtLogin: settings.general.openAtLogin,
+      enableNotifications: settings.general.enableNotifications,
+      notificationSound: settings.general.notificationSound,
+      notificationProfiles: settings.general.notificationProfiles,
       appearanceTheme: settings.appearance.theme,
       name: '',
       email: '',
@@ -147,6 +153,9 @@ export const SettingProvider = ({ children }: Props) => {
       const model: SettingsModel = {
         general: {
           openAtLogin: formData.openAtLogin,
+          enableNotifications: formData.enableNotifications,
+          notificationSound: formData.notificationSound,
+          notificationProfiles: formData.notificationProfiles,
         },
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,

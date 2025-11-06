@@ -9,6 +9,9 @@ const settingFile = path.join(app.getPath('userData'), 'settings.json')
 const defaultSettings: SettingsModel = {
   general: {
     openAtLogin: false,
+    enableNotifications: true,
+    notificationSound: false,
+    notificationProfiles: [],
   },
   azDo: {
     organizationUrl: '',
@@ -77,6 +80,9 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
   const settings = {
     general: {
       openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
+      enableNotifications: input.general?.enableNotifications ?? defaultSettings.general.enableNotifications,
+      notificationSound: input.general?.notificationSound ?? defaultSettings.general.notificationSound,
+      notificationProfiles: input.general?.notificationProfiles || defaultSettings.general.notificationProfiles,
     },
     azDo: {
       organizationUrl: input.azDo.organizationUrl || defaultSettings.azDo.organizationUrl,

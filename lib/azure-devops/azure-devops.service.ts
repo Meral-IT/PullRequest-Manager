@@ -26,6 +26,7 @@ import {
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import { FilterEvaluator } from '../models/ui-filter.model'
+import { NotificationService } from '../main/notification.service'
 import loader from '../tools/loading.service'
 import { throttleAll } from '../tools/promise-throttle'
 
@@ -425,10 +426,17 @@ export class AzureDevOpsService {
     if (this.settings && this.api && this.isValidSettings(this.settings)) {
       loader.start()
 
+      const oldPRIds = new Set(this.pullRequests.items.map((pr) => pr.id))
       const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
       this.data = newData
       data.items = newData.items
       data.error = newData.error
+
+      // Detect new PRs and send notifications
+      const newPRs = data.items.filter((pr) => !oldPRIds.has(pr.id))
+      if (newPRs.length > 0) {
+        NotificationService.getInstance().notifyNewPullRequests(newPRs)
+      }
     } else {
       data.error = {
         message: 'Configuration required',
