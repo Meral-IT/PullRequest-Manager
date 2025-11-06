@@ -6,16 +6,15 @@ import { PrProfile } from '@/lib/models/pr-profile'
 import { PullRequest } from '@/lib/models/pull-request.model'
 import { FilterEvaluator } from '@/lib/models/ui-filter.model'
 import type {
+  MenuItemProps,
   MenuProps,
   PositioningImperativeRef,
   PositioningShorthand,
   PositioningVirtualElement,
-  SelectTabData,
-  SelectTabEvent,
-  TabValue,
+  TabValue
 } from '@fluentui/react-components'
-import { CounterBadge, Menu, MenuItem, MenuList, MenuPopover, Tab, TabList } from '@fluentui/react-components'
-import { ThumbLikeFilled } from '@fluentui/react-icons'
+import { Button, CounterBadge, makeStyles, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Overflow, OverflowItem, Tab, TabList, tokens, useIsOverflowItemVisible, useOverflowMenu } from '@fluentui/react-components'
+import { MoreHorizontalRegular, ThumbLikeFilled } from '@fluentui/react-icons'
 import { useEffect, useRef, useState } from 'react'
 import './pull-requests.scss'
 
@@ -46,6 +45,95 @@ function TabHeaderMenu({
     </Menu>
   )
 }
+
+/**
+ * Props for an overflow menu that displays when there are more tabs than available space
+ */
+type OverflowMenuProps = {
+  onTabSelect?: (tabId: string) => void;
+  profiles: PrProfile[];
+};
+
+/**
+ * Props for an overflow menu item that only displays when the tab is not visible
+ */
+type OverflowMenuItemProps = {
+  tab: PrProfile;
+
+  onClick: MenuItemProps["onClick"];
+};
+
+/**
+* A menu item for an overflow menu that only displays when the tab is not visible
+*/
+const OverflowMenuItem = (props: OverflowMenuItemProps) => {
+  const { tab, onClick } = props;
+  const isVisible = useIsOverflowItemVisible(tab.id);
+
+  if (isVisible) {
+    return null;
+  }
+
+  return (
+    <MenuItem key={tab.id} onClick={onClick}>
+      <div>{tab.label}</div>
+    </MenuItem>
+  );
+};
+
+/**
+ * Styles for the overflow menu
+ */
+const useOverflowMenuStyles = makeStyles({
+  menu: {
+    backgroundColor: tokens.colorNeutralBackground1,
+  },
+  menuButton: {
+    alignSelf: "center",
+  },
+});
+
+const OverflowMenu = (props: OverflowMenuProps) => {
+  const { onTabSelect, profiles } = props;
+  const { ref, isOverflowing, overflowCount } =
+    useOverflowMenu<HTMLButtonElement>();
+
+  const styles = useOverflowMenuStyles();
+
+  const onItemClick = (tabId: string) => {
+    onTabSelect?.(tabId);
+  };
+
+  if (!isOverflowing) {
+    return null;
+  }
+
+  return (
+    <Menu hasIcons>
+      <MenuTrigger disableButtonEnhancement>
+        <Button
+          appearance="transparent"
+          className={styles.menuButton}
+          ref={ref}
+          icon={<MoreHorizontalRegular />}
+          aria-label={`${overflowCount} more tabs`}
+          role="tab"
+        />
+      </MenuTrigger>
+      <MenuPopover>
+        <MenuList className={styles.menu}>
+          {profiles.map((tab) => (
+            <OverflowMenuItem
+              key={tab.id}
+              tab={tab}
+              onClick={() => onItemClick(tab.id)}
+            />
+          ))}
+        </MenuList>
+      </MenuPopover>
+    </Menu>
+  );
+};
 
 export default function PullRequestsOverview() {
   const positioningRef = useRef<PositioningImperativeRef>(null)
@@ -86,9 +174,9 @@ export default function PullRequestsOverview() {
     return PullRequestErrors(pullRequests.error)
   }
 
-  const onTabSelect = (_e: SelectTabEvent, data: SelectTabData) => {
-    setSelectedValue(data.value)
-  }
+  const onTabSelect = (profileId: string) => {
+    setSelectedValue(profileId);
+  };
 
   const onHeaderAuxClick = (e: { target: (HTMLElement | PositioningVirtualElement) | null }) => {
     positioningRef.current?.setTarget(e.target)
@@ -108,20 +196,23 @@ export default function PullRequestsOverview() {
 
       const onProfileHeaderAuxClick = profile.enableAcceptAll
         ? (e) => {
-            setMenuData(filtered)
-            onHeaderAuxClick(e)
-          }
+          setMenuData(filtered)
+          onHeaderAuxClick(e)
+        }
         : undefined
 
       const tab: React.ReactNode = (
-        <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
-          {profile.label} {badge}
-        </Tab>
+        <OverflowItem key={profile.id} id={profile.id}>
+          <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
+            {profile.label} {badge}
+          </Tab>
+        </OverflowItem>
       )
 
       const list: React.ReactNode = selectedValue === profile.id && <PrList key={profile.id} data={filtered} />
 
       return {
+        profile,
         tab,
         list,
       }
@@ -138,9 +229,14 @@ export default function PullRequestsOverview() {
       <div className="container">
         <div className="section">
           <div className="content header">
-            <TabList selectedValue={selectedValue} onTabSelect={onTabSelect}>
-              {details.map((detail) => detail.tab)}
-            </TabList>
+            <Overflow minimumVisible={2}>
+              <TabList selectedValue={selectedValue} onTabSelect={(_, d) => onTabSelect(d.value as string)}>
+                {details.map((detail) => detail.tab)}
+                <OverflowMenu profiles={details.map(x => x.profile)} onTabSelect={onTabSelect} />
+              </TabList>
+            </Overflow>
+          </div>
+          <div className="content header">
           </div>
           <div className="content scrollable-content">{details.map((detail) => detail.list)}</div>
         </div>
