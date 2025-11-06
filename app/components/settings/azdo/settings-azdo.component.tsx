@@ -85,7 +85,7 @@ export default function AzureDevOpsSettings() {
   }
 
   const buttonClass = getButtonClass()
-  const isValidOrganizationUrl = state.azDoOrganizationUrl.match(/https:\/\/dev\.azure\.com\/[a-zA-Z0-9\-]+/g)
+  const isValidOrganizationUrl = state.azDoOrganizationUrl.match(/https:\/\/dev\.azure\.com\/[a-zA-Z0-9]+/g)
   const patUrl = `${state.azDoOrganizationUrl}/_usersSettings/tokens`
 
   const InfoLabel = isValidOrganizationUrl ? (

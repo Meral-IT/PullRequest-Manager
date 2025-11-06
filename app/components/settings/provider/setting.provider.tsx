@@ -76,7 +76,7 @@ export const SettingProvider = ({ children }: Props) => {
 
   useEffect(() => {
     async function fetchData() {
-      await window.api.invoke('get-settings').then((settings: SettingsModel) => {
+      await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
         return setFormData(convertSettings(settings))
       })
     }
@@ -85,7 +85,7 @@ export const SettingProvider = ({ children }: Props) => {
   }, [])
 
   useEffect(() => {
-    return window.api.receive('settings', (data: SettingsModel) => {
+    return globalThis.api.receive('settings', (data: SettingsModel) => {
       setFormData(convertSettings(data))
     })
   }, [])
@@ -106,11 +106,11 @@ export const SettingProvider = ({ children }: Props) => {
       }
 
       if (updatedProfile.isDefault) {
-        formData.profiles.forEach((profile) => {
+        for (const profile of formData.profiles) {
           if (profile.id !== profileId) {
             profile.isDefault = false
           }
-        })
+        }
       }
 
       setFormData((prevFormData) => ({
@@ -131,7 +131,7 @@ export const SettingProvider = ({ children }: Props) => {
   const validateAzDo = async () => {
     setValidatingAzDo(true)
     try {
-      const response = await window.api.invoke('validate-azure-devops', {
+      const response = await globalThis.api.invoke('validate-azure-devops', {
         organizationUrl: formData.azDoOrganizationUrl,
         project: formData.azDoProject,
         pat: formData.azDoPat,
@@ -169,7 +169,7 @@ export const SettingProvider = ({ children }: Props) => {
         },
         profiles: formData.profiles.map(convertProfilesToModel),
       }
-      await window.api.invoke('save-settings', model)
+      await globalThis.api.invoke('save-settings', model)
     } finally {
       setSaving(false)
     }
@@ -218,7 +218,7 @@ export const SettingProvider = ({ children }: Props) => {
       state: formData,
       actions: {
         getInitialSettings: async () => {
-          return convertSettings(await window.api.invoke('get-settings'))
+          return convertSettings(await globalThis.api.invoke('get-settings'))
         },
         onChangeHandler: handleChange,
         validateAzDo,

@@ -90,7 +90,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
 
       const click = () => {
-        window.api.invoke('web-open-url', item.urls.web)
+        globalThis.api.invoke('web-open-url', item.urls.web)
       }
 
       const sourceBranch = normalizeBranchName(item.details.branch);
@@ -325,7 +325,7 @@ export default function PrList(props: Readonly<Props>) {
 
   useEffect(() => {
     async function fetchData() {
-      await window.api.invoke('get-settings').then((settings: SettingsModel) => {
+      await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
         return setTableSize(settings.appearance.tableSize)
       })
     }
@@ -334,7 +334,7 @@ export default function PrList(props: Readonly<Props>) {
   }, [])
 
   useEffect(() => {
-    return window.api.receive('settings', (data: SettingsModel) => {
+    return globalThis.api.receive('settings', (data: SettingsModel) => {
       return setTableSize(data.appearance.tableSize)
     })
   }, [])

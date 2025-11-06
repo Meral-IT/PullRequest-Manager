@@ -96,9 +96,9 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
     profiles: input.profiles || defaultSettings.profiles,
   }
 
-  settings.profiles.forEach((profile) => {
+  for (const profile of settings.profiles) {
     profile.visible ??= true
-  })
+  }
 
   return settings
 }

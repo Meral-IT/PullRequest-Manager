@@ -12,7 +12,7 @@ export const throttleAll = <T>(limit: number, tasks: Task<T>[]): Promise<T[]> =>
   }
 
   return new Promise<T[]>((resolve, reject) => {
-    const result: (T | symbol)[] = Array(tasks.length).fill(notSettled)
+    const result: (T | symbol)[] = new Array(tasks.length).fill(notSettled)
 
     const entries = tasks.entries()
 
@@ -38,6 +38,6 @@ export const throttleAll = <T>(limit: number, tasks: Task<T>[]): Promise<T[]> =>
     }
 
     // Run next() `limit` times
-    Array(limit).fill(0).forEach(next)
+    new Array(limit).fill(0).forEach(next)
   })
 }

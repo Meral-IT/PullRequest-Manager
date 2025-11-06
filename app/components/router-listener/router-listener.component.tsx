@@ -9,7 +9,7 @@ function RouterListener() {
       navigate(e.path)
     }
 
-    return window.electron.ipcRenderer.on('navigate', handleIPCResponse)
+    return globalThis.electron.ipcRenderer.on('navigate', handleIPCResponse)
   }, [navigate])
 
   return null

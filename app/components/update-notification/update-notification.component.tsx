@@ -37,7 +37,7 @@ function UpdateNotification() {
   const installUpdate = () => {
     dismissToast(updateAvailableToastId)
     createDownloadingUpdateToast({ bytesPerSecond: 0, percent: 0, total: 0, delta: 0, transferred: 0 })
-    window.api.invoke('update:install-update')
+    globalThis.api.invoke('update:install-update')
   }
 
   const updateNotify = () => {
@@ -116,7 +116,7 @@ function UpdateNotification() {
                   e.preventDefault()
                   const href = element.getAttribute('href')
                   if (href) {
-                    window.api.invoke('web-open-url', href)
+                    globalThis.api.invoke('web-open-url', href)
                   }
                 }
               }
@@ -159,20 +159,20 @@ function UpdateNotification() {
   }
 
   useEffect(() => {
-    return window.api.receive('update:update-available', (info: UpdateInfo) => {
+    return globalThis.api.receive('update:update-available', (info: UpdateInfo) => {
       setReleaseNotes(info)
       updateNotify()
     })
   }, [])
 
   useEffect(() => {
-    return window.api.receive('update:download-progress', (info: ProgressInfo) => {
+    return globalThis.api.receive('update:download-progress', (info: ProgressInfo) => {
       updateDownloadingUpdateToast(info)
     })
   }, [])
 
   useEffect(() => {
-    return window.api.receive('update:show-releaseNotes', () => {
+    return globalThis.api.receive('update:show-releaseNotes', () => {
       setIsReleaseNotesDialogOpened(true)
     })
   }, [])

@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron/main'
-import EventEmitter from 'events'
+import EventEmitter from 'node:events'
 
 export interface ILoadingService {
   loadingEvent: EventEmitter
@@ -44,11 +44,14 @@ class LoadingService implements ILoadingService {
   }
 
   private sendIpc(channel, message) {
-    BrowserWindow?.getAllWindows()?.forEach((wnd) => {
-      if (wnd.webContents?.isDestroyed() === false && wnd.webContents?.isCrashed() === false) {
-        wnd.webContents.send(channel, message)
+    const windows = BrowserWindow?.getAllWindows()
+    if (windows) {
+      for (const wnd of windows) {
+        if (wnd.webContents?.isDestroyed() === false && wnd.webContents?.isCrashed() === false) {
+          wnd.webContents.send(channel, message)
+        }
       }
-    })
+    }
   }
 }
 

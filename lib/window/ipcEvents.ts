@@ -1,6 +1,6 @@
 import * as azdev from 'azure-devops-node-api'
 import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
-import os from 'os'
+import os from 'node:os'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { NotificationService } from '../main/notification.service'
 import { loadSettings, saveSettings } from '../main/settings'
@@ -9,9 +9,9 @@ import { PullRequest } from '../models/pull-request.model'
 
 export const registerNativeThemeEventListeners = (allBrowserWindows: BrowserWindow[]) => {
   nativeTheme.addListener('updated', () => {
-    allBrowserWindows.forEach((browserWindow) => {
+    for (const browserWindow of allBrowserWindows) {
       browserWindow.webContents.send('nativeThemeChanged')
-    })
+    }
   })
 }
 

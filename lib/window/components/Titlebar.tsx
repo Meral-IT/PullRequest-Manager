@@ -88,7 +88,7 @@ export const Titlebar = () => {
   }, [menusVisible])
 
   useEffect(() => {
-    return window.api.receive('loading', (event) => {
+    return globalThis.api.receive('loading', (event) => {
       setLoaderVisible(event.isLoading)
     })
   }, [loaderVisible])
@@ -155,10 +155,10 @@ function TitlebarMenuItem({ menu, index }: Readonly<{ menu: TitlebarMenu; index:
   }, [])
 
   useEffect(() => {
-    if (activeMenuIndex !== index) {
-      menuItemRef.current?.classList.remove('active')
-    } else {
+    if (activeMenuIndex === index) {
       menuItemRef.current?.classList.add('active')
+    } else {
+      menuItemRef.current?.classList.remove('active')
     }
   }, [activeMenuIndex])
 
@@ -207,7 +207,7 @@ const TitlebarMenuPopupItem = ({ item }: { item: TitlebarMenuItem }) => {
     }
 
     // Invoke the action with the provided parameters
-    window.api.invoke(item.action!, ...(item.actionParams ? item.actionParams : []))
+    globalThis.api.invoke(item.action!, ...(item.actionParams ? item.actionParams : []))
     setActiveMenuIndex(null)
   }
 
@@ -261,13 +261,13 @@ const TitlebarControlButton = ({ icon, label }: { icon: Slot<'span'>; label: str
   const handleAction = () => {
     switch (label) {
       case 'minimize':
-        window.api.invoke('window-minimize')
+        globalThis.api.invoke('window-minimize')
         break
       case 'maximize':
-        window.api.invoke('window-maximize-toggle')
+        globalThis.api.invoke('window-maximize-toggle')
         break
       case 'close':
-        window.api.invoke('window-close')
+        globalThis.api.invoke('window-close')
         break
       default:
         console.warn(`Unhandled action for label: ${label}`)

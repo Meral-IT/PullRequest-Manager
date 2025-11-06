@@ -45,7 +45,7 @@ export const WindowContextProvider = ({ children, titlebar }: WindowContextProvi
 
   useEffect(() => {
     // Load window init props
-    window.api.invoke('init-window').then((value: WindowInitProps) => setInitProps(value))
+    globalThis.api.invoke('init-window').then((value: WindowInitProps) => setInitProps(value))
 
     // Add class to parent element
     const parent = document.querySelector('.window-content')?.parentElement
