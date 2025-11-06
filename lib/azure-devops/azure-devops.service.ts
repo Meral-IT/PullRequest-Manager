@@ -365,7 +365,7 @@ export class AzureDevOpsService {
 
     // Group reviewers by their "voted for" status
     for (const rev of reviewers) {
-      if (!rev.votedFor || rev.votedFor.length === 0) {
+      if (rev.votedFor && rev.votedFor.length > 0) {
         continue
       }
 
@@ -388,7 +388,7 @@ export class AzureDevOpsService {
 
     // Add the "voted for" reviewers
     for (const rev of reviewers) {
-      if (rev.votedFor && rev.votedFor.length > 0) {
+      if (!rev.votedFor || rev.votedFor.length === 0) {
         continue
       }
       const votedForItems = mappedReviewers.filter((x) => rev.votedFor?.some((v) => v.id == x.user.id))

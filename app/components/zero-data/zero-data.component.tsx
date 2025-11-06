@@ -25,7 +25,7 @@ function RenderAction(item: Readonly<IZeroDataItem>) {
       }
     }
     const buttonProps = {
-      ...(actionButtonProps),
+      ...(actionButtonProps ?? {}),
       text: actionText,
       onClick: onActionClickWrapper,
       href: actionHref,
