@@ -50,6 +50,10 @@ export class FilterEvaluator {
     return data.filter((pr) => this.evaluatePullRequest(pr, parsedFilter))
   }
 
+  public static evaluateProfiles(pr: PullRequest, filter: PullRequestFilter[]): boolean {
+    return filter.some((f) => this.evaluatePullRequest(pr, f))
+  }
+
   private static evaluatePullRequest(pr: PullRequest, filter: PullRequestFilter): boolean {
     return filter.op === 'AND'
       ? filter.filters.every((f) => this.evaluatePullRequestFilter(pr, f))

@@ -15,7 +15,6 @@ export const SettingProvider = ({ children }: Props) => {
     openAtLogin: false,
     enableNotifications: true,
     notificationSound: false,
-    notificationProfiles: [],
     name: '',
     email: '',
     azDoOrganizationUrl: '',
@@ -38,6 +37,7 @@ export const SettingProvider = ({ children }: Props) => {
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
       filter: profile.filter ? JSON.stringify(profile.filter, null, 2) : '',
+      notifyOnNewPrs: profile.notifyOnNewPrs,
       filterValid: true
     }
   }
@@ -49,6 +49,7 @@ export const SettingProvider = ({ children }: Props) => {
       isDefault: profile.isDefault,
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
+      notifyOnNewPrs: profile.notifyOnNewPrs,
       filter: profile.filter ? JSON.parse(profile.filter) : undefined,
     }
   }
@@ -58,7 +59,6 @@ export const SettingProvider = ({ children }: Props) => {
       openAtLogin: settings.general.openAtLogin,
       enableNotifications: settings.general.enableNotifications,
       notificationSound: settings.general.notificationSound,
-      notificationProfiles: settings.general.notificationProfiles,
       appearanceTheme: settings.appearance.theme,
       name: '',
       email: '',
@@ -155,7 +155,6 @@ export const SettingProvider = ({ children }: Props) => {
           openAtLogin: formData.openAtLogin,
           enableNotifications: formData.enableNotifications,
           notificationSound: formData.notificationSound,
-          notificationProfiles: formData.notificationProfiles,
         },
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,
@@ -203,6 +202,7 @@ export const SettingProvider = ({ children }: Props) => {
       label: 'New profile',
       visible: true,
       enableAcceptAll: false,
+      notifyOnNewPrs: false,
       isDefault: false,
       filter: '',
       filterValid: true

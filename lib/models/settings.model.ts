@@ -23,8 +23,6 @@ export interface GeneralSettings {
   openAtLogin: boolean
   enableNotifications: boolean
   notificationSound: boolean
-  /** Array of profile IDs to filter notifications. Empty array means notify for all profiles. (Reserved for future use) */
-  notificationProfiles: string[]
 }
 
 export interface SettingsModel {

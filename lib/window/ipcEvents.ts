@@ -75,7 +75,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   handleIPC('save-settings', async (_e, data) => {
     // Load the settings from the store
     const settings = await saveSettings(data)
-    NotificationService.getInstance().setSettings(settings.general)
+    NotificationService.getInstance().setSettings(settings.general, settings.profiles)
     AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
     AzureDevOpsService.getInstance().updateDataImmediately()
 

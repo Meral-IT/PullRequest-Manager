@@ -8,6 +8,7 @@ export interface PrProfile {
   enableAcceptAll: boolean
   visible: boolean
   filter?: PullRequestFilter
+  notifyOnNewPrs: boolean
 }
 
 export const defaultProfiles: PrProfile[] = [
@@ -17,6 +18,7 @@ export const defaultProfiles: PrProfile[] = [
     isDefault: false,
     enableAcceptAll: false,
     visible: true,
+    notifyOnNewPrs: false,
   },
   {
     id: 'automations',
@@ -39,6 +41,7 @@ export const defaultProfiles: PrProfile[] = [
         },
       ],
     },
+    notifyOnNewPrs: false,
   },
   {
     id: 'todo',
@@ -64,6 +67,7 @@ export const defaultProfiles: PrProfile[] = [
         },
       ],
     },
+    notifyOnNewPrs: true,
   },
   {
     id: 'my',
@@ -82,6 +86,7 @@ export const defaultProfiles: PrProfile[] = [
         },
       ],
     },
+    notifyOnNewPrs: false,
   },
   {
     id: 'my-team',
@@ -106,5 +111,6 @@ export const defaultProfiles: PrProfile[] = [
         },
       ],
     },
+    notifyOnNewPrs: false,
   },
 ]

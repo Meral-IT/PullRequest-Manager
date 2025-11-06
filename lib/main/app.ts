@@ -14,7 +14,7 @@ let mainWindow: BrowserWindow | null = null
 async function initializeAzureDevOps(): Promise<void> {
   const settings = await loadSettings()
 
-  NotificationService.getInstance().setSettings(settings.general)
+  NotificationService.getInstance().setSettings(settings.general, settings.profiles)
   AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
   AzureDevOpsService.getInstance().start()
 }

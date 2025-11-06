@@ -11,6 +11,7 @@ import { ConnectionData } from 'azure-devops-node-api/interfaces/LocationsInterf
 import { IPolicyApi } from 'azure-devops-node-api/PolicyApi'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
+import { NotificationService } from '../main/notification.service'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
 import { PrProfile } from '../models/pr-profile'
@@ -26,7 +27,6 @@ import {
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import { FilterEvaluator } from '../models/ui-filter.model'
-import { NotificationService } from '../main/notification.service'
 import loader from '../tools/loading.service'
 import { throttleAll } from '../tools/promise-throttle'
 
@@ -435,7 +435,7 @@ export class AzureDevOpsService {
 
       if (isFirstLoad) {
         // On first load, mark all existing PRs as known to avoid notifications
-        NotificationService.getInstance().updateKnownPRs(data.items)
+        NotificationService.getInstance().initialize(data.items)
       } else {
         this.handleNewPRNotifications(oldPRIds, data.items)
       }
