@@ -109,7 +109,7 @@ const OverflowMenu = (props: OverflowMenuProps) => {
   }
 
   return (
-    <Menu hasIcons>
+    <Menu>
       <MenuTrigger disableButtonEnhancement>
         <Button
           appearance="transparent"
