@@ -13,7 +13,23 @@ import type {
   PositioningVirtualElement,
   TabValue
 } from '@fluentui/react-components'
-import { Button, CounterBadge, makeStyles, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, Overflow, OverflowItem, Tab, TabList, tokens, useIsOverflowItemVisible, useOverflowMenu } from '@fluentui/react-components'
+import {
+  Button,
+  CounterBadge,
+  makeStyles,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
+  Overflow,
+  OverflowItem,
+  Tab,
+  TabList,
+  tokens,
+  useIsOverflowItemVisible,
+  useOverflowMenu,
+} from '@fluentui/react-components'
 import { MoreHorizontalRegular, ThumbLikeFilled } from '@fluentui/react-icons'
 import { useEffect, useRef, useState } from 'react'
 import './pull-requests.scss'
