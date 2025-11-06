@@ -219,7 +219,7 @@ export default function PullRequestsOverview() {
 
       const tab: React.ReactNode = (
         <OverflowItem key={profile.id} id={profile.id}>
-          <Tab value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
+          <Tab key={profile.id} value={profile.id} onAuxClick={onProfileHeaderAuxClick}>
             {profile.label} {badge}
           </Tab>
         </OverflowItem>
