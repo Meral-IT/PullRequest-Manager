@@ -432,15 +432,7 @@ export class AzureDevOpsService {
       data.items = newData.items
       data.error = newData.error
 
-      // Detect new PRs and send notifications
-      const newPRs = data.items.filter((pr) => !oldPRIds.has(pr.id))
-      if (newPRs.length > 0) {
-        try {
-          NotificationService.getInstance().notifyNewPullRequests(newPRs)
-        } catch (error) {
-          log.error('Failed to send notification', error)
-        }
-      }
+      this.handleNewPRNotifications(oldPRIds, data.items)
     } else {
       data.error = {
         message: 'Configuration required',
@@ -453,6 +445,17 @@ export class AzureDevOpsService {
     this.pullRequests = data
     BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
     loader.stop()
+  }
+
+  private handleNewPRNotifications(oldPRIds: Set<number>, newPRs: PullRequest[]): void {
+    const newlyDetectedPRs = newPRs.filter((pr) => !oldPRIds.has(pr.id))
+    if (newlyDetectedPRs.length > 0) {
+      try {
+        NotificationService.getInstance().notifyNewPullRequests(newlyDetectedPRs)
+      } catch (error) {
+        log.error('Failed to send notification', error)
+      }
+    }
   }
 
   private initializeApi(): azdev.WebApi {

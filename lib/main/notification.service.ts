@@ -62,11 +62,21 @@ export class NotificationService {
     this.lastNotifiedPRIds.clear()
   }
 
+  /**
+   * Update the set of known PRs without sending notifications.
+   * This should be called during initial load to prevent notifications
+   * for existing PRs.
+   */
   public updateKnownPRs(pullRequests: PullRequest[]): void {
     // Update the set of known PRs without notifying
     pullRequests.forEach((pr) => this.lastNotifiedPRIds.add(pr.id))
   }
 
+  /**
+   * Remove a PR from the known set.
+   * This can be called when a PR is closed or completed to allow
+   * re-notification if it's reopened.
+   */
   public removePR(prId: number): void {
     // Remove a PR from the known set (e.g., when it's closed)
     this.lastNotifiedPRIds.delete(prId)
