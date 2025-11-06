@@ -1,5 +1,6 @@
 import { Notification } from 'electron'
 import log from 'electron-log/main'
+import { getTrayManager } from '../main/tray'
 import { PrProfile } from '../models/pr-profile'
 import { PullRequest } from '../models/pull-request.model'
 import { GeneralSettings } from '../models/settings.model'
@@ -33,6 +34,8 @@ export class NotificationService {
    * @param pullRequests - Array of pull requests to potentially notify about
    */
   public notifyNewPullRequests(pullRequests: PullRequest[]): void {
+    this.updateTrayIcon(pullRequests)
+
     if (!this.settings?.enableNotifications) {
       return
     }
@@ -75,6 +78,25 @@ export class NotificationService {
     })
 
     notification.show()
+  }
+
+  private hasMatchingPRsForNotification(pullRequests: PullRequest[]): boolean {
+    if (this.filters.length === 0 || pullRequests.length === 0) {
+      return false
+    }
+
+    // Check if any PR matches any of the notify filters
+    return pullRequests.some(f =>
+      FilterEvaluator.evaluateProfiles(f, this.filters)
+    )
+  }
+
+  private updateTrayIcon(pullRequests: PullRequest[]): void {
+    const trayManager = getTrayManager()
+    if (trayManager) {
+      const hasMatchingPRs = this.hasMatchingPRsForNotification(pullRequests)
+      trayManager.setActiveState(hasMatchingPRs)
+    }
   }
 
   public reset(): void {

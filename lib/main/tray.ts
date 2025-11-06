@@ -94,6 +94,10 @@ export function updateTrayProfiles(profiles: PrProfile[]): void {
   trayIcon.setContextMenu(contextMenu)
 }
 
+export function getTrayManager(): TrayManager | null {
+  return trayManager
+}
+
 export default async function createTrayIcon(mainWindow: BrowserWindow) {
   if (trayIcon) {
     return

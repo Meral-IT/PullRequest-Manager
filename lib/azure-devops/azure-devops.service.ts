@@ -426,19 +426,12 @@ export class AzureDevOpsService {
     if (this.settings && this.api && this.isValidSettings(this.settings)) {
       loader.start()
 
-      const oldPRIds = new Set(this.pullRequests.items.map((pr) => pr.id))
-      const isFirstLoad = oldPRIds.size === 0
       const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
       this.data = newData
       data.items = newData.items
       data.error = newData.error
 
-      if (isFirstLoad) {
-        // On first load, mark all existing PRs as known to avoid notifications
-        NotificationService.getInstance().initialize(data.items)
-      } else {
-        this.handleNewPRNotifications(oldPRIds, data.items)
-      }
+      this.handleNewPRNotifications(data.items)
     } else {
       data.error = {
         message: 'Configuration required',
@@ -453,14 +446,11 @@ export class AzureDevOpsService {
     loader.stop()
   }
 
-  private handleNewPRNotifications(oldPRIds: Set<number>, newPRs: PullRequest[]): void {
-    const newlyDetectedPRs = newPRs.filter((pr) => !oldPRIds.has(pr.id))
-    if (newlyDetectedPRs.length > 0) {
-      try {
-        NotificationService.getInstance().notifyNewPullRequests(newlyDetectedPRs)
-      } catch (error) {
-        log.error('Failed to send notification', error)
-      }
+  private handleNewPRNotifications(prs: PullRequest[]): void {
+    try {
+      NotificationService.getInstance().notifyNewPullRequests(prs)
+    } catch (error) {
+      log.error('Failed to send notification', error)
     }
   }
 

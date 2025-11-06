@@ -23,11 +23,6 @@ export class TrayManager {
     this.tray.setImage(this.idleImage)
   }
 
-  setActive() {
-    this.active = true
-    this.tray.setImage(this.trayAnimationFrames[0])
-  }
-
   startAnimation() {
     if (this.animationInterval === undefined) {
       let i = 0
@@ -42,5 +37,13 @@ export class TrayManager {
     clearInterval(this.animationInterval)
     this.animationInterval = undefined
     this.tray.setImage(this.active ? this.activeImage : this.idleImage)
+  }
+
+  setActiveState(active: boolean) {
+    this.active = active
+    // Only update the icon if we're not currently animating
+    if (this.animationInterval === undefined) {
+      this.tray.setImage(this.active ? this.activeImage : this.idleImage)
+    }
   }
 }
