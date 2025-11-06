@@ -76,7 +76,7 @@ const OverflowMenuItem = (props: OverflowMenuItemProps) => {
 
   return (
     <MenuItem key={tab.id} onClick={onClick}>
-      <div>{tab.label}</div>
+      {tab.label}
     </MenuItem>
   );
 };
