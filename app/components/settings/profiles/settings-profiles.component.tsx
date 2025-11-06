@@ -43,7 +43,6 @@ const useStyles = makeStyles({
   textarea: {
     maxHeight: 'unset',
     height: '100%',
-    minHeight: '200px',
     flexGrow: 1,
   },
   textareaField: {

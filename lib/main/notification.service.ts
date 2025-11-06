@@ -85,10 +85,6 @@ export class NotificationService {
       return false
     }
 
-    if (this.filters.length === 0) {
-      return false
-    }
-
     // Check if any PR matches any of the notify filters
     return pullRequests.some(f =>
       FilterEvaluator.evaluateProfiles(f, this.filters)
