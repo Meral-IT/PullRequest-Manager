@@ -1,6 +1,8 @@
 import { WindowContextProvider, menuItems } from '@/lib/window'
 import '@/lib/window/window.css'
 import appIcon from '@/resources/build/icon.svg'
+import { loader } from '@monaco-editor/react'
+import * as monaco from 'monaco-editor'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { HashRouter, Route, Routes } from 'react-router-dom'
@@ -12,6 +14,8 @@ import AzureDevOpsSettings from './components/settings/azdo/settings-azdo.compon
 import GeneralSettings from './components/settings/general/general-settings.component'
 import ProfileSettings from './components/settings/profiles/settings-profiles.component'
 import Settings from './pages/settings/settings.page'
+
+loader.config({ monaco });
 
 ReactDOM.createRoot(document.getElementById('app')!).render(
   <React.StrictMode>

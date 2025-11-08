@@ -1,0 +1,136 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "CombinationFilter<ReviewerFilter>": {
+            "properties": {
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/ReviewerFilter"
+                    },
+                    "type": "array"
+                },
+                "op": {
+                    "enum": [
+                        "AND",
+                        "OR"
+                    ],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "CombinationFilter<UserFilter>": {
+            "properties": {
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/UserFilter"
+                    },
+                    "type": "array"
+                },
+                "op": {
+                    "enum": [
+                        "AND",
+                        "OR"
+                    ],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "CombinationFilter<string>": {
+            "properties": {
+                "filters": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "op": {
+                    "enum": [
+                        "AND",
+                        "OR"
+                    ],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "FilterNode": {
+            "properties": {
+                "author": {
+                    "$ref": "#/definitions/CombinationFilter<UserFilter>"
+                },
+                "isDraft": {
+                    "type": "boolean"
+                },
+                "reviewers": {
+                    "$ref": "#/definitions/CombinationFilter<ReviewerFilter>"
+                },
+                "sourceBranch": {
+                    "$ref": "#/definitions/CombinationFilter<string>"
+                },
+                "targetBranch": {
+                    "$ref": "#/definitions/CombinationFilter<string>"
+                }
+            },
+            "type": "object"
+        },
+        "PrVote": {
+            "enum": [
+                10,
+                5,
+                0,
+                -5,
+                -10
+            ],
+            "type": "number"
+        },
+        "ReviewerFilter": {
+            "properties": {
+                "isRequired": {
+                    "type": "boolean"
+                },
+                "user": {
+                    "$ref": "#/definitions/UserFilter"
+                },
+                "vote": {
+                    "$ref": "#/definitions/PrVote"
+                }
+            },
+            "type": "object"
+        },
+        "UserFilter": {
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "isBot": {
+                    "type": "boolean"
+                },
+                "isMySelf": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "properties": {
+        "filters": {
+            "items": {
+                "$ref": "#/definitions/FilterNode"
+            },
+            "type": "array"
+        },
+        "op": {
+            "enum": [
+                "AND",
+                "OR"
+            ],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

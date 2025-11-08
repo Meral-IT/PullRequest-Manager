@@ -10,14 +10,15 @@ import {
   PopoverSurface,
   PopoverTrigger,
   Select,
-  Textarea,
   Title1,
   tokens,
 } from '@fluentui/react-components'
 import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
+import MonacoEditor from '@monaco-editor/react'
 import { useContext, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
+import Schema from './ui-filter.schema.json'
 
 const useStackClassName = makeResetStyles({
   display: 'flex',
@@ -37,8 +38,8 @@ const useStyles = makeStyles({
   height: {
     height: '100%',
     flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
+    // display: 'flex',
+    // flexDirection: 'column',
   },
   textarea: {
     maxHeight: 'unset',
@@ -149,6 +150,22 @@ export default function ProfileSettings() {
     )
   }
 
+  const handleEditorDidMount = (editor, monaco) => {
+    // Configure JSON language features
+    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+      validate: true,
+      allowComments: false,
+      schemas: [
+        {
+          uri: 'https://github.com/Meral-IT/PullRequest-Manager/ui-filter-schema.json',
+          fileMatch: ['*'], // associate with all models
+          schema: Schema,
+        },
+      ],
+      enableSchemaRequest: false,
+    })
+  }
+
   return (
     <div className={styles.container}>
       <div className={stack}>
@@ -232,19 +249,23 @@ export default function ProfileSettings() {
           validationMessage={profile.filterValid ? 'JSON schema is valid.' : 'Invalid schema! Please check your JSON syntax.'}
           className={styles.textareaField}
         >
-          <Textarea
+          <MonacoEditor
             className={styles.height}
-            textarea={{
-              className: styles.textarea,
+            height="100%"
+            width="100%"
+            theme="vs-dark"
+            language="json"
+            options={{
+              minimap: { enabled: false },
             }}
-            name="profiles"
+            onMount={handleEditorDidMount}
             value={profile.filter}
             onChange={(e) => {
               const wrapper = {
                 profileId: profile.id,
                 target: {
                   name: 'filter',
-                  value: e.target.value,
+                  value: e,
                 },
               }
 
