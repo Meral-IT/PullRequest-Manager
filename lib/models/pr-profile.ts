@@ -53,6 +53,15 @@ export const defaultProfiles: PrProfile[] = [
       op: 'AND',
       filters: [
         {
+          isDraft: false,
+          author: {
+            op: 'AND',
+            filters: [
+              {
+                isMySelf: false,
+              }
+            ]
+          },
           reviewers: {
             op: 'AND',
             filters: [
