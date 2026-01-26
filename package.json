@@ -50,7 +50,7 @@
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@fluentui/react-components": "^9.72.6",
     "@fluentui/react-icons": "^2.0.313",
-    "@rushstack/eslint-patch": "^1.14.1",
+    "@rushstack/eslint-patch": "^1.15.0",
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.3",
