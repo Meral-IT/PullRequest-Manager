@@ -54,7 +54,7 @@
     "@types/node": "^22.19.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.0",
+    "@vitejs/plugin-react": "^5.1.2",
     "azure-devops-node-api": "^15.1.1",
     "dompurify": "^3.3.0",
     "electron": "^39.2.7",
