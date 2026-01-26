@@ -57,7 +57,7 @@
     "@vitejs/plugin-react": "^5.1.0",
     "azure-devops-node-api": "^15.1.1",
     "dompurify": "^3.3.0",
-    "electron": "^39.1.1",
+    "electron": "^39.2.7",
     "electron-builder": "^26.0.12",
     "electron-devtools-installer": "^4.0.0",
     "electron-log": "^5.4.3",
