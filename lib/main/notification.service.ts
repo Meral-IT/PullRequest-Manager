@@ -1,4 +1,4 @@
-import { Notification } from 'electron'
+import { Notification, shell } from 'electron'
 import log from 'electron-log/main'
 import { getTrayManager } from '../main/tray'
 import { PrProfile } from '../models/pr-profile'
@@ -76,6 +76,15 @@ export class NotificationService {
       body,
       silent: !(this.settings?.notificationSound ?? false),
     })
+
+    notification.on('click', () => {
+      // Open the PR details when the notification is clicked
+      for (const pr of pullRequests) {
+        if (pr.urls.web.length > 0) {
+          shell.openExternal(pr.urls.web)
+        }
+      }
+    });
 
     notification.show()
   }
