@@ -58,7 +58,7 @@
     "azure-devops-node-api": "^15.1.1",
     "dompurify": "^3.3.0",
     "electron": "^39.2.7",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.7.0",
     "electron-devtools-installer": "^4.0.0",
     "electron-log": "^5.4.3",
     "electron-vite": "^4.0.1",
