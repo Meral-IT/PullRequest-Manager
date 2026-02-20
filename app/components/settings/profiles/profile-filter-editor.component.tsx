@@ -22,14 +22,17 @@ const handleBeforeMount: BeforeMount = (monaco) => {
 function useMonacoTheme(): string {
   const [appTheme, setAppTheme] = useState<string>('system')
   const [osDark, setOsDark] = useState<boolean>(
-    globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
+    globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false,
   )
 
   useEffect(() => {
-    globalThis.api.invoke('get-theme').then((t: string) => setAppTheme(t))
+    globalThis.api
+      .invoke('get-theme')
+      .then((t: string) => setAppTheme(t))
+      .catch(() => {})
     const unsubTheme = globalThis.api.receive('theme-changed', (t: string) => setAppTheme(t))
     const unsubNative = globalThis.api.receive('nativeThemeChanged', () => {
-      setOsDark(globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
+      setOsDark(globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false)
     })
     return () => {
       unsubTheme?.()
