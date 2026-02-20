@@ -1,3 +1,7 @@
+import * as monaco from 'monaco-editor'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import { loader } from '@monaco-editor/react'
 import { WindowContextProvider, menuItems } from '@/lib/window'
 import '@/lib/window/window.css'
 import appIcon from '@/resources/build/icon.svg'
@@ -12,6 +16,17 @@ import AzureDevOpsSettings from './components/settings/azdo/settings-azdo.compon
 import GeneralSettings from './components/settings/general/general-settings.component'
 import ProfileSettings from './components/settings/profiles/settings-profiles.component'
 import Settings from './pages/settings/settings.page'
+
+window.MonacoEnvironment = {
+  getWorker(_, label) {
+    if (label === 'json') {
+      return new jsonWorker()
+    }
+    return new editorWorker()
+  },
+}
+
+loader.config({ monaco })
 
 ReactDOM.createRoot(document.getElementById('app')!).render(
   <React.StrictMode>
