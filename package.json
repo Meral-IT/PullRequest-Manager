@@ -52,7 +52,7 @@
     "@fluentui/react-icons": "^2.0.313",
     "@rushstack/eslint-patch": "^1.15.0",
     "@types/node": "^22.19.11",
-    "@types/react": "^19.2.2",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
     "azure-devops-node-api": "^15.1.2",
