@@ -3,16 +3,16 @@ import { useEffect, useState } from 'react'
 import { PR_FILTER_SCHEMA } from './pr-filter-schema'
 
 const SCHEMA_URI = 'https://pullrequest-manager.local/profile-filter-schema.json'
-const SCHEMA_PATH_PREFIX = 'pullrequest-manager:///profile-filter/'
 
 const handleBeforeMount: BeforeMount = (monaco) => {
   monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
     validate: true,
     allowComments: false,
+    enableSchemaRequest: false,
     schemas: [
       {
         uri: SCHEMA_URI,
-        fileMatch: [`${SCHEMA_PATH_PREFIX}*.json`],
+        fileMatch: ['**'],
         schema: PR_FILTER_SCHEMA,
       },
     ],
@@ -52,7 +52,7 @@ interface Props {
 
 export default function ProfileFilterEditor({ profileId, value, onChange }: Readonly<Props>) {
   const monacoTheme = useMonacoTheme()
-  const schemaPath = `${SCHEMA_PATH_PREFIX}${profileId}.json`
+  const schemaPath = `pullrequest-manager:///profile-filter/${profileId}.json`
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
