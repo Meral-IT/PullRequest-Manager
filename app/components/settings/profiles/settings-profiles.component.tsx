@@ -10,7 +10,6 @@ import {
   PopoverSurface,
   PopoverTrigger,
   Select,
-  Textarea,
   Title1,
   tokens,
 } from '@fluentui/react-components'
@@ -18,6 +17,7 @@ import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from 
 import { useContext, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
+import ProfileFilterEditor from './profile-filter-editor.component'
 
 const useStackClassName = makeResetStyles({
   display: 'flex',
@@ -33,17 +33,6 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     flex: 1,
     height: '100%',
-  },
-  height: {
-    height: '100%',
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  textarea: {
-    maxHeight: 'unset',
-    height: '100%',
-    flexGrow: 1,
   },
   textareaField: {
     flexGrow: 1,
@@ -232,19 +221,15 @@ export default function ProfileSettings() {
           validationMessage={profile.filterValid ? 'JSON schema is valid.' : 'Invalid schema! Please check your JSON syntax.'}
           className={styles.textareaField}
         >
-          <Textarea
-            className={styles.height}
-            textarea={{
-              className: styles.textarea,
-            }}
-            name="profiles"
+          <ProfileFilterEditor
+            profileId={profile.id}
             value={profile.filter}
-            onChange={(e) => {
+            onChange={(value) => {
               const wrapper = {
                 profileId: profile.id,
                 target: {
                   name: 'filter',
-                  value: e.target.value,
+                  value,
                 },
               }
 
