@@ -42,7 +42,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.7.3"
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",
