@@ -168,8 +168,8 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
       return false
     }
 
-    const repositoryUriPath = pathToFileURL(repositoryPath).pathname
-    await shell.openExternal(`vscode://file${repositoryUriPath}`)
+    const vscodeUri = pathToFileURL(repositoryPath).href.replace(/^file:\/\//, 'vscode://file')
+    await shell.openExternal(vscodeUri)
     return true
   })
 
