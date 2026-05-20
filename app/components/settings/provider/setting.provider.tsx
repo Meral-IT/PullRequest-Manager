@@ -15,6 +15,7 @@ export const SettingProvider = ({ children }: Props) => {
     openAtLogin: false,
     enableNotifications: true,
     notificationSound: false,
+    repositoriesRootDirectory: '',
     name: '',
     email: '',
     azDoOrganizationUrl: '',
@@ -59,6 +60,7 @@ export const SettingProvider = ({ children }: Props) => {
       openAtLogin: settings.general.openAtLogin,
       enableNotifications: settings.general.enableNotifications,
       notificationSound: settings.general.notificationSound,
+      repositoriesRootDirectory: settings.general.repositoriesRootDirectory,
       appearanceTheme: settings.appearance.theme,
       name: '',
       email: '',
@@ -155,6 +157,7 @@ export const SettingProvider = ({ children }: Props) => {
           openAtLogin: formData.openAtLogin,
           enableNotifications: formData.enableNotifications,
           notificationSound: formData.notificationSound,
+          repositoriesRootDirectory: formData.repositoriesRootDirectory,
         },
         azDo: {
           organizationUrl: formData.azDoOrganizationUrl,

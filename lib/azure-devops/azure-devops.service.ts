@@ -132,6 +132,34 @@ export class AzureDevOpsService {
     BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
   }
 
+  public async resetPullRequestFeedback(pr: PullRequest): Promise<void> {
+    if (!this.settings || !this.isValidSettings(this.settings) || !this.api) {
+      return
+    }
+
+    const buildApi = await this.api.getGitApi(this.settings.organizationUrl, [this.api.authHandler])
+    const connectionData = await this.api.connect()
+
+    try {
+      const reviewer = await buildApi.createPullRequestReviewer(
+        {
+          vote: PrVote.NoVote,
+        },
+        pr.details.repositoryId,
+        pr.id,
+        connectionData.authenticatedUser?.id ?? '',
+        pr.details.projectId
+      )
+
+      const data = this.pullRequests
+      AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
+      this.pullRequests = data
+      BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
+    } catch (error) {
+      log.error('Failed to reset pull request feedback', error)
+    }
+  }
+
   private static appendReviewer(
     data: PullRequestData,
     connectionData: ConnectionData,
@@ -144,21 +172,22 @@ export class AzureDevOpsService {
     }
 
     const votedForIdentities = reviewer.votedFor?.map((x) => x.id) ?? []
+    const vote = (reviewer.vote as PrVote | undefined) ?? PrVote.NoVote
     let votedFor = false
 
     for (const x of pullRequest.reviewers) {
       if (x.user.id === reviewer.id) {
         // Direct vote
         votedFor = true
-        x.vote = 10
+        x.vote = vote
       } else if (votedForIdentities.includes(x.user.id)) {
         // Indirect vote
         votedFor = true
-        x.vote = 10
+        x.vote = vote
 
         const reviewerItem = x.reviewedBy.find((y) => y.user.id === reviewer.id)
         if (reviewerItem) {
-          reviewerItem.vote = 10
+          reviewerItem.vote = vote
         } else {
           x.reviewedBy.push({
             user: {
@@ -167,7 +196,7 @@ export class AzureDevOpsService {
               isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
               imageUrl: reviewer.imageUrl,
             },
-            vote: 10,
+            vote: vote,
           })
         }
       }
@@ -181,7 +210,7 @@ export class AzureDevOpsService {
           isMySelf: reviewer.id == connectionData.authenticatedUser?.id,
           imageUrl: reviewer.imageUrl,
         },
-        vote: 10,
+        vote: vote,
       } as Reviewer)
     }
   }

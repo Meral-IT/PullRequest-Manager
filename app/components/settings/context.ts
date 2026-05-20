@@ -16,6 +16,7 @@ export interface SettingStateProps {
   openAtLogin: boolean
   enableNotifications: boolean
   notificationSound: boolean
+  repositoriesRootDirectory: string
   name: string
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
@@ -50,6 +51,7 @@ export const SettingsContext = createContext<SettingPageProps>({
     openAtLogin: false,
     enableNotifications: true,
     notificationSound: false,
+    repositoriesRootDirectory: '',
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     name: '',

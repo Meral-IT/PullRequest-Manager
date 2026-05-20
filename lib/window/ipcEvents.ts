@@ -1,11 +1,17 @@
 import * as azdev from 'azure-devops-node-api'
-import { app, type BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
+import { app, type BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { exec } from 'node:child_process'
+import fs from 'node:fs/promises'
 import os from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { NotificationService } from '../main/notification.service'
 import { loadSettings, saveSettings } from '../main/settings'
 import { PullRequestUpdateManager } from '../main/update'
 import { PullRequest } from '../models/pull-request.model'
+
+const execAsync = promisify(exec)
 
 export const registerNativeThemeEventListeners = (allBrowserWindows: BrowserWindow[]) => {
   nativeTheme.addListener('updated', () => {
@@ -111,6 +117,91 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
     await AzureDevOpsService.getInstance().approvePullRequests(data)
+  })
+
+  handleIPC('reset-pr-feedback', async (_e, pr: PullRequest) => {
+    await AzureDevOpsService.getInstance().resetPullRequestFeedback(pr)
+  })
+
+  handleIPC('check-vscode-installed', async () => {
+    try {
+      await execAsync('code --version')
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  const resolveRepositoryPath = async (repositoryName: string): Promise<string | null> => {
+    const settings = await loadSettings()
+    const rootDirectory = settings.general.repositoriesRootDirectory
+    if (!rootDirectory) {
+      return null
+    }
+
+    const fallbackPath = path.resolve(rootDirectory, repositoryName)
+    try {
+      const stat = await fs.stat(fallbackPath)
+      if (stat.isDirectory()) {
+        return fallbackPath
+      }
+    } catch {
+      // Ignore and attempt case-insensitive directory mapping.
+    }
+
+    try {
+      const entries = await fs.readdir(rootDirectory, { withFileTypes: true })
+      const matchingEntry = entries.find(
+        (entry) => entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'accent' }) === 0
+      )
+
+      return matchingEntry ? path.resolve(rootDirectory, matchingEntry.name) : null
+    } catch {
+      return null
+    }
+  }
+
+  handleIPC('open-in-vscode', async (_e, repositoryName: string) => {
+    const repositoryPath = await resolveRepositoryPath(repositoryName)
+    if (!repositoryPath) {
+      return false
+    }
+
+    const normalizedPath = repositoryPath.replace(/\\/g, '/')
+    await shell.openExternal(`vscode://file/${encodeURI(normalizedPath)}`)
+    return true
+  })
+
+  handleIPC('find-solution-files', async (_e, repositoryName: string) => {
+    const repositoryPath = await resolveRepositoryPath(repositoryName)
+    if (!repositoryPath) {
+      return []
+    }
+
+    try {
+      const entries = await fs.readdir(repositoryPath, { withFileTypes: true })
+      return entries
+        .filter((entry) => entry.isFile() && (entry.name.endsWith('.sln') || entry.name.endsWith('.slnx')))
+        .map((entry) => path.resolve(repositoryPath, entry.name))
+    } catch {
+      return []
+    }
+  })
+
+  handleIPC('open-solution-file', async (_e, solutionPath: string) => {
+    await shell.openPath(solutionPath)
+  })
+
+  handleIPC('select-directory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    return result.filePaths[0]
   })
 
   handleIPC('update:install-update', async (_e) => {

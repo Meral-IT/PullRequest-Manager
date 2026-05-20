@@ -24,10 +24,18 @@ import {
   DataGridRow,
   List,
   ListItem,
+  Menu,
+  MenuDivider,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   Persona,
   Popover,
   PopoverSurface,
   PopoverTrigger,
+  PositioningImperativeRef,
+  PositioningVirtualElement,
   PresenceBadgeStatus,
   TableCellLayout,
   TableColumnDefinition,
@@ -37,7 +45,7 @@ import {
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
 import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
-import { useEffect, useRef, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
 
@@ -321,6 +329,11 @@ type Props = {
 
 export default function PrList(props: Readonly<Props>) {
   const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
+  const [contextMenuPr, setContextMenuPr] = useState<PullRequest | null>(null)
+  const [vscodeInstalled, setVscodeInstalled] = useState(false)
+  const [solutionFiles, setSolutionFiles] = useState<string[]>([])
+  const positioningRef = useRef<PositioningImperativeRef>(null)
   const { data } = props
 
   useEffect(() => {
@@ -339,6 +352,62 @@ export default function PrList(props: Readonly<Props>) {
     })
   }, [])
 
+  useEffect(() => {
+    globalThis.api.invoke('check-vscode-installed').then((isInstalled: boolean) => {
+      setVscodeInstalled(isInstalled)
+    })
+  }, [])
+
+  const closeContextMenu = () => {
+    setContextMenuOpen(false)
+  }
+
+  const openContextMenu = async (
+    e: ReactMouseEvent<HTMLElement, MouseEvent>,
+    pr: PullRequest
+  ) => {
+    e.preventDefault()
+    const target: PositioningVirtualElement = {
+      getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
+    }
+    positioningRef.current?.setTarget(target)
+    setContextMenuPr(pr)
+    setSolutionFiles([])
+    setContextMenuOpen(true)
+
+    const files = await globalThis.api.invoke('find-solution-files', pr.details.repository)
+    setSolutionFiles(Array.isArray(files) ? files : [])
+  }
+
+  const approveCurrentPullRequest = () => {
+    if (!contextMenuPr) {
+      return
+    }
+    globalThis.api.invoke('approve-prs', [contextMenuPr])
+    closeContextMenu()
+  }
+
+  const resetCurrentPullRequestFeedback = () => {
+    if (!contextMenuPr) {
+      return
+    }
+    globalThis.api.invoke('reset-pr-feedback', contextMenuPr)
+    closeContextMenu()
+  }
+
+  const openCurrentRepositoryInVsCode = () => {
+    if (!contextMenuPr) {
+      return
+    }
+    globalThis.api.invoke('open-in-vscode', contextMenuPr.details.repository)
+    closeContextMenu()
+  }
+
+  const openSolutionFile = (solutionFilePath: string) => {
+    globalThis.api.invoke('open-solution-file', solutionFilePath)
+    closeContextMenu()
+  }
+
   if (data.length === 0) {
     return (
       <ZeroData
@@ -350,29 +419,64 @@ export default function PrList(props: Readonly<Props>) {
   }
 
   return (
-    <DataGrid
-      items={data}
-      columns={columns}
-      columnSizingOptions={columnSizingOptions}
-      // selectionMode="multiselect"
-      sortable
-      size={tableSize as any}
-      // subtleSelection
-      resizableColumns
-      style={{ minWidth: '100%' }}
-    >
-      <DataGridHeader>
-        <DataGridRow>
-          {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
-        </DataGridRow>
-      </DataGridHeader>
-      <DataGridBody<PullRequest>>
-        {({ item, rowId }) => (
-          <DataGridRow<PullRequest> key={rowId}>
-            {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+    <>
+      <Menu
+        open={contextMenuOpen}
+        positioning={{ positioningRef }}
+        onOpenChange={(_, event) => setContextMenuOpen(event.open)}
+      >
+        <MenuPopover>
+          <MenuList>
+            <MenuItem onClick={approveCurrentPullRequest}>Approve</MenuItem>
+            <MenuItem onClick={resetCurrentPullRequestFeedback}>Reset feedback</MenuItem>
+            <MenuDivider />
+            {vscodeInstalled && <MenuItem onClick={openCurrentRepositoryInVsCode}>Open in VSCode</MenuItem>}
+            {solutionFiles.length === 1 && (
+              <MenuItem onClick={() => openSolutionFile(solutionFiles[0])}>Open in VisualStudio</MenuItem>
+            )}
+            {solutionFiles.length > 1 && (
+              <Menu>
+                <MenuTrigger disableButtonEnhancement>
+                  <MenuItem>Open in VisualStudio</MenuItem>
+                </MenuTrigger>
+                <MenuPopover>
+                  <MenuList>
+                    {solutionFiles.map((solutionFile) => (
+                      <MenuItem key={solutionFile} onClick={() => openSolutionFile(solutionFile)}>
+                        {solutionFile.split(/[/\\]/).pop()}
+                      </MenuItem>
+                    ))}
+                  </MenuList>
+                </MenuPopover>
+              </Menu>
+            )}
+          </MenuList>
+        </MenuPopover>
+      </Menu>
+      <DataGrid
+        items={data}
+        columns={columns}
+        columnSizingOptions={columnSizingOptions}
+        // selectionMode="multiselect"
+        sortable
+        size={tableSize as any}
+        // subtleSelection
+        resizableColumns
+        style={{ minWidth: '100%' }}
+      >
+        <DataGridHeader>
+          <DataGridRow>
+            {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
           </DataGridRow>
-        )}
-      </DataGridBody>
-    </DataGrid>
+        </DataGridHeader>
+        <DataGridBody<PullRequest>>
+          {({ item, rowId }) => (
+            <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item)}>
+              {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+            </DataGridRow>
+          )}
+        </DataGridBody>
+      </DataGrid>
+    </>
   )
 }
