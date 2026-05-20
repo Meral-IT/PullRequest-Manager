@@ -4,6 +4,7 @@ import { exec } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { NotificationService } from '../main/notification.service'
@@ -152,7 +153,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     try {
       const entries = await fs.readdir(rootDirectory, { withFileTypes: true })
       const matchingEntry = entries.find(
-        (entry) => entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'accent' }) === 0
+        (entry) => entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'base' }) === 0
       )
 
       return matchingEntry ? path.resolve(rootDirectory, matchingEntry.name) : null
@@ -167,8 +168,8 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
       return false
     }
 
-    const normalizedPath = repositoryPath.replace(/\\/g, '/')
-    await shell.openExternal(`vscode://file/${encodeURI(normalizedPath)}`)
+    const repositoryUriPath = pathToFileURL(repositoryPath).pathname
+    await shell.openExternal(`vscode://file${repositoryUriPath}`)
     return true
   })
 
