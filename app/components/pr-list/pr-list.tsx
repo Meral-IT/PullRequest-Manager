@@ -334,6 +334,7 @@ export default function PrList(props: Readonly<Props>) {
   const [vscodeInstalled, setVscodeInstalled] = useState(false)
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
   const positioningRef = useRef<PositioningImperativeRef>(null)
+  const contextMenuRepositoryRef = useRef<string | null>(null)
   const { data } = props
 
   useEffect(() => {
@@ -375,8 +376,13 @@ export default function PrList(props: Readonly<Props>) {
     setSolutionFiles([])
     setContextMenuOpen(true)
 
-    const files = await globalThis.api.invoke('find-solution-files', pr.details.repository)
-    setSolutionFiles(Array.isArray(files) ? files : [])
+    const requestedRepository = pr.details.repository
+    contextMenuRepositoryRef.current = requestedRepository
+
+    const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
+    if (contextMenuRepositoryRef.current === requestedRepository) {
+      setSolutionFiles(Array.isArray(files) ? files : [])
+    }
   }
 
   const approveCurrentPullRequest = () => {
