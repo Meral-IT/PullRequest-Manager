@@ -141,7 +141,23 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
       return null
     }
 
-    const fallbackPath = path.resolve(rootDirectory, repositoryName)
+    // Avoid path traversal / absolute path escapes (repositoryName comes from the renderer / PR metadata).
+    if (
+      repositoryName.includes('..') ||
+      repositoryName.includes('/') ||
+      repositoryName.includes('\\') ||
+      path.isAbsolute(repositoryName) ||
+      /^[a-zA-Z]:/.test(repositoryName)
+    ) {
+      return null
+    }
+
+    const rootResolved = path.resolve(rootDirectory)
+    const fallbackPath = path.resolve(rootResolved, repositoryName)
+    if (path.relative(rootResolved, fallbackPath).startsWith('..')) {
+      return null
+    }
+
     try {
       const stat = await fs.stat(fallbackPath)
       if (stat.isDirectory()) {
@@ -152,12 +168,12 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     }
 
     try {
-      const entries = await fs.readdir(rootDirectory, { withFileTypes: true })
+      const entries = await fs.readdir(rootResolved, { withFileTypes: true })
       const matchingEntry = entries.find(
         (entry) => entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'base' }) === 0
       )
 
-      return matchingEntry ? path.resolve(rootDirectory, matchingEntry.name) : null
+      return matchingEntry ? path.resolve(rootResolved, matchingEntry.name) : null
     } catch {
       return null
     }
