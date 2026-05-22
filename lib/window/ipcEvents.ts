@@ -125,8 +125,9 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   })
 
   handleIPC('check-vscode-installed', async () => {
+    const command = process.platform === 'win32' ? 'code.cmd --version' : 'code --version'
     try {
-      await execAsync('code --version')
+      await execAsync(command, { timeout: 2000, windowsHide: true })
       return true
     } catch {
       return false
