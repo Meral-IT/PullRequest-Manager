@@ -207,7 +207,24 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   })
 
   handleIPC('open-solution-file', async (_e, solutionPath: string) => {
-    await shell.openPath(solutionPath)
+    const settings = await loadSettings()
+    const rootDirectory = settings.general.repositoriesRootDirectory
+    if (!rootDirectory) {
+      return false
+    }
+
+    const resolvedRoot = path.resolve(rootDirectory)
+    const resolvedSolutionPath = path.resolve(solutionPath)
+
+    if (
+      (!resolvedSolutionPath.endsWith('.sln') && !resolvedSolutionPath.endsWith('.slnx')) ||
+      path.relative(resolvedRoot, resolvedSolutionPath).startsWith('..')
+    ) {
+      return false
+    }
+
+    await shell.openPath(resolvedSolutionPath)
+    return true
   })
 
   handleIPC('select-directory', async () => {
