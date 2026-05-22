@@ -23,6 +23,7 @@ export interface GeneralSettings {
   openAtLogin: boolean
   enableNotifications: boolean
   notificationSound: boolean
+  repositoriesRootDirectory: string
 }
 
 export interface SettingsModel {

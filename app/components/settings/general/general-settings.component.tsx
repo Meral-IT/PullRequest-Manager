@@ -1,9 +1,26 @@
-import { Checkbox, Field } from '@fluentui/react-components'
+import { Button, Checkbox, Field, Input } from '@fluentui/react-components'
 import { useContext } from 'react'
 import { SettingsContext } from '../context'
 
 export default function GeneralSettings() {
   const { state, actions } = useContext(SettingsContext)
+
+  const onBrowseDirectory = async () => {
+    const selectedDirectory = await globalThis.api.invoke('select-directory')
+    if (!selectedDirectory) {
+      return
+    }
+
+    const wrapper = {
+      target: {
+        name: 'repositoriesRootDirectory',
+        value: selectedDirectory,
+      },
+    }
+
+    actions.onChangeHandler(wrapper)
+  }
+
   return (
     <div>
       <Checkbox
@@ -61,6 +78,13 @@ export default function GeneralSettings() {
           style={{ marginLeft: '24px' }}
         />
       )}
+
+      <Field label="Repositories root directory" style={{ marginTop: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Input value={state.repositoriesRootDirectory} readOnly style={{ flexGrow: 1 }} />
+          <Button onClick={onBrowseDirectory}>Browse…</Button>
+        </div>
+      </Field>
     </div>
   )
 }
