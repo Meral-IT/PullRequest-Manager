@@ -17,7 +17,15 @@ import {
   TabList,
   tokens,
 } from '@fluentui/react-components'
-import { AddFilled, HomeFilled, KeyFilled, LayerRegular, PaintBrushFilled, SettingsFilled, WarningRegular } from '@fluentui/react-icons'
+import {
+  AddFilled,
+  HomeFilled,
+  KeyFilled,
+  LayerRegular,
+  PaintBrushFilled,
+  SettingsFilled,
+  WarningRegular,
+} from '@fluentui/react-icons'
 import { useContext, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import SplitContainer from '../split-container/split-container.component'
@@ -57,7 +65,7 @@ export default function SettingsComponent() {
     return useContext(SettingsContext)
   }
 
-  const { actions, saving, state } = useSettings()
+  const { actions, saving, saveError, state } = useSettings()
 
   const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
     if (data.value) {
@@ -138,7 +146,11 @@ export default function SettingsComponent() {
   const profiles = state.profiles.map((profile) => {
     const profileUri = `/settings/profiles/${profile.id}`
     return (
-      <Tab icon={profile.filterValid ? <LayerRegular /> : <WarningRegular className={styles.profileError} />} value={profileUri} key={profile.id}>
+      <Tab
+        icon={profile.filterValid ? <LayerRegular /> : <WarningRegular className={styles.profileError} />}
+        value={profileUri}
+        key={profile.id}
+      >
         {profile.label}
       </Tab>
     )
@@ -179,7 +191,11 @@ export default function SettingsComponent() {
         mainContent={
           <div className={styles.container}>
             <Outlet />
-            <Field className={(styles.fullWidth, styles.bottom)}>
+            <Field
+              className={styles.bottom}
+              validationState={saveError ? 'error' : undefined}
+              validationMessage={saveError ? <span role="alert">{saveError}</span> : undefined}
+            >
               <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
                 {buttonContent}
               </Button>

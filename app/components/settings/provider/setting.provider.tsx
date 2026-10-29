@@ -1,8 +1,9 @@
 import { PrProfile } from '@/lib/models/pr-profile'
+import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
 import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from 'react'
 import { SettingPageProps, SettingsContext, SettingStateProps, SettingStatePrProfile } from '../context'
-import { validateProfileFilter } from '../validation-helper'
+import { getProfileFilterValidation } from '../validation-helper'
 
 interface Props {
   children: ReactNode
@@ -10,6 +11,7 @@ interface Props {
 
 export const SettingProvider = ({ children }: Props) => {
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [validatingAzDo, setValidatingAzDo] = useState(false)
   const [formData, setFormData] = useState<SettingStateProps>({
     openAtLogin: false,
@@ -31,6 +33,7 @@ export const SettingProvider = ({ children }: Props) => {
   })
 
   const convertProfiles = (profile: PrProfile): SettingStatePrProfile => {
+    const filter = profile.filter === undefined ? '' : JSON.stringify(profile.filter, null, 2)
     return {
       id: profile.id,
       label: profile.label,
@@ -38,9 +41,9 @@ export const SettingProvider = ({ children }: Props) => {
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
       sorting: profile.sorting,
-      filter: profile.filter ? JSON.stringify(profile.filter, null, 2) : '',
+      filter,
       notifyOnNewPrs: profile.notifyOnNewPrs,
-      filterValid: true
+      ...getProfileFilterValidation(filter),
     }
   }
 
@@ -53,7 +56,7 @@ export const SettingProvider = ({ children }: Props) => {
       visible: profile.visible,
       sorting: profile.sorting,
       notifyOnNewPrs: profile.notifyOnNewPrs,
-      filter: profile.filter ? JSON.parse(profile.filter) : undefined,
+      filter: parseProfileFilter(profile.filter ?? ''),
     }
   }
 
@@ -95,6 +98,7 @@ export const SettingProvider = ({ children }: Props) => {
   }, [])
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setSaveError('')
     const { value } = e.target
 
     if ('profileId' in e) {
@@ -102,11 +106,6 @@ export const SettingProvider = ({ children }: Props) => {
       const updatedProfile = formData.profiles.find((profile) => profile.id === profileId)
       if (!updatedProfile) {
         return
-      }
-
-      if (e.target.name === 'filter') {
-        const isValid = validateProfileFilter(value)
-        updatedProfile.filterValid = isValid
       }
 
       if (updatedProfile.isDefault) {
@@ -120,7 +119,13 @@ export const SettingProvider = ({ children }: Props) => {
       setFormData((prevFormData) => ({
         ...prevFormData,
         profiles: prevFormData.profiles.map((profile) =>
-          profile.id === profileId ? { ...profile, [e.target.name]: value } : profile
+          profile.id === profileId
+            ? {
+                ...profile,
+                [e.target.name]: value,
+                ...(e.target.name === 'filter' ? getProfileFilterValidation(value) : {}),
+              }
+            : profile
         ),
       }))
       return
@@ -153,7 +158,16 @@ export const SettingProvider = ({ children }: Props) => {
 
   const saveSettings = async () => {
     setSaving(true)
+    setSaveError('')
     try {
+      const profiles = formData.profiles.map((profile) => ({
+        ...profile,
+        ...getProfileFilterValidation(profile.filter),
+      }))
+      setFormData((previous) => ({ ...previous, profiles }))
+      const invalid = profiles.find((profile) => !profile.filterValid)
+      if (invalid) throw new Error(`Invalid filter for profile "${invalid.label}": ${invalid.filterValidationMessage}`)
+
       const model: SettingsModel = {
         general: {
           openAtLogin: formData.openAtLogin,
@@ -172,9 +186,11 @@ export const SettingProvider = ({ children }: Props) => {
           theme: formData.appearanceTheme,
           tableSize: formData.appearanceTableSize,
         },
-        profiles: formData.profiles.map(convertProfilesToModel),
+        profiles: profiles.map(convertProfilesToModel),
       }
       await globalThis.api.invoke('save-settings', model)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -210,7 +226,7 @@ export const SettingProvider = ({ children }: Props) => {
       notifyOnNewPrs: false,
       isDefault: false,
       filter: '',
-      filterValid: true
+      ...getProfileFilterValidation(''),
     }
     setFormData((prevFormData) => ({
       ...prevFormData,
@@ -233,9 +249,10 @@ export const SettingProvider = ({ children }: Props) => {
         addProfile: handleAddProfile,
       },
       saving: saving,
+      saveError,
       validatingAzDo: validatingAzDo,
     }),
-    [formData, saving, validatingAzDo]
+    [formData, saving, saveError, validatingAzDo]
   )
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>

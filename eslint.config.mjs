@@ -3,7 +3,7 @@ import prettier from 'eslint-config-prettier/flat'
 import react from 'eslint-plugin-react-x'
 
 export default tseslint.config(
-  { ignores: ['node_modules/**', 'out/**', 'dist/**'] },
+  { ignores: ['node_modules/**', 'out/**', 'dist/**', 'temp/**'] },
   tseslint.configs.recommended,
   {
     ...react.configs['recommended-typescript'],

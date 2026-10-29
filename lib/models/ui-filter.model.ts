@@ -1,5 +1,6 @@
 import { normalizeBranchName as normalizeBranch } from '../tools/name-normalizer'
 import { PrVote } from './pr-vote'
+import { getProfileFilterErrors } from './profile-filter.schema'
 import { PullRequest, Reviewer } from './pull-request.model'
 import { User } from './user.model'
 
@@ -37,22 +38,22 @@ export class FilterEvaluator {
     let parsedFilter: PullRequestFilter;
 
     if (typeof filter === 'string') {
+      if (!filter.trim()) return data
       try {
         parsedFilter = JSON.parse(filter);
-      } catch (error) {
-        // If JSON parsing fails, return all data unfiltered or handle as needed
-        console.warn('Failed to parse filter JSON:', error);
-        return data; // Return original data when filter parsing fails
+      } catch {
+        return []
       }
     } else {
       parsedFilter = filter;
     }
 
+    if (getProfileFilterErrors(parsedFilter).length) return []
     return data.filter((pr) => this.evaluatePullRequest(pr, parsedFilter))
   }
 
   public static evaluateProfiles(pr: PullRequest, filter: PullRequestFilter[]): boolean {
-    return filter.some((f) => this.evaluatePullRequest(pr, f))
+    return filter.some((f) => getProfileFilterErrors(f).length === 0 && this.evaluatePullRequest(pr, f))
   }
 
   private static evaluatePullRequest(pr: PullRequest, filter: PullRequestFilter): boolean {

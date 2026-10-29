@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.node.json",
+  "include": ["tests/**/*.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "rootDir": ".",
+    "outDir": "temp/tests",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "types": ["node"]
+  }
+}

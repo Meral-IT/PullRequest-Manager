@@ -26,6 +26,17 @@ const timeout = setTimeout(() => {
   app.exit(1)
 }, 20_000)
 
+function waitForRenderer(window, condition) {
+  return window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const ready = () => (${condition})
+    if (ready()) return resolve()
+    const observer = new MutationObserver(() => {
+      if (ready()) { observer.disconnect(); resolve() }
+    })
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+  })`)
+}
+
 app.whenReady().then(async () => {
   let exitCode = 0
   try {
@@ -61,23 +72,19 @@ app.whenReady().then(async () => {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
+        backgroundThrottling: false,
       },
     })
     window.webContents.on('preload-error', (_event, _preload, error) => errors.push(error.message))
     window.webContents.on('console-message', (details) => {
       if (details.level === 'error') errors.push(details.message)
     })
+    window.webContents.session.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (_details, callback) => callback({ cancel: true })
+    )
     await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
-    await window.webContents.executeJavaScript(`
-    new Promise((resolve) => {
-      const ready = () => document.body.innerText.includes('Currently, no pull requests need your attention')
-      if (ready()) return resolve()
-      const observer = new MutationObserver(() => {
-        if (ready()) { observer.disconnect(); resolve() }
-      })
-      observer.observe(document.body, { childList: true, subtree: true })
-    })
-  `)
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
     assert.equal(window.webContents.getLastWebPreferences().sandbox, true)
     assert.deepEqual(
       await window.webContents.executeJavaScript(`
@@ -89,9 +96,38 @@ app.whenReady().then(async () => {
     `),
       { require: 'undefined', process: 'undefined', result: 'sandboxed IPC works' }
     )
+
+    await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/builtin:all'; void 0")
+    await waitForRenderer(
+      window,
+      '!!document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\')'
+    )
+    const pasteFilter = (text) =>
+      window.webContents.executeJavaScript(`
+      navigator.clipboard.readText = async () => ${JSON.stringify(text)}
+      Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
+    `)
+    await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
+    await waitForRenderer(
+      window,
+      `
+      document.body.innerText.includes('filter.filters[0].isDraft') &&
+      !!document.querySelector('.squiggly-error') &&
+      Array.from(document.querySelectorAll('button')).some(button => button.innerText === 'Invalid Profile(s)' && button.disabled)
+    `
+    )
+    await pasteFilter('{"op":"AND","filters":[{"reviewers":{"op":"OR","filters":[{"isApproved":false}]}}]}')
+    await waitForRenderer(
+      window,
+      `
+      document.body.innerText.includes('Filter is valid.') &&
+      !document.querySelector('.squiggly-error') &&
+      Array.from(document.querySelectorAll('button')).some(button => button.innerText === 'Save Settings' && !button.disabled)
+    `
+    )
     assert.deepEqual(errors, [])
     window.destroy()
-    console.log('Electron smoke test passed: renderer, sandboxed preload, and IPC')
+    console.log('Electron smoke test passed: renderer, sandboxed preload, IPC, and offline profile editor validation')
   } catch (error) {
     console.error(error)
     exitCode = 1
