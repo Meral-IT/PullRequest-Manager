@@ -1,5 +1,5 @@
 import { registerWindowIPC } from '@/lib/window/ipcEvents'
-import appIcon from '@/resources/build/icon.png?asset'
+import appIcon from '@/resources/icon.png?asset'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
 import { join } from 'node:path'

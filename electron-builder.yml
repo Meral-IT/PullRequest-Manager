@@ -12,19 +12,26 @@ files:
 asarUnpack:
   - resources/**
 win:
+  icon: resources/build/icon.ico
+  target: nsis
   executableName: PullRequest-Manager
 nsis:
+  installerIcon: resources/build/icon.ico
+  uninstallerIcon: resources/build/icon.ico
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  icon: resources/build/icon.icns
+  category: public.app-category.developer-tools
   entitlementsInherit: resources/build/entitlements.mac.plist
   extendInfo:
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
+  icon: resources/build/icon.icns
   artifactName: ${name}-${version}.${ext}
 linux:
   target:

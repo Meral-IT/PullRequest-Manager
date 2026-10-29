@@ -94,6 +94,9 @@ jobs:
       - name: Install dependencies
         run: npm install --prefer-offline --no-audit --progress=false
 
+      - name: Check app assets
+        run: npm run check:assets
+
       - name: Set version
         id: info
         uses: jaywcjlove/github-action-package@main
@@ -119,6 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Installer-${{ matrix.os }}
+          if-no-files-found: error
           path: |
             dist/*-setup.exe
             dist/*.zip
