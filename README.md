@@ -35,8 +35,8 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 
 Below are screenshots showcasing the PullRequestManager interface:
 
-| **Pull Requests List**                         | **Azure DevOps settings**                              |
-|:----------------------------------------------:|:------------------------------------------------------:|
+|             **Pull Requests List**             |                **Azure DevOps settings**                |
+| :--------------------------------------------: | :-----------------------------------------------------: |
 | ![Pull Requests List](./docs/pr-list-demo.png) | ![Azure DevOps settings](./docs/azdo-settings-demo.png) |
 
 ## Technologies Used
@@ -80,7 +80,7 @@ Stay tuned for updates!
 
 Before you begin, ensure you have the following installed:
 
-- [Node.js](https://nodejs.org/) (Recommended: Version 18+)
+- [Node.js](https://nodejs.org/) 24.16 or newer with npm 11 or newer (`nvm use` selects Node 24)
 - [Git](https://git-scm.com/)
 
 ### Setup Instructions
@@ -95,7 +95,7 @@ Before you begin, ensure you have the following installed:
 2. Install dependencies:
 
    ```sh
-   npm install
+   npm ci
    ```
 
 3. Start the application:
@@ -104,6 +104,10 @@ Before you begin, ensure you have the following installed:
    npm run dev
    ```
 
+The install step explicitly downloads the Electron binary before preparing native dependencies because electron-vite
+does not trigger Electron's on-demand download. If dependencies were installed with scripts disabled, run
+`npm run postinstall` before `npm start` or `npm run dev`.
+
 ## Building the Application
 
 To generate a production-ready build, run the following command:
@@ -111,6 +115,27 @@ To generate a production-ready build, run the following command:
 ```sh
 npm run build
 ```
+
+This checks both TypeScript projects and bundles the main process, sandboxed preload, and React renderer. Run
+`npm run lint` for lint checks, or `npm run lint:fix` to apply fixes. To create an installer, use `npm run build:win`,
+`npm run build:mac`, or `npm run build:linux`. `npm run build:unpack` creates an unpacked application for local testing.
+After building, `npm test` launches a hidden Electron window with temporary settings to check the bundled React
+renderer, sandboxed preload, and IPC bridge. On Linux CI, run it with `xvfb-run -a npm test`.
+
+The build uses Electron 45, electron-vite 6, and Vite 8. Node.js types follow Electron's embedded Node 24 runtime.
+TypeScript 7 provides `tsc`; the `typescript` dependency aliases Microsoft's TypeScript 6 compatibility package so
+ESLint can still use the compiler API, as described in the
+[TypeScript 7 migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-60).
+The ESM build config uses Vite's `rolldownOptions` and electron-vite's built-in dependency handling. Preload
+dependencies are bundled to support Electron's renderer sandbox. React DevTools are installed only in development.
+Packaged builds also disable Node environment/inspection switches and require the integrity-checked ASAR archive.
+
+Electron 45 requires macOS 13 or later and a 64-bit platform. macOS desktop notifications require a code-signed
+application. For a local macOS package without a Developer ID certificate, use
+`npm run build:unpack -- --config.mac.identity=- --config.mac.hardenedRuntime=false` to apply an ad-hoc signature
+after the fuse changes. Distribution builds still need your Developer ID signing and notarization credentials;
+notarization is currently disabled in
+`electron-builder.yml`.
 
 ## Project Structure
 
@@ -136,10 +161,10 @@ npm run build
 │ ├── welcome/ # Welcome kit components
 │ └── window/ # Custom window implementation
 ├── resources/ # Build resources
-├── .eslintrc # ESLint configuration
+├── eslint.config.mjs # ESLint flat configuration
 ├── .prettierrc # Prettier format configuration
 ├── electron-builder.yml # Electron builder configuration
-├── electron.vite.config.ts # Vite configuration for Electron
+├── electron.vite.config.mts # ESM Vite configuration for Electron
 ├── package.json # Project dependencies and scripts
 └── tsconfig.node.json # Main process tsconfig
 └── tsconfig.web.json # Renderer process tsconfig

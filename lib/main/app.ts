@@ -52,7 +52,9 @@ export function createAppWindow(): BrowserWindow {
     alwaysOnTop: true,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
-      sandbox: false,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   })
 
