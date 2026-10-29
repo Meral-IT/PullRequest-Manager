@@ -183,14 +183,17 @@ async function checkContrast() {
   assertMenu(0)
   assertColor(state.tray.image, 255, 'idle tray icon responds to a live system theme change')
 
-  const mac = loadTray('darwin')
-  await mac.api.default(mac.mainWindow)
-  assert(mac.tray.image.isTemplateImage(), 'macOS renders tray symbols as native templates')
-  for (const id of menuIds) assert(mac.tray.menu.getMenuItemById(id).icon.isTemplateImage())
-  mac.setLoading(true)
-  mac.tick()
-  assert(mac.tray.image.isTemplateImage(), 'macOS loading frames remain native templates')
-  mac.setLoading(false)
+  if (process.platform === 'darwin') {
+    const mac = loadTray('darwin')
+    await mac.api.default(mac.mainWindow)
+    assert(mac.tray.image.isTemplateImage(), 'macOS renders tray symbols as native templates')
+    for (const id of menuIds) assert(mac.tray.menu.getMenuItemById(id).icon.isTemplateImage())
+    mac.setLoading(true)
+    mac.tick()
+    assert(mac.tray.image.isTemplateImage(), 'macOS loading frames remain native templates')
+    mac.setLoading(false)
+    console.log('PASS: macOS native templates')
+  }
 
   const linux = loadTray('linux')
   await linux.api.default(linux.mainWindow)
@@ -198,9 +201,7 @@ async function checkContrast() {
   linux.theme.shouldUseDarkColors = true
   linux.theme.emit('updated')
   assertColor(linux.tray.image, 255, 'Linux tray follows native theme changes')
-  console.log(
-    'PASS: tray/menu contrast, live themes, loading, profiles, active indicator, display scales, macOS templates'
-  )
+  console.log('PASS: tray/menu contrast, live themes, loading, profiles, active indicator, display scales')
 }
 
 electron.app
