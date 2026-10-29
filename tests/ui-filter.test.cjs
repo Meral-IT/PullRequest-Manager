@@ -1,9 +1,27 @@
-import assert from 'node:assert/strict'
-import { PrVote } from '../lib/models/pr-vote'
-import { PullRequest, PullRequestMergeStatus } from '../lib/models/pull-request.model'
-import { FilterEvaluator, PullRequestFilter, ReviewerFilter } from '../lib/models/ui-filter.model'
+const assert = require('node:assert/strict')
+const { resolve } = require('node:path')
+const { buildSync } = require('esbuild')
 
-function pullRequest(id: number, vote: PrVote): PullRequest {
+const { outputFiles } = buildSync({
+  stdin: {
+    contents: `
+      export { FilterEvaluator } from './lib/models/ui-filter.model'
+      export { PrVote } from './lib/models/pr-vote'
+      export { PullRequestMergeStatus } from './lib/models/pull-request.model'
+    `,
+    resolveDir: resolve(__dirname, '..'),
+    loader: 'ts',
+  },
+  bundle: true,
+  write: false,
+  platform: 'node',
+  format: 'cjs',
+})
+const loaded = { exports: {} }
+new Function('module', 'exports', outputFiles[0].text)(loaded, loaded.exports)
+const { FilterEvaluator, PrVote, PullRequestMergeStatus } = loaded.exports
+
+function pullRequest(id, vote) {
   return {
     id,
     author: { id: 'author', label: 'Author' },
@@ -25,7 +43,7 @@ function pullRequest(id: number, vote: PrVote): PullRequest {
   }
 }
 
-function reviewerFilter(filter: ReviewerFilter): PullRequestFilter {
+function reviewerFilter(filter) {
   return {
     op: 'AND',
     filters: [{ reviewers: { op: 'AND', filters: [{ user: { isMySelf: true }, ...filter }] } }],
