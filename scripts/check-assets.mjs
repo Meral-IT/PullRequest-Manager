@@ -1,11 +1,11 @@
-const assert = require('node:assert/strict')
-const { readFileSync } = require('node:fs')
-const path = require('node:path')
-const { load } = require('js-yaml')
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import yaml from 'js-yaml'
 
-const root = path.resolve(__dirname, '..')
+const root = path.resolve(import.meta.dirname, '..')
 const read = (file) => readFileSync(path.join(root, file))
-const config = load(read('electron-builder.yml').toString())
+const config = yaml.load(read('electron-builder.yml').toString())
 const iconDirectory = config.directories.buildResources
 const pngSignature = Buffer.from('89504e470d0a1a0a', 'hex')
 
@@ -59,9 +59,9 @@ assert.equal(config.nsis.uninstallerIcon, config.win.icon)
 assert.equal(config.mac.icon, `${iconDirectory}/icon.icns`)
 assert.equal(config.dmg.icon, config.mac.icon)
 assert.ok(read('lib/main/main.ts').toString().includes(`setAppUserModelId('${config.appId}')`))
-assert.ok(read('lib/main/app.ts').toString().includes("@/resources/icon.png?asset"))
+assert.ok(read('lib/main/app.ts').toString().includes('@/resources/icon.png?asset'))
 assert.match(read('lib/main/app.ts').toString(), /icon: appIcon/)
-assert.ok(read('app/renderer.tsx').toString().includes("@/resources/build/icon.svg"))
+assert.ok(read('app/renderer.tsx').toString().includes('@/resources/build/icon.svg'))
 assert.match(read('app/index.html').toString(), /<title>PullRequest-Manager<\/title>/)
 
 console.log('App assets and installer icon configuration passed.')
