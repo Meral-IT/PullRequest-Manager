@@ -23,7 +23,7 @@ if (!gotTheLock) {
 
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('PullRequest-Manager')
+  electronApp.setAppUserModelId('com.meral.pr-manager')
 
   if (!app.isPackaged) {
     installExtension([REACT_DEVELOPER_TOOLS])

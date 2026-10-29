@@ -19,6 +19,7 @@
   },
   "scripts": {
     "dev": "electron-vite dev -w",
+    "check:assets": "node scripts/check-assets.mjs",
     "format": "prettier --write .",
     "lint": "eslint .",
     "start": "electron-vite preview",

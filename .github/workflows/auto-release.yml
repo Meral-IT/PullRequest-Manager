@@ -99,6 +99,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Check app assets
+        run: npm run check:assets
+
       - name: Set version
         id: info
         run: npm version "$env:RELEASE_VERSION" --no-git-tag-version --allow-same-version
@@ -124,6 +127,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Installer-${{ matrix.os }}
+          if-no-files-found: error
           path: |
             dist/*-setup.exe
             dist/*.zip
