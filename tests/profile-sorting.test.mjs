@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve, win32 } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'rolldown'
@@ -8,6 +8,15 @@ import * as React from 'react'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
+const isExternal = (id) => !id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id) && !id.startsWith('@/')
+
+test('test loader bundles Windows, POSIX, relative, and aliased paths while keeping packages external', () => {
+  for (const id of ['D:/a/project/context.ts', 'D:\\a\\project\\context.ts', '/project/context.ts', '../context.ts', '@/lib/context.ts']) {
+    assert.equal(isExternal(id), false, id)
+  }
+  assert.equal(isExternal('react'), true)
+  assert.equal(isExternal('@fluentui/react-components'), true)
+})
 
 async function component(entry) {
   const states = []
@@ -66,7 +75,7 @@ async function component(entry) {
     output: { format: 'cjs', exports: 'named' },
     platform: 'node',
     transform: { jsx: 'react-jsx' },
-    external: (id) => !id.startsWith('.') && !id.startsWith('/') && !id.startsWith('@/'),
+    external: isExternal,
     resolve: {
       alias: {
         '@/app': resolve(__dirname, '../app'),
