@@ -1,13 +1,13 @@
-// Run with: electron tests/tray-contrast.cjs
-const assert = require('node:assert/strict')
-const { EventEmitter } = require('node:events')
-const fs = require('node:fs')
-const path = require('node:path')
-const vm = require('node:vm')
-const electron = require('electron')
-const ts = require('typescript')
+// Run with: electron tests/tray-contrast.mjs
+import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import fs from 'node:fs'
+import path from 'node:path'
+import vm from 'node:vm'
+import electron from 'electron'
+import ts from 'typescript'
 
-const root = path.resolve(__dirname, '..')
+const root = path.resolve(import.meta.dirname, '..')
 
 function loadTray(platform) {
   const theme = Object.assign(new EventEmitter(), {
@@ -19,11 +19,12 @@ function loadTray(platform) {
   const intervals = new Map()
   const modules = new Map()
   const mainWindow = { isVisible: () => false }
-  let tray
+  const trays = []
 
-  class TestTray {
+  class TestTray extends EventEmitter {
     constructor(image) {
-      tray = this
+      super()
+      trays.push(this)
       this.image = image
     }
     setImage(image) {
@@ -32,8 +33,9 @@ function loadTray(platform) {
     setContextMenu(menu) {
       this.menu = menu
     }
-    setToolTip() {}
-    addListener() {}
+    setToolTip(text) {
+      this.toolTip = text
+    }
   }
 
   function load(filename) {
@@ -46,7 +48,7 @@ function loadTray(platform) {
         return { default: path.join(root, specifier.slice(2).replace('?asset', '')) }
       if (specifier === '../tools/loading.service') return { default: loader }
       if (specifier === './settings') return { loadSettings: async () => ({ profiles: [] }) }
-      if (specifier === './app') return { default: () => mainWindow, showWindow() {} }
+      if (specifier === './app') return { default: () => mainWindow, showWindow: () => mainWindow }
       if (specifier === '../azure-devops/azure-devops.service') return { AzureDevOpsService: {} }
       return load(path.resolve(path.dirname(filename), `${specifier}.ts`))
     }
@@ -85,7 +87,7 @@ function loadTray(platform) {
       loadingEvent.emit('loading', { isLoading })
     },
     get tray() {
-      return tray
+      return trays[0]
     },
     tick() {
       for (const callback of intervals.values()) callback()
