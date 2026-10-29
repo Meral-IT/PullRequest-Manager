@@ -21,12 +21,14 @@ if (!process.versions.electron) {
 const { app, BrowserWindow, ipcMain } = electron
 app.setPath('userData', userData)
 
+let pendingStep = 'app startup'
 const timeout = setTimeout(() => {
-  console.error('Electron smoke test timed out')
+  console.error(`Electron smoke test timed out: ${pendingStep}`)
   app.exit(1)
 }, 35_000)
 
 function waitForRenderer(window, condition) {
+  pendingStep = condition
   return window.webContents.executeJavaScript(`new Promise((resolve) => {
     const ready = () => (${condition})
     if (ready()) return resolve()
@@ -38,12 +40,14 @@ function waitForRenderer(window, condition) {
 }
 
 async function settleLayout(window) {
-  await window.webContents.executeJavaScript(`(async () => {
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    await Promise.all(document.getAnimations()
+  pendingStep = 'layout animation frames'
+  await window.webContents.executeJavaScript(
+    `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`
+  )
+  pendingStep = 'layout animations'
+  await window.webContents.executeJavaScript(`Promise.all(document.getAnimations()
       .filter(animation => animation.effect.getComputedTiming().iterations !== Infinity)
-      .map(animation => animation.finished.catch(() => {})))
-  })()`)
+      .map(animation => animation.finished.catch(() => {})))`)
 }
 
 async function selectProfileTab(window, tab) {
@@ -173,7 +177,8 @@ app.whenReady().then(async () => {
       width: 900,
       height: 670,
       frame: false,
-      show: false,
+      // Hidden windows can stop producing animation frames on Windows.
+      show: true,
       webPreferences: {
         preload: resolve(import.meta.dirname, '../out/preload/preload.js'),
         sandbox: true,
