@@ -49,7 +49,6 @@ export async function saveSettings(input: SettingsModel): Promise<SettingsModel>
 
   app.setLoginItemSettings({
     openAtLogin: cachedSettings.general.openAtLogin,
-    openAsHidden: false,
   })
 
   updateTrayProfiles(cachedSettings.profiles)
@@ -82,7 +81,8 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
       enableNotifications: input.general?.enableNotifications ?? defaultSettings.general.enableNotifications,
       notificationSound: input.general?.notificationSound ?? defaultSettings.general.notificationSound,
-      repositoriesRootDirectory: input.general?.repositoriesRootDirectory || defaultSettings.general.repositoriesRootDirectory,
+      repositoriesRootDirectory:
+        input.general?.repositoriesRootDirectory || defaultSettings.general.repositoriesRootDirectory,
     },
     azDo: {
       organizationUrl: input.azDo.organizationUrl || defaultSettings.azDo.organizationUrl,

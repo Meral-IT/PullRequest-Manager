@@ -25,9 +25,11 @@ app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('PullRequest-Manager')
 
-  installExtension([REACT_DEVELOPER_TOOLS])
-    .then((ext) => log.debug(`Added Extension: ${ext.map((e) => e.name).join(', ')}`))
-    .catch((err) => log.debug('An error occurred: ', err))
+  if (!app.isPackaged) {
+    installExtension([REACT_DEVELOPER_TOOLS])
+      .then((ext) => log.debug(`Added Extension: ${ext.map((e) => e.name).join(', ')}`))
+      .catch((err) => log.debug('An error occurred: ', err))
+  }
 
   // Create app window
   getOrCreateAppWindow()
