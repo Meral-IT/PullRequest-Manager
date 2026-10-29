@@ -37,6 +37,7 @@ export const SettingProvider = ({ children }: Props) => {
       isDefault: profile.isDefault,
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
+      sorting: profile.sorting,
       filter: profile.filter ? JSON.stringify(profile.filter, null, 2) : '',
       notifyOnNewPrs: profile.notifyOnNewPrs,
       filterValid: true
@@ -50,6 +51,7 @@ export const SettingProvider = ({ children }: Props) => {
       isDefault: profile.isDefault,
       enableAcceptAll: profile.enableAcceptAll,
       visible: profile.visible,
+      sorting: profile.sorting,
       notifyOnNewPrs: profile.notifyOnNewPrs,
       filter: profile.filter ? JSON.parse(profile.filter) : undefined,
     }

@@ -186,6 +186,10 @@ export default function PullRequestsOverview() {
     })
   }, [])
 
+  useEffect(() => {
+    return globalThis.api.receive('settings', (settings) => setProfiles(settings.profiles))
+  }, [])
+
   if (pullRequests.error) {
     return PullRequestErrors(pullRequests.error)
   }
@@ -225,7 +229,9 @@ export default function PullRequestsOverview() {
         </OverflowItem>
       )
 
-      const list: React.ReactNode = selectedValue === profile.id && <PrList key={profile.id} data={filtered} />
+      const list: React.ReactNode = selectedValue === profile.id && (
+        <PrList key={profile.id} data={filtered} sorting={profile.sorting} />
+      )
 
       return {
         profile,
