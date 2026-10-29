@@ -1,10 +1,15 @@
-const assert = require('node:assert/strict')
-const { resolve } = require('node:path')
-const { test } = require('node:test')
-const { buildSync } = require('esbuild')
-const React = require('react')
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { build } from 'rolldown'
+import * as React from 'react'
 
-function component(entry) {
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const load = createRequire(import.meta.url)
+
+async function component(entry) {
   const states = []
   const effects = []
   const listeners = new Map()
@@ -55,27 +60,28 @@ function component(entry) {
       return name
     },
   })
-  const { outputFiles } = buildSync({
-    entryPoints: [resolve(__dirname, '..', entry)],
-    bundle: true,
+  const { output } = await build({
+    input: resolve(__dirname, '..', entry),
     write: false,
-    format: 'cjs',
+    output: { format: 'cjs', exports: 'named' },
     platform: 'node',
-    jsx: 'automatic',
-    packages: 'external',
-    alias: {
-      '@/app': resolve(__dirname, '../app'),
-      '@/lib': resolve(__dirname, '../lib'),
-      '@/resources': resolve(__dirname, '../resources'),
+    transform: { jsx: 'react-jsx' },
+    external: (id) => !id.startsWith('.') && !id.startsWith('/') && !id.startsWith('@/'),
+    resolve: {
+      alias: {
+        '@/app': resolve(__dirname, '../app'),
+        '@/lib': resolve(__dirname, '../lib'),
+        '@/resources': resolve(__dirname, '../resources'),
+      },
     },
-    loader: { '.scss': 'empty', '.svg': 'text' },
+    moduleTypes: { '.scss': 'empty', '.svg': 'text' },
   })
   const result = { exports: {} }
-  new Function('require', 'module', 'exports', outputFiles[0].text)((name) => {
+  new Function('require', 'module', 'exports', output[0].code)((name) => {
     if (name === 'react') return hooks
     if (name.startsWith('@fluentui/')) return fluent
     if (name === 'react-router-dom') return { useParams: () => ({ profileId: 'test' }) }
-    return require(name)
+    return load(name)
   }, result, result.exports)
 
   return {
@@ -86,7 +92,7 @@ function component(entry) {
     render(props = {}, name = 'default') {
       cursor = 0
       globalThis.api = api
-      globalThis.localStorage = { getItem: () => null, setItem() {} }
+      globalThis.localStorage = { getItem: () => null, setItem: () => undefined }
       return result.exports[name](props)
     },
     async flush() {
@@ -111,7 +117,7 @@ const settings = {
 }
 
 test('profile sorting survives load, duplication, save, and removal; old profiles stay unsorted', async () => {
-  const provider = component('app/components/settings/provider/setting.provider.tsx')
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
   const sorting = { sortColumn: 'details', sortDirection: 'descending' }
   provider.setSettings({ ...settings, profiles: [{ ...profile, sorting }] })
   provider.render({}, 'SettingProvider')
@@ -134,8 +140,8 @@ test('profile sorting survives load, duplication, save, and removal; old profile
   assert.equal(value.state.profiles[0].sorting, undefined)
 })
 
-test('profile controls select and clear sorting and disable the unused direction', () => {
-  const view = component('app/components/settings/profiles/settings-profiles.component.tsx')
+test('profile controls select and clear sorting and disable the unused direction', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
   const changes = []
   const render = (sorting) => {
     view.setContext({ state: { profiles: [{ ...profile, sorting }] }, actions: { onChangeHandler: (event) => changes.push(event) } })
@@ -153,8 +159,8 @@ test('profile controls select and clear sorting and disable the unused direction
   assert.equal(changes.at(-1).target.value, undefined)
 })
 
-test('grid applies both sort directions to each supported column and prevents manual changes', () => {
-  const view = component('app/components/pr-list/pr-list.tsx')
+test('grid applies both sort directions to each supported column and prevents manual changes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
   const data = [
     { id: 1, author: { label: 'Zoe' }, details: { label: 'Zulu' }, reviewers: [1, 2], evaluations: [{ status: 3 }] },
     { id: 2, author: { label: 'Ada' }, details: { label: 'Alpha' }, reviewers: [], evaluations: [] },
@@ -174,7 +180,7 @@ test('grid applies both sort directions to each supported column and prevents ma
 })
 
 test('active profile receives saved sorting without switching tabs', async () => {
-  const overview = component('app/pages/pull-requests/pull-requests.tsx')
+  const overview = await component('app/pages/pull-requests/pull-requests.tsx')
   overview.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
   overview.render()
   await overview.flush()
