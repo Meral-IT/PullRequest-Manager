@@ -34,6 +34,10 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 
 ## Profile Filters
 
+Open a profile in Settings to edit its filter with JSON completion, hover help, formatting, and inline errors. Filters are checked against the supported fields and values, including nested author and reviewer conditions. Unknown properties and invalid filters block saving until repaired.
+
+Leave the filter blank to include all pull requests. Previously saved invalid filters match no pull requests until corrected; opening Settings keeps them available for repair.
+
 Edit a profile's JSON filter in Settings. To find PRs you have not approved, including rejected, waiting-for-author, and unvoted reviews, use:
 
 ```json

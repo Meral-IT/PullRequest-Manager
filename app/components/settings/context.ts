@@ -12,6 +12,7 @@ export interface SettingStatePrProfile {
   filter?: string
   filterValid: boolean
   sorting?: PrProfile['sorting']
+  filterValidationMessage: string
 }
 
 export interface SettingStateProps {
@@ -45,6 +46,7 @@ export interface SettingPageProps {
     duplicateProfile: (id: string) => void
   }
   saving: boolean
+  saveError: string
   validatingAzDo: boolean
 }
 
@@ -77,5 +79,6 @@ export const SettingsContext = createContext<SettingPageProps>({
     duplicateProfile: () => {},
   },
   saving: false,
+  saveError: '',
   validatingAzDo: false,
 })

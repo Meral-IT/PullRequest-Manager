@@ -211,7 +211,10 @@ export default function PullRequestsOverview() {
   const details = profiles
     .filter((x) => x.visible)
     .map((profile) => {
-      const filtered = FilterEvaluator.evaluate(pullRequests.items, profile.filter ?? { filters: [], op: 'AND' })
+      const filtered = FilterEvaluator.evaluate(
+        pullRequests.items,
+        profile.filter === undefined ? { filters: [], op: 'AND' } : profile.filter
+      )
       const badge = <CounterBadge>{filtered.length}</CounterBadge>
 
       const onProfileHeaderAuxClick = profile.enableAcceptAll

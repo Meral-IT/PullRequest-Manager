@@ -10,14 +10,16 @@ import {
   PopoverSurface,
   PopoverTrigger,
   Select,
-  Textarea,
+  Spinner,
   Title1,
   tokens,
 } from '@fluentui/react-components'
 import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
-import { useContext, useState } from 'react'
+import { lazy, Suspense, useContext, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
+
+const FilterEditor = lazy(() => import('./filter-editor.component'))
 
 const useStackClassName = makeResetStyles({
   display: 'flex',
@@ -34,22 +36,16 @@ const useStyles = makeStyles({
     flex: 1,
     height: '100%',
   },
-  height: {
-    height: '100%',
+  editor: {
+    minHeight: '180px',
+    minWidth: 0,
+    flexGrow: 1,
+  },
+  editorField: {
     flexGrow: 1,
     display: 'flex',
     flexDirection: 'column',
-  },
-  textarea: {
-    maxHeight: 'unset',
-    height: '100%',
-    flexGrow: 1,
-  },
-  textareaField: {
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    paddingBottom: '20px'
+    paddingBottom: '20px',
   },
   gap: { display: 'flex', gap: '1rem' },
   bottom: { marginTop: 'auto' },
@@ -266,30 +262,31 @@ export default function ProfileSettings() {
           </Field>
         </div>
         <Field
-          label={'Filter'}
+          label="Filter"
           validationState={profile.filterValid ? 'success' : 'error'}
-          validationMessage={profile.filterValid ? 'JSON schema is valid.' : 'Invalid schema! Please check your JSON syntax.'}
-          className={styles.textareaField}
+          validationMessage={profile.filterValidationMessage}
+          className={styles.editorField}
         >
-          <Textarea
-            className={styles.height}
-            textarea={{
-              className: styles.textarea,
-            }}
-            name="profiles"
-            value={profile.filter}
-            onChange={(e) => {
-              const wrapper = {
-                profileId: profile.id,
-                target: {
-                  name: 'filter',
-                  value: e.target.value,
-                },
-              }
+          <Suspense fallback={<Spinner label="Loading filter editor" />}>
+            <FilterEditor
+              key={profile.id}
+              className={styles.editor}
+              profileId={profile.id}
+              theme={state.appearanceTheme}
+              value={profile.filter ?? ''}
+              onChange={(value) => {
+                const wrapper = {
+                  profileId: profile.id,
+                  target: {
+                    name: 'filter',
+                    value,
+                  },
+                }
 
-              actions.onChangeHandler(wrapper)
-            }}
-          />
+                actions.onChangeHandler(wrapper)
+              }}
+            />
+          </Suspense>
         </Field>
       </div>
       <div className={styles.bottom}>

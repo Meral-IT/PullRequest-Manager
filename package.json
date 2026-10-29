@@ -38,12 +38,13 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build": "npm run typecheck && electron-vite build",
-    "test": "node tests/electron-smoke.mjs && node --test tests/*.test.mjs"
+    "test": "tsc -p tsconfig.test.json && node --test temp/tests/tests/*.test.js tests/*.test.mjs && node tests/electron-smoke.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "jsonschema": "^1.5.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-ts": "^4.0.0",
@@ -71,7 +72,8 @@
     "react-router-dom": "^7.18.5",
     "sass-embedded": "^1.107.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "monaco-editor": "^0.57.0"
   },
   "engines": {
     "node": ">=24.16.0",

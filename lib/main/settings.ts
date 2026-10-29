@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { defaultProfiles } from '../models/pr-profile'
+import { getProfileFilterErrors } from '../models/profile-filter.schema'
 import { SettingsModel, TableSize } from '../models/settings.model'
 import { updateTrayProfiles } from './tray'
 
@@ -37,13 +38,23 @@ function encryptString(input: string): string {
 }
 
 export async function saveSettings(input: SettingsModel): Promise<SettingsModel> {
-  const originalPat = input.azDo.pat
-  const pat = encryptString(input.azDo.pat)
+  for (const profile of input.profiles) {
+    if (profile.filter === undefined) continue
+    const errors = getProfileFilterErrors(profile.filter)
+    if (errors.length) throw new Error(`Invalid filter for profile "${profile.label}": ${errors.join('; ')}`)
+  }
 
-  input.azDo.pat = pat
-  await fs.writeFile(settingFile, JSON.stringify(input, null, 2))
-
-  input.azDo.pat = originalPat
+  await fs.writeFile(
+    settingFile,
+    JSON.stringify(
+      {
+        ...input,
+        azDo: { ...input.azDo, pat: encryptString(input.azDo.pat) },
+      },
+      null,
+      2
+    )
+  )
 
   cachedSettings = normalizeSettings(input)
 
