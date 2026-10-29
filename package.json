@@ -37,7 +37,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build": "npm run typecheck && electron-vite build",
-    "test": "node tests/electron-smoke.mjs && electron tests/tray-contrast.mjs"
+    "test": "node tests/electron-smoke.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

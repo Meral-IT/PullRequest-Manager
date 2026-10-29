@@ -1,11 +1,25 @@
-// Run with: electron tests/tray-contrast.mjs
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import electron from 'electron'
 import ts from 'typescript'
+
+const userData = process.versions.electron ? process.argv[2] : fs.mkdtempSync(path.join(tmpdir(), 'pr-manager-tray-'))
+if (!process.versions.electron) {
+  let result
+  try {
+    result = spawnSync(electron, [import.meta.filename, userData], { stdio: 'inherit', timeout: 30_000 })
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+  if (result.error) console.error(result.error)
+  process.exit(result.status ?? 1)
+}
+electron.app.setPath('userData', userData)
 
 const root = path.resolve(import.meta.dirname, '..')
 
