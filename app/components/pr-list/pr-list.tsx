@@ -1,3 +1,4 @@
+import { PrProfile } from '@/lib/models/pr-profile'
 import { PrVote } from '@/lib/models/pr-vote'
 import {
   PullRequest,
@@ -325,6 +326,7 @@ const columnSizingOptions = {
 
 type Props = {
   data: PullRequest[]
+  sorting?: PrProfile['sorting']
 }
 
 export default function PrList(props: Readonly<Props>) {
@@ -335,7 +337,11 @@ export default function PrList(props: Readonly<Props>) {
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
-  const { data } = props
+  const { data, sorting } = props
+  const sortColumn = columns.find((column) => column.columnId === sorting?.sortColumn)
+  const items = sorting && sortColumn
+    ? data.toSorted((a, b) => sortColumn.compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
+    : data
 
   useEffect(() => {
     async function fetchData() {
@@ -460,11 +466,11 @@ export default function PrList(props: Readonly<Props>) {
         </MenuPopover>
       </Menu>
       <DataGrid
-        items={data}
+        items={items}
         columns={columns}
         columnSizingOptions={columnSizingOptions}
         // selectionMode="multiselect"
-        sortable
+        sortable={!sorting}
         size={tableSize as any}
         // subtleSelection
         resizableColumns

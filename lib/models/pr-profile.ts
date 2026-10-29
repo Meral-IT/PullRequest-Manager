@@ -8,6 +8,10 @@ export interface PrProfile {
   enableAcceptAll: boolean
   visible: boolean
   filter?: PullRequestFilter
+  sorting?: {
+    sortColumn: 'author' | 'details' | 'reviewers' | 'statusChecks'
+    sortDirection: 'ascending' | 'descending'
+  }
   notifyOnNewPrs: boolean
 }
 

@@ -1,3 +1,4 @@
+import { PrProfile } from '@/lib/models/pr-profile'
 import { TableSize } from '@/lib/models/settings.model'
 import { createContext } from 'react'
 
@@ -10,6 +11,7 @@ export interface SettingStatePrProfile {
   visible: boolean
   filter?: string
   filterValid: boolean
+  sorting?: PrProfile['sorting']
 }
 
 export interface SettingStateProps {

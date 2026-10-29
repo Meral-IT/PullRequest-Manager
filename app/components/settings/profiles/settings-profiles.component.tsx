@@ -226,6 +226,45 @@ export default function ProfileSettings() {
             />
           </div>
         </div>
+        <div className={styles.gap}>
+          <Field label="Sort by" hint="A profile sort disables sorting from column headers.">
+            <Select
+              value={profile.sorting?.sortColumn ?? ''}
+              onChange={(e) => actions.onChangeHandler({
+                profileId: profile.id,
+                target: {
+                  name: 'sorting',
+                  value: e.target.value ? {
+                    sortColumn: e.target.value,
+                    sortDirection: profile.sorting?.sortDirection ?? 'ascending',
+                  } : undefined,
+                },
+              })}
+            >
+              <option value="">None (allow manual sorting)</option>
+              <option value="author">Author</option>
+              <option value="details">PR title</option>
+              <option value="reviewers">Reviewer count</option>
+              <option value="statusChecks">Failed status checks</option>
+            </Select>
+          </Field>
+          <Field label="Sort direction">
+            <Select
+              disabled={!profile.sorting}
+              value={profile.sorting?.sortDirection ?? 'ascending'}
+              onChange={(e) => actions.onChangeHandler({
+                profileId: profile.id,
+                target: {
+                  name: 'sorting',
+                  value: profile.sorting && { ...profile.sorting, sortDirection: e.target.value },
+                },
+              })}
+            >
+              <option value="ascending">Ascending</option>
+              <option value="descending">Descending</option>
+            </Select>
+          </Field>
+        </div>
         <Field
           label={'Filter'}
           validationState={profile.filterValid ? 'success' : 'error'}
