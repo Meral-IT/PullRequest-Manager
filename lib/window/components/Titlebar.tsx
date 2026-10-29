@@ -63,7 +63,7 @@ const useStyles = makeStyles({
 
 export const Titlebar = () => {
   const styles = useStyles()
-  const { title, icon, titleCentered, menuItems } = useWindowContext().titlebar
+  const { title, icon, menuItems } = useWindowContext().titlebar
   const { menusVisible, setMenusVisible, closeActiveMenu } = useTitlebarContext()
   const [loaderVisible, setLoaderVisible] = useState(false)
   const wcontext = useWindowContext().window
@@ -128,7 +128,9 @@ function TitlebarMenu() {
 
   return (
     <div className={styles.titleBarMenu}>
-      {menuItems?.map((menu, index) => <TitlebarMenuItem key={menu.name} menu={menu} index={index} />)}
+      {menuItems?.map((menu, index) => (
+        <TitlebarMenuItem key={menu.name} menu={menu} index={index} />
+      ))}
     </div>
   )
 }

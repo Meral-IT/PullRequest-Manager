@@ -17,60 +17,68 @@
     "email": "hallo@meral.cloud",
     "url": "https://meral.cloud"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
-  },
   "scripts": {
     "dev": "electron-vite dev -w",
     "format": "prettier --write .",
-    "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts,.vue --fix",
+    "lint": "eslint .",
     "start": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps",
-    "vite:build:app": "electron-vite build",
+    "postinstall": "install-electron && electron-builder install-app-deps",
+    "vite:build:app": "npm run build",
     "electron:build:win": "electron-builder --win",
     "electron:build:mac": "electron-builder --mac",
     "electron:build:linux": "electron-builder --linux",
     "electron:build:dir": "electron-builder --dir",
-    "build:unpack": "electron-vite build && electron-builder --dir",
-    "build:win": "electron-vite build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux",
+    "lint:fix": "eslint . --fix",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build": "npm run typecheck && electron-vite build",
+    "test": "node tests/electron-smoke.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
-    "@electron-toolkit/eslint-config": "^2.1.0",
-    "@electron-toolkit/eslint-config-ts": "^3.1.0",
+    "@electron-toolkit/eslint-config-ts": "^4.0.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
-    "@fluentui/react-components": "^9.74.1",
-    "@fluentui/react-icons": "^2.0.319",
-    "@rushstack/eslint-patch": "^1.16.1",
-    "@types/node": "^22.20.0",
-    "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.2.0",
-    "azure-devops-node-api": "^15.1.2",
-    "dompurify": "^3.4.11",
-    "electron": "^39.8.10",
-    "electron-builder": "^26.15.3",
+    "@fluentui/react-components": "^9.75.0",
+    "@fluentui/react-icons": "^2.0.344",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "@vitejs/plugin-react": "^6.1.2",
+    "azure-devops-node-api": "^17.0.1",
+    "dompurify": "^3.4.17",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "electron-devtools-installer": "^4.0.0",
     "electron-log": "^5.4.4",
-    "electron-vite": "^4.0.1",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react": "^7.37.5",
-    "framer-motion": "^12.40.0",
-    "prettier": "^3.8.4",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.7",
-    "react-router-dom": "^7.17.0",
-    "sass-embedded": "^1.100.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.5"
+    "electron-vite": "^6.0.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-x": "^5.28.8",
+    "prettier": "^3.9.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.5",
+    "sass-embedded": "^1.107.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=24.16.0",
+    "npm": ">=11"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.6.0": true,
+    "electron-winstaller@5.4.0": true,
+    "fsevents@2.3.3": true
   }
 }
