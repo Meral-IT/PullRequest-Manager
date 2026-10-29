@@ -7,6 +7,7 @@
 
 - [Overview](#overview)
 - [Features](#features)
+- [Profile Filters](#profile-filters)
 - [Screenshots](#screenshots)
 - [Technologies Used](#technologies-used)
 - [Help Wanted](#help-wanted)
@@ -30,6 +31,33 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🔄 **Multi-Project Support** – Seamlessly switch between different Azure DevOps projects.
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
 - 🔔 **Desktop Notifications** – Get notified when new pull requests arrive, with optional sound alerts.
+
+## Profile Filters
+
+Edit a profile's JSON filter in Settings. To find PRs you have not approved, including rejected, waiting-for-author, and unvoted reviews, use:
+
+```json
+{
+  "op": "AND",
+  "filters": [
+    {
+      "reviewers": {
+        "op": "AND",
+        "filters": [
+          {
+            "user": { "isMySelf": true },
+            "isApproved": false
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+`isApproved: true` matches both Approved and Approved with suggestions; `false` matches No vote, Waiting for author, and Rejected. Existing numeric `vote` filters still match one exact vote, and can be combined with `isApproved`.
+
+Each reviewer filter must match at least one reviewer. The example checks your review, so another reviewer's approval does not hide a PR you still need to review; PRs without a matching reviewer are excluded. Without the `user` condition, it matches any reviewer who has not approved. `reviewers.op` combines these existence checks with `AND` or `OR`; it does not require all reviewers to have the same approval state.
 
 ## Screenshots
 
