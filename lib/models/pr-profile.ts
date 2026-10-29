@@ -8,11 +8,17 @@ export interface PrProfile {
   enableAcceptAll: boolean
   visible: boolean
   filter?: PullRequestFilter
+  // Omitted sorting uses the default; null explicitly enables manual column sorting.
   sorting?: {
-    sortColumn: 'author' | 'details' | 'reviewers' | 'statusChecks'
+    sortColumn: 'author' | 'details' | 'reviewers' | 'statusChecks' | 'creationDate'
     sortDirection: 'ascending' | 'descending'
-  }
+  } | null
   notifyOnNewPrs: boolean
+}
+
+export const defaultProfileSorting: NonNullable<PrProfile['sorting']> = {
+  sortColumn: 'creationDate',
+  sortDirection: 'descending',
 }
 
 export const defaultProfiles: PrProfile[] = [

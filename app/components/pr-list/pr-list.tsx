@@ -1,4 +1,4 @@
-import { PrProfile } from '@/lib/models/pr-profile'
+import { defaultProfileSorting, PrProfile } from '@/lib/models/pr-profile'
 import { PrVote } from '@/lib/models/pr-vote'
 import {
   PullRequest,
@@ -337,10 +337,12 @@ export default function PrList(props: Readonly<Props>) {
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
-  const { data, sorting } = props
-  const sortColumn = columns.find((column) => column.columnId === sorting?.sortColumn)
-  const items = sorting && sortColumn
-    ? data.toSorted((a, b) => sortColumn.compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
+  const { data, sorting = defaultProfileSorting } = props
+  const compare = sorting?.sortColumn === 'creationDate'
+    ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
+    : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
+  const items = sorting && compare
+    ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
     : data
 
   useEffect(() => {
