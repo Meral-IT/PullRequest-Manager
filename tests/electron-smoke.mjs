@@ -41,7 +41,9 @@ function waitForRenderer(window, condition) {
 
 async function settleLayout(window) {
   pendingStep = 'layout animation frames'
-  await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`)
+  await window.webContents.executeJavaScript(
+    `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`
+  )
   pendingStep = 'layout animations'
   await window.webContents.executeJavaScript(`Promise.all(document.getAnimations()
       .filter(animation => animation.effect.getComputedTiming().iterations !== Infinity)
@@ -175,7 +177,8 @@ app.whenReady().then(async () => {
       width: 900,
       height: 670,
       frame: false,
-      show: false,
+      // Hidden windows can stop producing animation frames on Windows.
+      show: true,
       webPreferences: {
         preload: resolve(import.meta.dirname, '../out/preload/preload.js'),
         sandbox: true,
