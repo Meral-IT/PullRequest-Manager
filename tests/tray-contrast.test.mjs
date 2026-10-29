@@ -8,18 +8,20 @@ import vm from 'node:vm'
 import electron from 'electron'
 import ts from 'typescript'
 
-const userData = process.versions.electron ? process.argv[2] : fs.mkdtempSync(path.join(tmpdir(), 'pr-manager-tray-'))
 if (!process.versions.electron) {
+  const userData = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pr-manager-tray-')))
   let result
   try {
-    result = spawnSync(electron, [import.meta.filename, userData], { stdio: 'inherit', timeout: 30_000 })
+    result = spawnSync(electron, [`--user-data-dir=${userData}`, import.meta.filename], {
+      stdio: 'inherit',
+      timeout: 30_000,
+    })
   } finally {
     fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
   if (result.error) console.error(result.error)
   process.exit(result.status ?? 1)
 }
-electron.app.setPath('userData', userData)
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -140,6 +142,7 @@ function assertMask(image, assetPath) {
 }
 
 async function checkContrast() {
+  assert.equal(electron.app.getPath('userData'), electron.app.commandLine.getSwitchValue('user-data-dir'))
   const state = loadTray('win32')
   await state.api.default(state.mainWindow)
   const menuIds = ['toggle-window', 'update-data', 'settings']
