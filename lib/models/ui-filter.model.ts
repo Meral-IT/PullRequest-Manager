@@ -24,6 +24,7 @@ export interface ReviewerFilter {
   user?: UserFilter
   isRequired?: boolean
   vote?: PrVote
+  isApproved?: boolean
 }
 
 export interface CombinationFilter<TFilter> {
@@ -101,7 +102,8 @@ export class FilterEvaluator {
     return (
       ((!filter.user || this.evaluateUser(reviewer.user, filter.user)) &&
         (!filter.isRequired || reviewer.isRequired) &&
-        (filter.vote === undefined || reviewer.vote === filter.vote)) ??
+        (filter.vote === undefined || reviewer.vote === filter.vote) &&
+        (filter.isApproved === undefined || (reviewer.vote > PrVote.NoVote) === filter.isApproved)) ??
       false
     )
   }
