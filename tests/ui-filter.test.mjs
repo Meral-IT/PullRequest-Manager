@@ -1,25 +1,18 @@
-const assert = require('node:assert/strict')
-const { resolve } = require('node:path')
-const { buildSync } = require('esbuild')
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import ts from 'typescript'
 
-const { outputFiles } = buildSync({
-  stdin: {
-    contents: `
-      export { FilterEvaluator } from './lib/models/ui-filter.model'
-      export { PrVote } from './lib/models/pr-vote'
-      export { PullRequestMergeStatus } from './lib/models/pull-request.model'
-    `,
-    resolveDir: resolve(__dirname, '..'),
-    loader: 'ts',
-  },
-  bundle: true,
-  write: false,
-  platform: 'node',
-  format: 'cjs',
-})
-const loaded = { exports: {} }
-new Function('module', 'exports', outputFiles[0].text)(loaded, loaded.exports)
-const { FilterEvaluator, PrVote, PullRequestMergeStatus } = loaded.exports
+const load = createRequire(import.meta.url)
+load.extensions['.ts'] = (loaded, filename) => {
+  const { outputText } = ts.transpileModule(readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  })
+  loaded._compile(outputText, filename)
+}
+const { FilterEvaluator } = load('../lib/models/ui-filter.model.ts')
+const { PrVote } = load('../lib/models/pr-vote.ts')
+const { PullRequestMergeStatus } = load('../lib/models/pull-request.model.ts')
 
 function pullRequest(id, vote) {
   return {
