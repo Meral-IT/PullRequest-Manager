@@ -12,7 +12,7 @@ import pull from '@/resources/tray/pull@3x.png?asset'
 import refresh from '@/resources/tray/refresh.png?asset'
 import shutDown from '@/resources/tray/shut-down.png?asset'
 import tableLayout from '@/resources/tray/table-layout.png?asset'
-import { app, BrowserWindow, Menu, MenuItem, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, Menu, MenuItem, nativeImage, NativeImage, nativeTheme, Tray } from 'electron'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { PrProfile } from '../models/pr-profile'
 import loader from '../tools/loading.service'
@@ -22,6 +22,42 @@ import { TrayManager } from './trayManager'
 
 let trayIcon: Tray | null = null
 let trayManager: TrayManager | null = null
+let contextMenu: Menu | null = null
+let trayProfiles: PrProfile[] = []
+
+function themedImage(image: NativeImage, darkBackground: boolean): NativeImage {
+  if (process.platform === 'darwin') {
+    image.setTemplateImage(true)
+    return image
+  }
+  if (darkBackground || image.isEmpty()) {
+    return image
+  }
+
+  const result = nativeImage.createEmpty()
+  for (const scaleFactor of image.getScaleFactors()) {
+    const bitmap = image.toBitmap({ scaleFactor })
+    for (let i = 0; i < bitmap.length; i += 4) {
+      bitmap[i] = bitmap[i + 1] = bitmap[i + 2] = 0
+    }
+    // PNG dimensions preserve physical pixels when getSize() rounds a scaled image.
+    const png = image.toPNG({ scaleFactor })
+    result.addRepresentation({
+      scaleFactor,
+      width: png.readUInt32BE(16),
+      height: png.readUInt32BE(20),
+      buffer: bitmap,
+    })
+  }
+  return result
+}
+
+function createMenuImage(imagePath: string): NativeImage {
+  return themedImage(
+    nativeImage.createFromPath(imagePath).resize({ width: 16, height: 16 }),
+    nativeTheme.shouldUseDarkColors
+  )
+}
 
 function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu {
   const contextMenu = Menu.buildFromTemplate([
@@ -29,7 +65,7 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
       id: 'toggle-window',
       label: 'Toggle window',
       type: 'normal',
-      icon: nativeImage.createFromPath(tableLayout).resize({ width: 16, height: 16 }),
+      icon: createMenuImage(tableLayout),
       click: () => {
         if (mainWindow.isVisible()) {
           mainWindow.hide()
@@ -42,7 +78,8 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
       id: 'update-data',
       label: 'Update data',
       type: 'normal',
-      icon: nativeImage.createFromPath(refresh).resize({ width: 16, height: 16 }),
+      icon: createMenuImage(refresh),
+      enabled: !loader.isLoading,
       click: () => AzureDevOpsService.getInstance().updateDataImmediately(),
     },
     { type: 'separator' },
@@ -58,7 +95,7 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
       id: 'settings',
       label: 'Quit PullReqestManager',
       type: 'normal',
-      icon: nativeImage.createFromPath(shutDown).resize({ width: 16, height: 16 }),
+      icon: createMenuImage(shutDown),
       click: () => app.exit(),
     },
   ])
@@ -66,7 +103,6 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
   if (profiles) {
     const approveMenu = contextMenu?.getMenuItemById('approve')
     if (approveMenu) {
-
       const enabledProfiles = profiles.filter((profile) => profile.enableAcceptAll)
       for (const profile of enabledProfiles) {
         approveMenu.submenu?.append(
@@ -88,11 +124,12 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
 }
 
 export function updateTrayProfiles(profiles: PrProfile[]): void {
+  trayProfiles = profiles
   if (!trayIcon) {
     return
   }
 
-  const contextMenu = createTrayMenu(getOrCreateAppWindow(), profiles)
+  contextMenu = createTrayMenu(getOrCreateAppWindow(), profiles)
   trayIcon.setContextMenu(contextMenu)
 }
 
@@ -105,8 +142,15 @@ export default async function createTrayIcon(mainWindow: BrowserWindow) {
     return
   }
 
-  trayIcon = new Tray(pull)
-  trayManager = new TrayManager(trayIcon, pullColored, pull, [
+  const createTrayImage = (imagePath: string): NativeImage =>
+    themedImage(
+      nativeImage.createFromPath(imagePath),
+      process.platform === 'win32'
+        ? nativeTheme.shouldUseDarkColorsForSystemIntegratedUI
+        : nativeTheme.shouldUseDarkColors
+    )
+  const idleImage = createTrayImage(pull)
+  const animationFrames = [
     loaderFrame1,
     loaderFrame4,
     loaderFrame8,
@@ -116,7 +160,9 @@ export default async function createTrayIcon(mainWindow: BrowserWindow) {
     loaderFrame24,
     loaderFrame28,
     loaderFrame32,
-  ])
+  ]
+  trayIcon = new Tray(idleImage)
+  trayManager = new TrayManager(trayIcon, pullColored, idleImage, animationFrames.map(createTrayImage))
 
   trayIcon.addListener('click', () => {
     if (mainWindow.isVisible()) {
@@ -126,11 +172,18 @@ export default async function createTrayIcon(mainWindow: BrowserWindow) {
     }
   })
   const settings = await loadSettings()
-  const contextMenu = createTrayMenu(mainWindow, settings.profiles)
+  updateTrayProfiles(settings.profiles)
+
+  nativeTheme.on('updated', () => {
+    trayManager!.idleImage = createTrayImage(pull)
+    trayManager!.trayAnimationFrames = animationFrames.map(createTrayImage)
+    trayManager!.setActiveState(trayManager!.active)
+    updateTrayProfiles(trayProfiles)
+  })
 
   loader.loadingEvent.on('loading', ({ isLoading }) => {
     if (trayIcon) {
-      contextMenu.getMenuItemById('update-data')!.enabled = !isLoading
+      contextMenu!.getMenuItemById('update-data')!.enabled = !isLoading
       if (isLoading) {
         trayManager?.startAnimation()
       } else {
