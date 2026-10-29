@@ -36,11 +36,22 @@ const useStyles = makeStyles({
   fullWidth: { width: '100%', flexGrow: 1 },
   container: {
     height: '100%',
+    minHeight: 0,
+    minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
     flex: 1,
+    rowGap: tokens.spacingVerticalM,
   },
-  bottom: { marginTop: 'auto' },
+  content: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    overflowY: 'auto',
+  },
+  bottom: { flexShrink: 0 },
   dangerButton: {
     backgroundColor: tokens.colorStatusDangerBackground3,
     ':hover': {
@@ -190,7 +201,9 @@ export default function SettingsComponent() {
         }
         mainContent={
           <div className={styles.container}>
-            <Outlet />
+            <div className={styles.content}>
+              <Outlet />
+            </div>
             <Field
               className={styles.bottom}
               validationState={saveError ? 'error' : undefined}

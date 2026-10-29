@@ -65,6 +65,7 @@ async function component(entry) {
       if (name === 'tokens') return {}
       if (name === 'makeStyles') return () => () => ({})
       if (name === 'makeResetStyles') return () => () => ''
+      if (name === 'mergeClasses') return () => ''
       if (name === 'createTableColumn') return (column) => column
       return name
     },
@@ -75,7 +76,7 @@ async function component(entry) {
     output: { format: 'cjs', exports: 'named' },
     platform: 'node',
     transform: { jsx: 'react-jsx' },
-    external: isExternal,
+    external: (id) => isExternal(id) || id.endsWith('/filter-editor.component'),
     resolve: {
       alias: {
         '@/app': resolve(__dirname, '../app'),
@@ -125,9 +126,9 @@ const settings = {
   general: {}, azDo: {}, appearance: { tableSize: 'small', theme: 'system' }, profiles: [profile],
 }
 
-test('profile sorting survives load, duplication, save, and removal; old profiles stay unsorted', async () => {
+test('profile sorting and explicit manual sorting survive load, duplication, and save', async () => {
   const provider = await component('app/components/settings/provider/setting.provider.tsx')
-  const sorting = { sortColumn: 'details', sortDirection: 'descending' }
+  const sorting = { sortColumn: 'creationDate', sortDirection: 'descending' }
   provider.setSettings({ ...settings, profiles: [{ ...profile, sorting }] })
   provider.render({}, 'SettingProvider')
   await provider.flush()
@@ -138,18 +139,18 @@ test('profile sorting survives load, duplication, save, and removal; old profile
   assert.deepEqual(value.state.profiles[1].sorting, sorting)
   await value.actions.saveSettings()
   assert.deepEqual(provider.calls.find(([name]) => name === 'save-settings')[1].profiles[0].sorting, sorting)
-  value.actions.onChangeHandler({ profileId: profile.id, target: { name: 'sorting', value: undefined } })
+  value.actions.onChangeHandler({ profileId: profile.id, target: { name: 'sorting', value: null } })
   value = provider.render({}, 'SettingProvider').props.value
-  assert.equal(value.state.profiles[0].sorting, undefined)
+  assert.equal(value.state.profiles[0].sorting, null)
   await value.actions.saveSettings()
   const saves = provider.calls.filter(([name]) => name === 'save-settings')
-  assert.equal(JSON.parse(JSON.stringify(saves.at(-1)[1])).profiles[0].sorting, undefined)
+  assert.equal(JSON.parse(JSON.stringify(saves.at(-1)[1])).profiles[0].sorting, null)
   provider.listeners.get('settings')(settings)
   value = provider.render({}, 'SettingProvider').props.value
   assert.equal(value.state.profiles[0].sorting, undefined)
 })
 
-test('profile controls select and clear sorting and disable the unused direction', async () => {
+test('profile controls default to creation descending and preserve explicit and manual sorting', async () => {
   const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
   const changes = []
   const render = (sorting) => {
@@ -158,14 +159,28 @@ test('profile controls select and clear sorting and disable the unused direction
   }
   let selects = render(undefined)
   assert.equal(selects.length, 2)
-  assert.equal(selects[1].props.disabled, true)
+  assert.equal(selects[0].props.value, 'creationDate')
+  assert.equal(selects[1].props.value, 'descending')
+  assert.equal(selects[1].props.disabled, false)
+  assert.ok(elements(selects[0], (element) => element.type === 'option').some((option) => option.props.value === 'creationDate'))
   selects[0].props.onChange({ target: { value: 'details' } })
-  assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'details', sortDirection: 'ascending' })
+  assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'details', sortDirection: 'descending' })
+  selects[1].props.onChange({ target: { value: 'ascending' } })
+  assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'creationDate', sortDirection: 'ascending' })
   selects = render({ sortColumn: 'details', sortDirection: 'ascending' })
+  selects[0].props.onChange({ target: { value: 'author' } })
+  assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'author', sortDirection: 'ascending' })
   selects[1].props.onChange({ target: { value: 'descending' } })
   assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'details', sortDirection: 'descending' })
   selects[0].props.onChange({ target: { value: '' } })
-  assert.equal(changes.at(-1).target.value, undefined)
+  assert.equal(changes.at(-1).target.value, null)
+  selects = render(null)
+  assert.equal(selects[0].props.value, '')
+  assert.equal(selects[1].props.disabled, true)
+  selects[0].props.onChange({ target: { value: 'creationDate' } })
+  assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'creationDate', sortDirection: 'descending' })
+  selects = render({ sortColumn: 'details' })
+  assert.equal(selects[1].props.value, 'descending')
 })
 
 test('grid applies both sort directions to each supported column and prevents manual changes', async () => {
@@ -175,7 +190,8 @@ test('grid applies both sort directions to each supported column and prevents ma
     { id: 2, author: { label: 'Ada' }, details: { label: 'Alpha' }, reviewers: [], evaluations: [] },
   ]
   const grid = (sorting) => elements(view.render({ data, sorting }), (element) => element.type === 'DataGrid')[0]
-  assert.equal(grid(undefined).props.sortable, true)
+  assert.equal(grid(undefined).props.sortable, false)
+  assert.equal(grid(null).props.sortable, true)
   for (const sortColumn of ['author', 'details', 'reviewers', 'statusChecks']) {
     for (const sortDirection of ['ascending', 'descending']) {
       const sorting = { sortColumn, sortDirection }
@@ -185,7 +201,7 @@ test('grid applies both sort directions to each supported column and prevents ma
     }
   }
   assert.deepEqual(data.map((pr) => pr.id), [1, 2])
-  assert.equal(grid(undefined).props.sortable, true)
+  assert.equal(grid(null).props.sortable, true)
 })
 
 test('active profile receives saved sorting without switching tabs', async () => {
@@ -198,4 +214,28 @@ test('active profile receives saved sorting without switching tabs', async () =>
   overview.listeners.get('settings')({ ...settings, profiles: [{ ...profile, sorting }] })
   const list = elements(overview.render(), (element) => element.type?.name === 'PrList')[0]
   assert.deepEqual(list.props.sorting, sorting)
+})
+
+test('creation sorting orders dates chronologically, keeps ties stable, and handles missing dates', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const data = [
+    { id: 1, creationDate: new Date('2026-10-29T12:00:00Z') },
+    { id: 2, creationDate: new Date('2026-10-28T12:00:00Z') },
+    { id: 3 },
+    { id: 4, creationDate: new Date('2026-10-29T12:00:00Z') },
+  ]
+  for (const [sortDirection, expected] of [['ascending', [3, 2, 1, 4]], ['descending', [1, 4, 2, 3]]]) {
+    const grid = elements(view.render({ data, sorting: { sortColumn: 'creationDate', sortDirection } }), (element) => element.type === 'DataGrid')[0]
+    assert.deepEqual(grid.props.items.map((pr) => pr.id), expected)
+    assert.equal(grid.props.sortable, false)
+  }
+  for (const sorting of [undefined, { sortColumn: 'creationDate' }]) {
+    const grid = elements(view.render({ data, sorting }), (element) => element.type === 'DataGrid')[0]
+    assert.deepEqual(grid.props.items.map((pr) => pr.id), [1, 4, 2, 3])
+    assert.equal(grid.props.sortable, false)
+  }
+  const manualGrid = elements(view.render({ data, sorting: null }), (element) => element.type === 'DataGrid')[0]
+  assert.deepEqual(manualGrid.props.items.map((pr) => pr.id), [1, 2, 3, 4])
+  assert.equal(manualGrid.props.sortable, true)
+  assert.deepEqual(data.map((pr) => pr.id), [1, 2, 3, 4])
 })

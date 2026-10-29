@@ -30,6 +30,7 @@ export default function SplitContainer({ sidebarContent = null, mainContent = nu
           padding: 20,
           boxSizing: 'border-box',
           flexShrink: 0,
+          overflowY: 'auto',
         }}
       >
         {sidebarContent}
@@ -38,13 +39,15 @@ export default function SplitContainer({ sidebarContent = null, mainContent = nu
         style={{
           display: 'flex',
           flexDirection: 'column',
-          width: '100%',
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
           gap: 20,
           padding: 20,
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ flexGrow: 1 }}>{mainContent}</div>
+        <div style={{ flex: 1, minHeight: 0, minWidth: 0 }}>{mainContent}</div>
       </div>
     </div>
   )
