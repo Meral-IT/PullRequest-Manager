@@ -1,5 +1,4 @@
 import * as azdev from 'azure-devops-node-api'
-import { WebApiTeam } from 'azure-devops-node-api/interfaces/CoreInterfaces'
 import {
   PullRequestStatus as AzDoPrStatus,
   GitPullRequest,
@@ -240,11 +239,51 @@ export class AzureDevOpsService {
     return template.replace('_apis/git/repositories', '_git').replace('pullRequests', 'pullRequest')
   }
 
-  private static async loadMyTeams(api: azdev.WebApi, settings: AzDoSettings): Promise<WebApiTeam[]> {
-    const buildApi = await api.getCoreApi(settings.organizationUrl, [api.authHandler])
-    const teams = await buildApi.getTeams(settings.project, true)
+  private static async loadMyTeams(
+    api: azdev.WebApi,
+    settings: AzDoSettings,
+    myself: Identity | undefined
+  ): Promise<Identity[]> {
+    if (!myself?.id) {
+      return []
+    }
 
-    return teams
+    // The SDK has no identity client; resolve its service URL rather than assuming a cloud hostname.
+    const locationsApi = await api.getLocationsApi(settings.organizationUrl, [api.authHandler])
+    const area = await locationsApi.getResourceArea('8a3d49b8-91f0-46ef-b33d-dda338c25db3')
+    if (!area.locationUrl) {
+      throw new Error('Azure DevOps identity service URL is missing')
+    }
+    const url = new URL(`${area.locationUrl.replace(/\/$/, '')}/_apis/identities`)
+    url.search = new URLSearchParams({
+      identityIds: myself.id,
+      queryMembership: 'ExpandedUp',
+      'api-version': '7.1',
+    }).toString()
+    // ExpandedUp resolves transitive parents server-side, so no client-side graph traversal is needed.
+    const memberships = await api.rest.get<{ value: { memberOf?: string[] }[] }>(url.toString())
+    if (!memberships.result?.value) {
+      throw new Error('Azure DevOps identity memberships are missing')
+    }
+    const descriptors = [...new Set(memberships.result.value[0]?.memberOf ?? [])]
+    const teams = new Map<string, Identity>()
+    // Bound query URLs when users belong to many groups.
+    for (let index = 0; index < descriptors.length; index += 20) {
+      url.search = new URLSearchParams({
+        descriptors: descriptors.slice(index, index + 20).join(','),
+        'api-version': '7.1',
+      }).toString()
+      const response = await api.rest.get<{ value: Identity[] }>(url.toString())
+      if (!response.result?.value) {
+        throw new Error('Azure DevOps team identities are missing')
+      }
+      for (const team of response.result.value) {
+        if (team.id) {
+          teams.set(team.id, team)
+        }
+      }
+    }
+    return [...teams.values()]
   }
 
   private static async loadPullRequestData(api: azdev.WebApi, settings: AzDoSettings): Promise<AzureDevOpsData> {
@@ -253,7 +292,7 @@ export class AzureDevOpsService {
     try {
       const connectionData = await api.connect()
       data.myself = connectionData.authenticatedUser
-      data.teams = await AzureDevOpsService.loadMyTeams(api, settings)
+      data.teams = await AzureDevOpsService.loadMyTeams(api, settings, data.myself)
       log.debug('Fetching data from Azure DevOps')
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
       const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
@@ -384,7 +423,7 @@ export class AzureDevOpsService {
   private static mapReviewers(
     reviewers: IdentityRefWithVote[] | undefined,
     myself: Identity | undefined,
-    teams: WebApiTeam[]
+    teams: Identity[]
   ): Reviewer[] {
     if (!reviewers) {
       return []
@@ -529,7 +568,7 @@ export class AzureDevOpsService {
 class AzureDevOpsData implements PullRequestData {
   items: PullRequest[] = []
   error: ErrorDetail | null = null
-  teams: WebApiTeam[] = []
+  teams: Identity[] = []
   myself: Identity | undefined = undefined
 }
 
