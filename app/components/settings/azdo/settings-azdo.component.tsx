@@ -107,7 +107,10 @@ export default function AzureDevOpsSettings() {
       <Field label="Project" hint="The project name">
         <Input name="azDoProject" value={state.azDoProject} onChange={actions.onChangeHandler} />
       </Field>
-      <Field label={InfoLabel} hint="Your personal access token. Required scopes: 'Build (Read); Code (Read & write)'">
+      <Field
+        label={InfoLabel}
+        hint="Your personal access token. Required scopes: 'Build (Read); Code (Read & write); Identity (Read)'"
+      >
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
       </Field>
       <Field
