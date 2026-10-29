@@ -1,35 +1,40 @@
-const assert = require('node:assert/strict')
-const { resolve } = require('node:path')
-const test = require('node:test')
-const { runInThisContext } = require('node:vm')
-const { buildSync } = require('esbuild')
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { runInThisContext } from 'node:vm'
+import { build } from 'rolldown'
 
-const { outputFiles } = buildSync({
-  stdin: {
-    contents: `
-      export { AzureDevOpsService } from './lib/azure-devops/azure-devops.service'
-      export { FilterEvaluator } from './lib/models/ui-filter.model'
-      export { defaultProfiles } from './lib/models/pr-profile'
-    `,
-    resolveDir: resolve(__dirname, '..'),
-    loader: 'ts',
-  },
-  bundle: true,
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const load = createRequire(import.meta.url)
+const entry = resolve(__dirname, 'azure-devops-teams-entry.ts')
+const { output } = await build({
+  input: entry,
+  plugins: [{
+    name: 'test-entry',
+    resolveId: (id) => id === entry ? entry : undefined,
+    load: (id) => id === entry ? `
+      export { AzureDevOpsService } from '../lib/azure-devops/azure-devops.service'
+      export { FilterEvaluator } from '../lib/models/ui-filter.model'
+      export { defaultProfiles } from '../lib/models/pr-profile'
+    ` : undefined,
+  }],
   platform: 'node',
-  format: 'cjs',
-  packages: 'external',
-  external: ['../main/notification.service', '../tools/loading.service'],
+  output: { format: 'cjs' },
+  external: (id) => (!id.startsWith('.') && !id.startsWith('/')) ||
+    id === '../main/notification.service' || id === '../tools/loading.service',
   write: false,
 })
 const compiled = { exports: {} }
-runInThisContext(`(function(require, module, exports) { ${outputFiles[0].text}\n})`)(
+runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
   (name) => {
     if (name === 'electron') {
-      return { BrowserWindow: { getAllWindows: () => [{ webContents: { send() {} } }] } }
+      return { BrowserWindow: { getAllWindows: () => [{ webContents: { send: () => undefined } }] } }
     }
-    if (name === 'electron-log/main') return { debug() {}, error() {} }
-    if (name === '../main/notification.service' || name === '../tools/loading.service') return {}
-    return require(name)
+    if (name === 'electron-log/main') return { debug: () => undefined, error: () => undefined }
+    if (name === '../lib/main/notification.service' || name === '../lib/tools/loading.service') return {}
+    return load(name)
   },
   compiled,
   compiled.exports
