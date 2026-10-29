@@ -26,7 +26,7 @@ function getErrorTypeImage(type: ErrorType) {
   }
 }
 
-export default function ErrorComponent({ error }: Readonly<Props>): JSX.Element {
+export default function ErrorComponent({ error }: Readonly<Props>) {
   const navigate = useNavigate()
   const errorCaption = 'An error occurred'
   const secondaryText = error.details ?? 'An error occurred'

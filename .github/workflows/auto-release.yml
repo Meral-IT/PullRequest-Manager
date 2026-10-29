@@ -45,23 +45,25 @@ jobs:
       preReleaseLabel: ${{ steps.version.outputs.preReleaseLabel }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: inputs.doRelease == true
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: inputs.doRelease != true
         with:
           fetch-depth: 0
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v3
-
-      - uses: actions/setup-node@v4
+        uses: gittools/actions/gitversion/setup@v4.7.0
         with:
-          node-version: '22.x'
+          versionSpec: '6.8.x'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Set release type
@@ -87,29 +89,32 @@ jobs:
 
       - name: Determine Version
         id: version
-        uses: gittools/actions/gitversion/execute@v3
+        uses: gittools/actions/gitversion/execute@v4.7.0
         with:
-          useConfigFile: true
+          configFilePath: GitVersion.yml
 
       - name: Install dependencies
-        run: npm install --prefer-offline --no-audit --progress=false
+        run: npm ci --no-audit --progress=false
+
+      - name: Lint
+        run: npm run lint
 
       - name: Check app assets
         run: npm run check:assets
 
       - name: Set version
         id: info
-        uses: jaywcjlove/github-action-package@main
-        with:
-          data: |
-            {
-              "version": "${{ steps.version.outputs.semVer }}"
-            }
+        run: npm version "$env:RELEASE_VERSION" --no-git-tag-version --allow-same-version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.semVer }}
 
       - name: Build
         run: ${{ matrix.buildCommand }}
         env:
           GH_TOKEN: ${{ secrets.GITHUBPUBLISHTOKEN }}
+
+      - name: Smoke test
+        run: npm test
 
       - name: List compiled files
         shell: pwsh
@@ -119,7 +124,7 @@ jobs:
           }
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Installer-${{ matrix.os }}
           if-no-files-found: error
@@ -140,12 +145,12 @@ jobs:
     if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ needs.build.outputs.semVer }}
           tag_name: v${{ needs.build.outputs.semVer }}
