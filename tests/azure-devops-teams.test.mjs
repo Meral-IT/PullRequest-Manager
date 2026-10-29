@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve, win32 } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInThisContext } from 'node:vm'
@@ -8,6 +8,17 @@ import { build } from 'rolldown'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
+const isExternal = (id) => (!id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id)) ||
+  id === '../main/notification.service' || id === '../tools/loading.service'
+
+test('test loader bundles Windows, POSIX, and relative paths while keeping packages and mocks external', () => {
+  for (const id of ['D:/a/project/service.ts', 'D:\\a\\project\\service.ts', '/project/service.ts', '../models/pr-vote.ts']) {
+    assert.equal(isExternal(id), false, id)
+  }
+  for (const id of ['azure-devops-node-api', '../main/notification.service', '../tools/loading.service']) {
+    assert.equal(isExternal(id), true, id)
+  }
+})
 const entry = resolve(__dirname, 'azure-devops-teams-entry.ts')
 const { output } = await build({
   input: entry,
@@ -22,8 +33,7 @@ const { output } = await build({
   }],
   platform: 'node',
   output: { format: 'cjs' },
-  external: (id) => (!id.startsWith('.') && !id.startsWith('/')) ||
-    id === '../main/notification.service' || id === '../tools/loading.service',
+  external: isExternal,
   write: false,
 })
 const compiled = { exports: {} }
