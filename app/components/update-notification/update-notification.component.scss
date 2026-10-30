@@ -71,10 +71,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .update-toaster *,
-  .update-toaster *::before,
-  .update-toaster *::after {
-    animation: none !important;
-    transition: none !important;
+  .update-toaster.fui-Toaster *,
+  .update-toaster.fui-Toaster *::before,
+  .update-toaster.fui-Toaster *::after {
+    animation: none;
+    transition: none;
   }
 }

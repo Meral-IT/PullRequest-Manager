@@ -236,11 +236,11 @@ async function checkUpdateNotification(window, settings, updates) {
     updates.publish({ status: 'downloading', info, progress: { ...progress, ...overrides } })
   const checkLayout = async () => {
     await settleLayout(window)
-    const layout = await window.webContents.executeJavaScript(`(() => {
+    const layout = await window.webContents.executeJavaScript(String.raw`(() => {
       const panel = ${panel}
       const { left, right, top, bottom, width } = panel.getBoundingClientRect()
       const luminance = color => {
-        const rgb = color.match(/[\\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
+        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
           .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
         return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
       }
@@ -273,7 +273,9 @@ async function checkUpdateNotification(window, settings, updates) {
   const platform = await window.webContents.executeJavaScript(
     "document.querySelector('.window-titlebar').dataset.platform"
   )
-  for (const width of [900, 640, 480]) await checkTitlebarLayout(window, platform, width)
+  await checkTitlebarLayout(window, platform, 900)
+  await checkTitlebarLayout(window, platform, 640)
+  await checkTitlebarLayout(window, platform, 480)
   await capture(window, 'update-titlebar-narrow')
   await checkTitlebarLayout(window, platform, 900)
   assert.equal(
@@ -340,7 +342,7 @@ async function checkUpdateNotification(window, settings, updates) {
   await checkLayout()
   await capture(window, 'update-ready-light')
   await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
-  for (const key of ['Escape', 'Delete']) {
+  const checkReadyKeyboardDismissal = async (key) => {
     pressKey(window, key)
     await settleLayout(window)
     assert.equal(
@@ -349,6 +351,8 @@ async function checkUpdateNotification(window, settings, updates) {
       'Keyboard dismissal must preserve the ready panel'
     )
   }
+  await checkReadyKeyboardDismissal('Escape')
+  await checkReadyKeyboardDismissal('Delete')
 
   await new Promise((resolve) => {
     window.webContents.once('did-finish-load', resolve)
@@ -356,11 +360,7 @@ async function checkUpdateNotification(window, settings, updates) {
   })
   await expectState('ready')
   assert.equal(updates.installs, 0, 'Reload restores readiness without installing')
-  for (const [theme, width, zoom] of [
-    ['dark', 900, 1],
-    ['dark', 360, 1],
-    ['light', 900, 2],
-  ]) {
+  const checkUpdateTheme = async (theme, width, zoom) => {
     settings.appearance.theme = theme
     window.webContents.send('theme-changed', theme)
     window.setContentSize(width, 670)
@@ -374,6 +374,9 @@ async function checkUpdateNotification(window, settings, updates) {
     await checkLayout()
     await capture(window, `update-ready-${theme}-${width}-zoom${zoom}`)
   }
+  await checkUpdateTheme('dark', 900, 1)
+  await checkUpdateTheme('dark', 360, 1)
+  await checkUpdateTheme('light', 900, 2)
   window.setContentSize(900, 670)
   window.webContents.setZoomFactor(1)
   settings.appearance.theme = 'light'
@@ -390,7 +393,7 @@ async function checkUpdateNotification(window, settings, updates) {
   await clickAction()
   await expectState('downloading')
   assert.equal(updates.downloads, 3)
-  publishProgress({ percent: NaN, total: Infinity, transferred: -1, bytesPerSecond: Infinity })
+  publishProgress({ percent: Number.NaN, total: Infinity, transferred: -1, bytesPerSecond: Infinity })
   await checkLayout()
   updates.publish({ status: 'ready', info })
   await expectState('ready')
@@ -577,12 +580,15 @@ async function checkTitlebarLayout(window, platform, width) {
     if (layout.controls) assert.ok(layout.menu.right <= layout.controls.left, detail)
   }
   if (layout.spinner) assert.ok(layout.spinner.right <= layout.title.right, detail)
-  if (layout.update) {
-    assert.equal(layout.update.draggable, 'no-drag')
-    assert.ok(layout.title.right <= layout.update.left, detail)
-    if (width >= 640) assert.ok(layout.menu.right <= layout.update.left, detail)
-    if (layout.controls) assert.ok(layout.update.right <= layout.controls.left, detail)
-  }
+  checkUpdateButtonLayout(layout, width, detail)
+}
+
+function checkUpdateButtonLayout(layout, width, detail) {
+  if (!layout.update) return
+  assert.equal(layout.update.draggable, 'no-drag')
+  assert.ok(layout.title.right <= layout.update.left, detail)
+  if (width >= 640) assert.ok(layout.menu.right <= layout.update.left, detail)
+  if (layout.controls) assert.ok(layout.update.right <= layout.controls.left, detail)
 }
 
 async function clickElement(window, selector, text) {

@@ -15,20 +15,17 @@ export function getDownloadProgress(info?: ProgressInfo) {
     total > 0 && info && Number.isFinite(info.percent) ? Math.min(100, Math.max(0, info.percent)) : undefined
   const finishing = percent === 100
   const seconds = total > transferred && speed > 0 ? Math.ceil((total - transferred) / speed) : 0
-  const remaining =
-    !finishing && Number.isFinite(seconds) && seconds > 0
-      ? seconds < 60
-        ? `About ${seconds} sec left`
-        : `About ${Math.ceil(seconds / 60)} min left`
-      : undefined
+  let remaining: string | undefined
+  if (!finishing && Number.isFinite(seconds) && seconds > 0) {
+    remaining = seconds < 60 ? `About ${seconds} sec left` : `About ${Math.ceil(seconds / 60)} min left`
+  }
+  let size: string | undefined
+  if (total) size = `${formatBytes(transferred)} of ${formatBytes(total)}`
+  else if (transferred) size = `${formatBytes(transferred)} downloaded`
   return {
     percent,
     finishing,
-    size: total
-      ? `${formatBytes(transferred)} of ${formatBytes(total)}`
-      : transferred
-        ? `${formatBytes(transferred)} downloaded`
-        : undefined,
+    size,
     speed: speed > 0 && !finishing ? `${formatBytes(speed)}/s` : undefined,
     remaining,
   }

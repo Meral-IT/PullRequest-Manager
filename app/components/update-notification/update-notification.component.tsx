@@ -15,6 +15,7 @@ import {
   Toaster,
   ToastFooter,
   ToastTitle,
+  type ToastIntent,
   tokens,
   useId,
   useToastController,
@@ -30,6 +31,57 @@ import DomPurify from 'dompurify'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { getDownloadProgress } from './update-progress'
 import './update-notification.component.scss'
+
+function getUpdatePresentation(state: UpdateState, finishing: boolean) {
+  const presentation = {
+    title: '',
+    actionLabel: 'Download update',
+    description: 'You can keep working. The app won’t restart until you choose.',
+    intent: 'info' as ToastIntent,
+    media: <ArrowDownloadRegular />,
+  }
+  switch (state.status) {
+    case 'available':
+      presentation.title = 'Update available'
+      presentation.description = 'Download now, then restart when you’re ready.'
+      break
+    case 'ready':
+      presentation.title = 'Ready to install'
+      presentation.actionLabel = 'Restart & update'
+      presentation.description = 'Your update is downloaded. Restart to install it.'
+      presentation.intent = 'success'
+      presentation.media = <CheckmarkCircleRegular />
+      break
+    case 'installing':
+      presentation.title = 'Installing update…'
+      presentation.actionLabel = 'Installing…'
+      presentation.description = 'The app will restart when installation is complete.'
+      presentation.media = <ArrowSyncRegular />
+      break
+    case 'downloading':
+      presentation.title = 'Downloading update'
+      presentation.actionLabel = 'Downloading…'
+      if (!state.progress) presentation.title = 'Preparing download…'
+      else if (finishing) presentation.title = 'Finishing download…'
+      break
+    case 'error':
+      presentation.intent = 'error'
+      presentation.media = <ErrorCircleRegular />
+      if (state.operation === 'install') {
+        presentation.title = 'Couldn’t install update'
+        presentation.actionLabel = 'Retry installation'
+        presentation.description = 'The downloaded update is still available. Try installing it again.'
+      } else {
+        presentation.title = 'Couldn’t download update'
+        presentation.actionLabel = 'Retry download'
+        presentation.description = 'The update couldn’t be downloaded. Please try again.'
+      }
+      break
+    default:
+      break
+  }
+  return presentation
+}
 
 function UpdateNotification() {
   const toastId = useId('app-update')
@@ -47,36 +99,7 @@ function UpdateNotification() {
     state.status === 'ready' ||
     state.status === 'installing' ||
     (state.status === 'error' && state.operation === 'install')
-  const title =
-    state.status === 'available'
-      ? 'Update available'
-      : state.status === 'ready'
-        ? 'Ready to install'
-        : state.status === 'installing'
-          ? 'Installing update…'
-          : state.status === 'error'
-            ? install
-              ? 'Couldn’t install update'
-              : 'Couldn’t download update'
-            : state.status === 'downloading'
-              ? !state.progress
-                ? 'Preparing download…'
-                : progress.finishing
-                  ? 'Finishing download…'
-                  : 'Downloading update'
-              : ''
-  const actionLabel =
-    state.status === 'error'
-      ? install
-        ? 'Retry installation'
-        : 'Retry download'
-      : state.status === 'installing'
-        ? 'Installing…'
-        : state.status === 'downloading'
-          ? 'Downloading…'
-          : install
-            ? 'Restart & update'
-            : 'Download update'
+  const { title, actionLabel, description, intent, media } = getUpdatePresentation(state, progress.finishing)
 
   const dismissAvailableUpdate = () => {
     setDismissed(true)
@@ -114,17 +137,7 @@ function UpdateNotification() {
     const content = (
       <Toast className="update-notification" data-update-state={state.status}>
         <ToastTitle
-          media={
-            state.status === 'error' ? (
-              <ErrorCircleRegular />
-            ) : state.status === 'ready' ? (
-              <CheckmarkCircleRegular />
-            ) : install ? (
-              <ArrowSyncRegular />
-            ) : (
-              <ArrowDownloadRegular />
-            )
-          }
+          media={media}
           action={
             state.status === 'available' ? (
               <Button
@@ -156,19 +169,7 @@ function UpdateNotification() {
               )}
             </>
           )}
-          <Text className="update-description">
-            {state.status === 'available'
-              ? 'Download now, then restart when you’re ready.'
-              : state.status === 'ready'
-                ? 'Your update is downloaded. Restart to install it.'
-                : state.status === 'installing'
-                  ? 'The app will restart when installation is complete.'
-                  : state.status === 'error'
-                    ? install
-                      ? 'The downloaded update is still available. Try installing it again.'
-                      : 'The update couldn’t be downloaded. Please try again.'
-                    : 'You can keep working. The app won’t restart until you choose.'}
-          </Text>
+          <Text className="update-description">{description}</Text>
         </ToastBody>
         <ToastFooter className="update-notification-actions">
           <Button appearance="primary" disabled={busy} onClick={runAction}>
@@ -190,12 +191,7 @@ function UpdateNotification() {
           setDismissed(true)
         }
       },
-      intent:
-        state.status === 'error'
-          ? ('error' as const)
-          : state.status === 'ready'
-            ? ('success' as const)
-            : ('info' as const),
+      intent,
     }
     if (notification.current.visible) updateToast({ ...options, content })
     else {
