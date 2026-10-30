@@ -12,6 +12,17 @@ import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { NotificationService } from '../main/notification.service'
 import { ErrorDetail, ErrorType } from '../models/error-detail'
+import {
+  AzureDevOpsAccess,
+  AzureDevOpsAccessResult,
+  AzureDevOpsConnection,
+  AzureDevOpsFeature,
+  AzureDevOpsValidationResult,
+  createAzureDevOpsAccess,
+  getAzureDevOpsAccessFailure,
+  sameAzureDevOpsConnection,
+  azureDevOpsRequirements,
+} from '../models/azure-devops-access'
 import { PullRequestData } from '../models/pr-data'
 import { PrProfile } from '../models/pr-profile'
 import { PrVote } from '../models/pr-vote'
@@ -48,6 +59,146 @@ export class AzureDevOpsService {
   private active: boolean = false
   private pullRequests: PullRequestData = { items: [], error: null }
   private data: AzureDevOpsData = new AzureDevOpsData()
+  private connectionRevision = 0
+
+  private static async checkAccess<T>(
+    access: AzureDevOpsAccess,
+    feature: AzureDevOpsFeature,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    try {
+      const result = await operation()
+      access.features[feature] = { status: 'verified', message: 'Access verified for the current connection.' }
+      return result
+    } catch (error) {
+      this.recordAccessFailure(access, feature, error)
+      throw error
+    }
+  }
+
+  private static recordAccessFailure(access: AzureDevOpsAccess, feature: AzureDevOpsFeature, error: unknown): void {
+    const failure = getAzureDevOpsAccessFailure(error)
+    if (access.features[feature].status !== 'denied' || failure.status === 'denied') access.features[feature] = failure
+  }
+
+  private static async connect(api: azdev.WebApi): Promise<ConnectionData> {
+    const connection = await api.connect()
+    if (
+      !connection.authenticatedUser?.id ||
+      connection.authenticatedUser.id === '00000000-0000-0000-0000-000000000000'
+    ) {
+      throw Object.assign(new Error('Authentication failed'), { statusCode: 401 })
+    }
+    return connection
+  }
+
+  public static async validateAccess(
+    api: azdev.WebApi,
+    settings: AzureDevOpsConnection
+  ): Promise<AzureDevOpsValidationResult> {
+    const access = createAzureDevOpsAccess()
+    let connection: ConnectionData
+    try {
+      connection = await this.connect(api)
+    } catch (error) {
+      const failure = getAzureDevOpsAccessFailure(error)
+      access.features = { code: failure, identity: failure, vote: failure }
+      return { userDisplayName: null, error: failure.message, access }
+    }
+    let policyChecked = false
+    await Promise.allSettled([
+      this.checkAccess(access, 'code', async () => {
+        const git = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+        const [pr] = await git.getPullRequestsByProject(
+          settings.project,
+          { status: AzDoPrStatus.Active },
+          undefined,
+          undefined,
+          1
+        )
+        if (pr) {
+          const policies = await api.getPolicyApi(settings.organizationUrl, [api.authHandler])
+          await policies.getPolicyEvaluations(
+            settings.project,
+            `vstfs:///CodeReview/CodeReviewId/${pr.repository?.project?.id}/${pr.pullRequestId}`,
+            false
+          )
+          policyChecked = true
+        }
+      }),
+      this.checkAccess(access, 'identity', () => this.loadMyTeams(api, settings, connection.authenticatedUser)),
+    ])
+    if (access.features.code.status === 'verified' && !policyChecked)
+      access.features.code = {
+        status: 'unverified',
+        message: 'PR read access verified. Policy access is not verified until a PR is available.',
+      }
+    return {
+      userDisplayName: connection.authenticatedUser?.providerDisplayName ?? 'Azure DevOps user',
+      error: null,
+      access,
+    }
+  }
+
+  public async validateConnection(settings: AzureDevOpsConnection): Promise<AzureDevOpsValidationResult> {
+    let validUrl = false
+    try {
+      validUrl = ['https:', 'http:'].includes(new URL(settings.organizationUrl).protocol)
+    } catch {
+      /* Invalid input is reported below. */
+    }
+    if (!validUrl || !settings.project || !settings.pat) {
+      const access = createAzureDevOpsAccess()
+      const failure = getAzureDevOpsAccessFailure({ statusCode: 400 })
+      access.features = { code: failure, identity: failure, vote: failure }
+      return { userDisplayName: null, error: 'Enter an organization URL, project, and PAT before validating.', access }
+    }
+    const revision = this.connectionRevision
+    const matches = this.settings && sameAzureDevOpsConnection(settings, this.settings)
+    const api = new azdev.WebApi(settings.organizationUrl, azdev.getPersonalAccessTokenHandler(settings.pat), {
+      socketTimeout: 30000,
+    })
+    const result = await AzureDevOpsService.validateAccess(api, settings)
+    if (matches && revision === this.connectionRevision) {
+      result.access.connectionRevision = revision
+      result.access.acknowledged = this.pullRequests.access?.acknowledged ?? false
+      for (const { id } of azureDevOpsRequirements) {
+        const previous = this.pullRequests.access?.features[id]
+        if (previous?.status === 'denied' && result.access.features[id].status === 'unverified')
+          result.access.features[id] = previous
+      }
+      if (!result.error && this.pullRequests.access)
+        result.access.features.vote = this.pullRequests.access.features.vote
+      this.pullRequests = { ...this.pullRequests, access: result.access }
+      this.publishData()
+    }
+    return result
+  }
+
+  public canAcknowledgeAccess(fingerprint: string, revision: number): boolean {
+    return (
+      !!this.pullRequests.access &&
+      this.pullRequests.access.requirementsFingerprint === fingerprint &&
+      this.connectionRevision === revision
+    )
+  }
+
+  public acknowledgeAccess(): void {
+    if (this.pullRequests.access) this.pullRequests.access.acknowledged = true
+    this.publishData()
+  }
+
+  private publishData(): void {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('pr-data', this.pullRequests)
+  }
+
+  private publishVoteAccess(result: AzureDevOpsAccessResult, revision: number): void {
+    if (revision !== this.connectionRevision) return
+    const access = this.pullRequests.access ?? createAzureDevOpsAccess(undefined, revision)
+    if (result.status === 'unverified' && access.features.vote.status === 'denied') result = access.features.vote
+    this.pullRequests = { ...this.pullRequests, access: { ...access, features: { ...access.features, vote: result } } }
+    this.publishData()
+  }
 
   public stop(): void {
     if (!this.active) {
@@ -74,8 +225,20 @@ export class AzureDevOpsService {
       return
     }
 
-    const buildApi = await this.api.getGitApi(this.settings.organizationUrl, [this.api.authHandler])
-    const connectionData = await this.api.connect()
+    const revision = this.connectionRevision
+    const settings = this.settings
+    const api = this.api
+    const access = structuredClone(this.pullRequests.access ?? createAzureDevOpsAccess(undefined, revision))
+    let buildApi: Awaited<ReturnType<azdev.WebApi['getGitApi']>>
+    let connectionData: ConnectionData
+    try {
+      connectionData = await AzureDevOpsService.connect(api)
+      buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+    } catch (error) {
+      this.publishVoteAccess(getAzureDevOpsAccessFailure(error), revision)
+      return
+    }
+    if (revision !== this.connectionRevision) return
 
     // Filter for PRs where the user is already a reviewer
     if (this.settings.intelligentApproval) {
@@ -103,32 +266,37 @@ export class AzureDevOpsService {
       'Approving pull requests: ',
       prs.map((x) => x.id)
     )
-    const data = this.pullRequests
+    const failures: AzureDevOpsAccessResult[] = []
     const tasks = prs.map((pr) => {
       return async () => {
+        if (revision !== this.connectionRevision) return
         try {
-          const reviewer = await buildApi.createPullRequestReviewer(
-            {
-              vote: 10,
-            },
-            pr.details.repositoryId,
-            pr.id,
-            connectionData.authenticatedUser?.id ?? '',
-            pr.details.projectId
+          const reviewer = await AzureDevOpsService.checkAccess(access, 'vote', () =>
+            buildApi.createPullRequestReviewer(
+              {
+                vote: 10,
+              },
+              pr.details.repositoryId,
+              pr.id,
+              connectionData.authenticatedUser?.id ?? '',
+              pr.details.projectId
+            )
           )
 
           // update the related pull request
-          AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
+          if (revision === this.connectionRevision)
+            AzureDevOpsService.appendReviewer(this.pullRequests, connectionData, pr, reviewer)
         } catch (error) {
-          log.error('Failed to approve pull request', error)
+          failures.push(getAzureDevOpsAccessFailure(error))
+          log.error('Failed to approve pull request', getAzureDevOpsAccessFailure(error).message)
         }
       }
     })
 
     await throttleAll<void>(4, tasks)
+    if (failures.length) access.features.vote = failures.find((failure) => failure.status === 'denied') ?? failures[0]
 
-    this.pullRequests = data
-    BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
+    this.publishVoteAccess(access.features.vote, revision)
   }
 
   public async resetPullRequestFeedback(pr: PullRequest): Promise<void> {
@@ -136,27 +304,33 @@ export class AzureDevOpsService {
       return
     }
 
-    const buildApi = await this.api.getGitApi(this.settings.organizationUrl, [this.api.authHandler])
-    const connectionData = await this.api.connect()
-
+    const revision = this.connectionRevision
+    const settings = this.settings
+    const api = this.api
+    const access = structuredClone(this.pullRequests.access ?? createAzureDevOpsAccess(undefined, revision))
     try {
-      const reviewer = await buildApi.createPullRequestReviewer(
-        {
-          vote: PrVote.NoVote,
-        },
-        pr.details.repositoryId,
-        pr.id,
-        connectionData.authenticatedUser?.id ?? '',
-        pr.details.projectId
+      const connectionData = await AzureDevOpsService.connect(api)
+      const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+      if (revision !== this.connectionRevision) return
+      const reviewer = await AzureDevOpsService.checkAccess(access, 'vote', () =>
+        buildApi.createPullRequestReviewer(
+          {
+            vote: PrVote.NoVote,
+          },
+          pr.details.repositoryId,
+          pr.id,
+          connectionData.authenticatedUser?.id ?? '',
+          pr.details.projectId
+        )
       )
 
-      const data = this.pullRequests
-      AzureDevOpsService.appendReviewer(data, connectionData, pr, reviewer)
-      this.pullRequests = data
-      BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
+      if (revision === this.connectionRevision)
+        AzureDevOpsService.appendReviewer(this.pullRequests, connectionData, pr, reviewer)
     } catch (error) {
-      log.error('Failed to reset pull request feedback', error)
+      access.features.vote = getAzureDevOpsAccessFailure(error)
+      log.error('Failed to reset pull request feedback', access.features.vote.message)
     }
+    this.publishVoteAccess(access.features.vote, revision)
   }
 
   private static appendReviewer(
@@ -226,7 +400,24 @@ export class AzureDevOpsService {
 
   public setConfiguration(input: AzDoSettings): void {
     const hasChanged = JSON.stringify(this.settings) !== JSON.stringify(input)
-    this.settings = input
+    const connectionChanged = !this.settings || !sameAzureDevOpsConnection(this.settings, input)
+    const acknowledgement = this.settings && connectionChanged ? undefined : input.acknowledgedScopeRequirements
+    this.settings = { ...input }
+
+    if (connectionChanged) {
+      this.connectionRevision++
+      this.pullRequests = {
+        items: [],
+        error: null,
+        access: this.isValidSettings(input)
+          ? createAzureDevOpsAccess(acknowledgement, this.connectionRevision)
+          : undefined,
+      }
+      this.data = new AzureDevOpsData()
+      this.publishData()
+    } else if (this.pullRequests.access) {
+      this.pullRequests.access.acknowledged = createAzureDevOpsAccess(input.acknowledgedScopeRequirements).acknowledged
+    }
 
     if (hasChanged) {
       this.reInitializeApi()
@@ -241,7 +432,7 @@ export class AzureDevOpsService {
 
   private static async loadMyTeams(
     api: azdev.WebApi,
-    settings: AzDoSettings,
+    settings: AzureDevOpsConnection,
     myself: Identity | undefined
   ): Promise<Identity[]> {
     if (!myself?.id) {
@@ -286,19 +477,54 @@ export class AzureDevOpsService {
     return [...teams.values()]
   }
 
-  private static async loadPullRequestData(api: azdev.WebApi, settings: AzDoSettings): Promise<AzureDevOpsData> {
+  private static async loadPullRequestData(
+    api: azdev.WebApi,
+    settings: AzDoSettings,
+    access = createAzureDevOpsAccess(settings.acknowledgedScopeRequirements)
+  ): Promise<AzureDevOpsData> {
     const data: AzureDevOpsData = new AzureDevOpsData()
+    data.access = access
+    const previousCode = access.features.code
 
     try {
-      const connectionData = await api.connect()
+      let connectionData: ConnectionData
+      try {
+        connectionData = await this.connect(api)
+      } catch (error) {
+        for (const { id } of azureDevOpsRequirements) this.recordAccessFailure(access, id, error)
+        throw error
+      }
       data.myself = connectionData.authenticatedUser
-      data.teams = await AzureDevOpsService.loadMyTeams(api, settings, data.myself)
       log.debug('Fetching data from Azure DevOps')
-      const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-      const azDoBuilds = await buildApi.getPullRequestsByProject(settings.project, {
-        includeLinks: true,
-        status: AzDoPrStatus.Active,
-      })
+      const results = await Promise.allSettled([
+        this.checkAccess(access, 'identity', () => this.loadMyTeams(api, settings, data.myself)),
+        this.checkAccess(access, 'code', async () => {
+          const git = await api.getGitApi(settings.organizationUrl, [api.authHandler])
+          const prs = await git.getPullRequestsByProject(settings.project, { includeLinks: true, status: AzDoPrStatus.Active })
+          // List responses truncate descriptions to 400 characters.
+          await throttleAll(4, prs
+            .filter((pr) => (pr.description?.length ?? 0) >= 400)
+            .map((pr) => async () => {
+              const full = await git.getPullRequest(pr.repository!.id!, pr.pullRequestId!, settings.project)
+              pr.description = full.description
+            }))
+          return prs
+        }),
+      ])
+      const [teams, prs] = results
+      // A successful PR read alone cannot resolve a previous policy access denial.
+      if (prs.status === 'fulfilled')
+        access.features.code =
+          previousCode.status === 'denied'
+            ? previousCode
+            : {
+                status: 'unverified',
+                message: 'PR read access verified. Policy access is not verified until a PR is available.',
+              }
+      if (teams.status === 'rejected') throw teams.reason
+      if (prs.status === 'rejected') throw prs.reason
+      data.teams = teams.value
+      const azDoBuilds = prs.value
       data.items = azDoBuilds
         .map((pr) => AzureDevOpsService.mapPullRequests(pr, data))
         .toSorted((a, b) => {
@@ -309,21 +535,22 @@ export class AzureDevOpsService {
         })
       log.debug('Got pull requests from Azure DevOps', data.items.length)
 
-      await AzureDevOpsService.enrichPolicyEvaluations(api, settings, data)
+      if (data.items.length)
+        await this.checkAccess(access, 'code', () => AzureDevOpsService.enrichPolicyEvaluations(api, settings, data))
       log.debug('Got policy evaluations from Azure DevOps')
 
       log.debug('Completed to fetch data')
     } catch (error) {
-      log.error('Failed to fetch data', error)
+      log.error('Failed to fetch data', getAzureDevOpsAccessFailure(error).message)
       if (error instanceof Error) {
         const statusCode = (error as AzError).statusCode ?? 0
         const errorType = statusCode === 401 ? ErrorType.Authentication : ErrorType.Unknown
         data.error = {
-          message: error.message,
-          details: 'Please check your authentication settings.',
+          message: error.message.replaceAll(settings.pat, '[redacted]'),
+          details: getAzureDevOpsAccessFailure(error).message,
           type: errorType,
-          actionText: errorType === ErrorType.Authentication ? 'DevOps Settings' : undefined,
-          actionHref: errorType === ErrorType.Authentication ? '/settings/azure-devops' : undefined,
+          actionText: 'DevOps Settings',
+          actionHref: '/settings/azure-devops',
         }
       }
     }
@@ -347,6 +574,7 @@ export class AzureDevOpsService {
       isDraft: pr.isDraft,
       details: {
         label: pr.title,
+        description: pr.description ?? '',
         number: pr.pullRequestId,
         repositoryId: pr.repository?.id ?? '',
         repository: pr.repository?.name ?? '',
@@ -485,6 +713,7 @@ export class AzureDevOpsService {
   }
 
   private async updateData(): Promise<void> {
+    const revision = this.connectionRevision
     const data: PullRequestData = {
       items: [],
       error: null,
@@ -493,10 +722,23 @@ export class AzureDevOpsService {
     if (this.settings && this.api && this.isValidSettings(this.settings)) {
       loader.start()
 
-      const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings)
+      const access = structuredClone(
+        this.pullRequests.access ?? createAzureDevOpsAccess(this.settings.acknowledgedScopeRequirements, revision)
+      )
+      const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings, access)
+      if (revision !== this.connectionRevision) {
+        loader.stop()
+        return
+      }
       this.data = newData
       data.items = newData.items
       data.error = newData.error
+      data.access = newData.access
+      if (data.access && this.pullRequests.access) {
+        data.access.acknowledged = this.pullRequests.access.acknowledged
+        if (data.access.features.code.reason !== 'authentication')
+          data.access.features.vote = this.pullRequests.access.features.vote
+      }
 
       this.handleNewPRNotifications(data.items)
     } else {
@@ -509,7 +751,7 @@ export class AzureDevOpsService {
       }
     }
     this.pullRequests = data
-    BrowserWindow.getAllWindows()[0].webContents.send('pr-data', data)
+    this.publishData()
     loader.stop()
   }
 
@@ -570,6 +812,7 @@ class AzureDevOpsData implements PullRequestData {
   error: ErrorDetail | null = null
   teams: Identity[] = []
   myself: Identity | undefined = undefined
+  access?: AzureDevOpsAccess
 }
 
 interface AzError extends Error {

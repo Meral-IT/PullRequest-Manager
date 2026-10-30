@@ -8,11 +8,18 @@ import { build } from 'rolldown'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
-const isExternal = (id) => (!id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id)) ||
-  id === '../main/notification.service' || id === '../tools/loading.service'
+const isExternal = (id) =>
+  (!id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id)) ||
+  id === '../main/notification.service' ||
+  id === '../tools/loading.service'
 
 test('test loader bundles Windows, POSIX, and relative paths while keeping packages and mocks external', () => {
-  for (const id of ['D:/a/project/service.ts', 'D:\\a\\project\\service.ts', '/project/service.ts', '../models/pr-vote.ts']) {
+  for (const id of [
+    'D:/a/project/service.ts',
+    'D:\\a\\project\\service.ts',
+    '/project/service.ts',
+    '../models/pr-vote.ts',
+  ]) {
     assert.equal(isExternal(id), false, id)
   }
   for (const id of ['azure-devops-node-api', '../main/notification.service', '../tools/loading.service']) {
@@ -22,15 +29,21 @@ test('test loader bundles Windows, POSIX, and relative paths while keeping packa
 const entry = resolve(__dirname, 'azure-devops-teams-entry.ts')
 const { output } = await build({
   input: entry,
-  plugins: [{
-    name: 'test-entry',
-    resolveId: (id) => id === entry ? entry : undefined,
-    load: (id) => id === entry ? `
+  plugins: [
+    {
+      name: 'test-entry',
+      resolveId: (id) => (id === entry ? entry : undefined),
+      load: (id) =>
+        id === entry
+          ? `
       export { AzureDevOpsService } from '../lib/azure-devops/azure-devops.service'
       export { FilterEvaluator } from '../lib/models/ui-filter.model'
       export { defaultProfiles } from '../lib/models/pr-profile'
-    ` : undefined,
-  }],
+      export * from '../lib/models/azure-devops-access'
+    `
+          : undefined,
+    },
+  ],
   platform: 'node',
   output: { format: 'cjs' },
   external: isExternal,
@@ -43,7 +56,9 @@ runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
       return { BrowserWindow: { getAllWindows: () => [{ webContents: { send: () => undefined } }] } }
     }
     if (name === 'electron-log/main') return { debug: () => undefined, error: () => undefined }
-    if (name === '../lib/main/notification.service' || name === '../lib/tools/loading.service') return {}
+    if (name === '../lib/main/notification.service')
+      return { NotificationService: { getInstance: () => ({ notifyNewPullRequests: () => {} }) } }
+    if (name === '../lib/tools/loading.service') return { start: () => {}, stop: () => {} }
     return load(name)
   },
   compiled,
@@ -111,6 +126,270 @@ function apiFixture({ memberships = [team1.descriptor, team2.descriptor], prs = 
     getPolicyApi: async () => ({ getPolicyEvaluations: async () => [] }),
   }
 }
+
+test('descriptions are mapped, with missing text defaulting to empty', async () => {
+  const prs = [pullRequest(1, me.id), pullRequest(2, me.id)]
+  prs[0].description = 'Searchable description'
+  const data = await AzureDevOpsService.loadPullRequestData(apiFixture({ prs }), settings)
+  assert.equal(data.error, null)
+  assert.deepEqual(data.items.map((pr) => pr.details.description), ['Searchable description', ''])
+})
+
+test('potentially truncated descriptions are fetched in full with at most four requests at once', async () => {
+  const prs = Array.from({ length: 10 }, (_, index) => ({
+    ...pullRequest(index + 1, me.id),
+    description: 'x'.repeat(index === 0 ? 399 : 400),
+  }))
+  const api = apiFixture({ prs })
+  const git = await api.getGitApi()
+  api.getGitApi = async () => git
+  const lookups = []
+  let active = 0
+  let maximum = 0
+  git.getPullRequest = async (repository, id, project) => {
+    assert.equal(repository, 'repo')
+    assert.equal(project, settings.project)
+    lookups.push(id)
+    maximum = Math.max(maximum, ++active)
+    await new Promise((resolve) => setImmediate(resolve))
+    active--
+    return { description: `${'x'.repeat(500)} final paragraph ${id}` }
+  }
+  const data = await AzureDevOpsService.loadPullRequestData(api, settings)
+  assert.equal(data.error, null)
+  assert.deepEqual(lookups.toSorted((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.equal(maximum, 4)
+  assert.equal(data.items[0].details.description.length, 399)
+  assert.equal(data.items[9].details.description, `${'x'.repeat(500)} final paragraph 10`)
+})
+
+test('full-description lookup failures use the existing refresh error state', async () => {
+  const pr = { ...pullRequest(1, me.id), description: 'x'.repeat(400) }
+  const api = apiFixture({ prs: [pr] })
+  const git = await api.getGitApi()
+  api.getGitApi = async () => git
+  git.getPullRequest = async () => { throw Object.assign(new Error('Description lookup failed'), { statusCode: 403 }) }
+  const data = await AzureDevOpsService.loadPullRequestData(api, settings)
+  assert.equal(data.error?.message, 'Description lookup failed')
+  assert.equal(data.access.features.code.status, 'denied')
+  assert.equal(data.access.features.identity.status, 'verified')
+})
+
+test('validation checks empty projects and memberships without casting votes', async () => {
+  const api = apiFixture({ memberships: [] })
+  const result = await AzureDevOpsService.validateAccess(api, settings)
+  assert.equal(result.error, null)
+  assert.equal(result.access.features.code.status, 'unverified')
+  assert.match(result.access.features.code.message, /PR read access verified.*Policy access is not verified/)
+  assert.equal(result.access.features.identity.status, 'verified')
+  assert.equal(result.access.features.vote.status, 'unverified')
+  assert.deepEqual(api.approved, [])
+  assert.ok(!JSON.stringify(result).includes(settings.pat))
+})
+
+test('read checks run independently and distinguish scope/permission denial from bad project and outage', async () => {
+  for (const [statusCode, status, reason] of [
+    [403, 'denied', 'authorization'],
+    [404, 'unverified', 'configuration'],
+    [503, 'unverified', 'temporary'],
+    [401, 'unverified', 'authentication'],
+  ]) {
+    const api = apiFixture()
+    api.getGitApi = async () => ({
+      getPullRequestsByProject: async () => {
+        throw Object.assign(new Error(settings.pat), { statusCode })
+      },
+    })
+    const result = await AzureDevOpsService.validateAccess(api, settings)
+    assert.equal(result.error, null, 'Authentication is separate from feature access')
+    assert.equal(result.access.features.code.status, status)
+    assert.equal(result.access.features.code.reason, reason)
+    assert.equal(result.access.features.identity.status, 'verified')
+    assert.ok(!JSON.stringify(result).includes(settings.pat))
+    if (statusCode === 403) assert.match(result.access.features.code.message, /PAT scopes.*Azure DevOps permissions/)
+  }
+})
+
+test('invalid PATs and anonymous responses fail authentication without probing features', async () => {
+  for (const anonymous of [true, false]) {
+    const api = apiFixture()
+    api.connect = async () => {
+      if (anonymous) return {}
+      throw Object.assign(new Error(settings.pat), { statusCode: 401 })
+    }
+    api.getGitApi = () => assert.fail('Do not probe without authentication')
+    const result = await AzureDevOpsService.validateAccess(api, settings)
+    assert.match(result.error, /authentication/i)
+    assert.equal(result.access.features.code.reason, 'authentication')
+    assert.ok(!JSON.stringify(result).includes(settings.pat))
+  }
+})
+
+test('validation checks policy access when a sample PR is available', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  api.getPolicyApi = async () => ({
+    getPolicyEvaluations: async () => {
+      throw Object.assign(new Error('Policy access denied'), { statusCode: 403 })
+    },
+  })
+  const result = await AzureDevOpsService.validateAccess(api, settings)
+  assert.equal(result.error, null)
+  assert.equal(result.access.features.code.status, 'denied')
+})
+
+test('a delayed vote preserves newer read denials and cannot modify a replacement connection', async () => {
+  for (const changeConnection of [false, true]) {
+    const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    const service = new AzureDevOpsService()
+    service.setConfiguration(settings)
+    service.api = api
+    await service.updateDataImmediately()
+    let release
+    const waiting = new Promise((resolve) => {
+      release = resolve
+    })
+    api.getGitApi = async () => ({
+      createPullRequestReviewer: async () => {
+        await waiting
+        return { ...me, vote: 10 }
+      },
+    })
+    const approving = service.approvePullRequests(service.getPullRequests().items)
+    await new Promise((resolve) => setImmediate(resolve))
+    if (changeConnection) service.setConfiguration({ ...settings, pat: 'replacement-token' })
+    else
+      service.getPullRequests().access.features.code = {
+        status: 'denied',
+        reason: 'authorization',
+        message: 'Read access denied',
+      }
+    release()
+    await approving
+    assert.equal(service.getPullRequests().access.features.code.status, changeConnection ? 'unverified' : 'denied')
+  }
+})
+
+test('acknowledgement hides only unverified requirements and changes invalidate it', () => {
+  const { createAzureDevOpsAccess, getAccessNoticeRequirements, AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT } =
+    compiled.exports
+  const access = createAzureDevOpsAccess(AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT)
+  assert.equal(getAccessNoticeRequirements(access).length, 0)
+  access.features.identity = { status: 'denied', reason: 'authorization', message: 'Check permissions' }
+  assert.deepEqual(
+    getAccessNoticeRequirements(access).map((r) => r.id),
+    ['identity']
+  )
+  assert.equal(getAccessNoticeRequirements(createAzureDevOpsAccess('older-requirements')).length, 3)
+})
+
+test('votes record denied access, retain it during refresh, and verify only after a successful user action', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  const [pr] = service.getPullRequests().items
+  assert.equal(service.getPullRequests().access.features.vote.status, 'unverified')
+  service.api = {
+    ...api,
+    getGitApi: async () => ({
+      createPullRequestReviewer: async () => {
+        throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+      },
+    }),
+  }
+  await service.approvePullRequests([pr])
+  assert.equal(service.getPullRequests().access.features.vote.status, 'denied')
+  service.acknowledgeAccess()
+  assert.equal(compiled.exports.getAccessNoticeRequirements(service.getPullRequests().access).length, 1)
+  service.api = api
+  await service.updateDataImmediately()
+  assert.equal(service.getPullRequests().access.features.vote.status, 'denied')
+  await service.resetPullRequestFeedback(pr)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+})
+
+test('changing credentials resets diagnostics and rejects stale acknowledgements and refresh results', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  const previous = service.getPullRequests().access
+  const api = apiFixture()
+  let release
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  api.connect = async () => {
+    await waiting
+    return { authenticatedUser: me }
+  }
+  service.api = api
+  const refresh = service.updateDataImmediately()
+  service.setConfiguration({
+    ...settings,
+    pat: 'replacement-token',
+    acknowledgedScopeRequirements: compiled.exports.AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
+  })
+  release()
+  await refresh
+  const access = service.getPullRequests().access
+  assert.equal(access.features.code.status, 'unverified')
+  assert.equal(access.acknowledged, false)
+  assert.equal(service.canAcknowledgeAccess(previous.requirementsFingerprint, previous.connectionRevision), false)
+})
+
+test('a partially denied bulk approval cannot be hidden by a later successful vote', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, me.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async (_vote, _repo, id) => {
+      if (id === 1) throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+      return { ...me, vote: 10 }
+    },
+  })
+  await service.approvePullRequests(service.getPullRequests().items)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'denied')
+})
+
+test('temporary read and vote failures cannot acknowledge away previously denied access', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  const [pr] = service.getPullRequests().items
+  service.getPullRequests().access.features.code = {
+    status: 'denied',
+    reason: 'authorization',
+    message: 'Read access denied',
+  }
+  service.getPullRequests().access.features.vote = {
+    status: 'denied',
+    reason: 'authorization',
+    message: 'Vote access denied',
+  }
+  service.acknowledgeAccess()
+  api.getGitApi = async () => {
+    throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+  }
+  await service.updateDataImmediately()
+  await service.resetPullRequestFeedback(pr)
+  assert.equal(service.getPullRequests().access.features.code.status, 'denied')
+  assert.equal(service.getPullRequests().access.features.vote.status, 'denied')
+  assert.equal(compiled.exports.getAccessNoticeRequirements(service.getPullRequests().access).length, 2)
+  api.getGitApi = async () => ({ getPullRequestsByProject: async () => [pullRequest(1, me.id)] })
+  api.getPolicyApi = async () => {
+    throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+  }
+  await service.updateDataImmediately()
+  assert.equal(
+    service.getPullRequests().access.features.code.status,
+    'denied',
+    'PR reads cannot clear an unverified policy denial'
+  )
+})
 
 test('nested team reviewers reach My Team, To do, and intelligent approval', async () => {
   const api = apiFixture({ prs: [pullRequest(1, team2.id), pullRequest(2, 'unrelated'), pullRequest(3, me.id, me.id)] })

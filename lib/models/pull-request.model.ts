@@ -41,6 +41,7 @@ export enum PullRequestMergeStatus {
 
 export type DetailsCell = {
   label: string
+  description?: string
   number: number
   repositoryId: string
   repository: string
