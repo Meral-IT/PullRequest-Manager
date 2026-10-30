@@ -151,6 +151,60 @@ async function capture(window, name) {
   )
 }
 
+async function checkZeroDataLayout(window, allowScroll = false) {
+  await window.webContents.executeJavaScript(`Promise.all(Array.from(document.querySelectorAll('.zerodata img'), image => image.decode()))`)
+  await settleLayout(window)
+  const layout = await window.webContents.executeJavaScript(`(() => {
+    const root = document.querySelector('.zerodata')
+    root.scrollTop = 0
+    const rect = element => {
+      const { top, bottom, left, right, width, height } = element.getBoundingClientRect()
+      return { top, bottom, left, right, width, height }
+    }
+    return {
+      root: rect(root),
+      viewport: innerHeight,
+      overflowX: [root, root.parentElement, document.querySelector('.window-content')]
+        .some(element => element.scrollWidth > element.clientWidth),
+      scrollHeight: root.scrollHeight,
+      clientHeight: root.clientHeight,
+      image: root.querySelector('img') ? rect(root.querySelector('img')) : null,
+      children: Array.from(root.querySelector('.zero-data-item').children, rect),
+      textCentered: Array.from(root.querySelectorAll('.primary, .secondary'))
+        .every(element => getComputedStyle(element).textAlign === 'center'),
+    }
+  })()`)
+  const details = JSON.stringify(layout)
+  assert.equal(layout.overflowX, false, details)
+  assert.equal(layout.textCentered, true, details)
+  assert.ok(layout.root.top >= 0 && layout.root.bottom <= layout.viewport + 1, details)
+  if (layout.image) {
+    assert.ok(layout.image.width <= 320 && layout.image.height <= 240, details)
+  }
+  for (const [index, child] of layout.children.entries()) {
+    assert.ok(child.left >= layout.root.left - 1 && child.right <= layout.root.right + 1, details)
+    if (index) assert.ok(child.top >= layout.children[index - 1].bottom - 1, details)
+  }
+  assert.ok(layout.children[0].top >= layout.root.top, details)
+  if (allowScroll) {
+    assert.ok(layout.scrollHeight > layout.clientHeight, details)
+    assert.equal(await window.webContents.executeJavaScript(`(() => {
+      const root = document.querySelector('.zerodata')
+      const last = root.querySelector('.zero-data-item').lastElementChild
+      last.scrollIntoView({ block: 'end' })
+      const bounds = last.getBoundingClientRect()
+      const viewport = root.getBoundingClientRect()
+      return root.scrollTop > 0 && bounds.bottom <= viewport.bottom + 1 &&
+        (bounds.height > root.clientHeight || bounds.top >= viewport.top)
+    })()`), true)
+    await settleLayout(window)
+  } else {
+    assert.ok(layout.scrollHeight <= layout.clientHeight + 1, details)
+    assert.ok(layout.children.at(-1).bottom <= layout.root.bottom, details)
+  }
+  return layout
+}
+
 async function checkTitlebarLayout(window, platform, width) {
   window.setContentSize(width, 670)
   await settleLayout(window)
@@ -738,6 +792,66 @@ app.whenReady().then(async () => {
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
 
+    const emptyLayouts = []
+    for (const [width, height] of [[900, 670], [900, 350], [360, 450], [900, 670]]) {
+      window.setContentSize(width, height)
+      emptyLayouts.push(await checkZeroDataLayout(window))
+      await capture(window, `zero-data-${width}x${height}`)
+    }
+    assert.ok(emptyLayouts[1].image.height < emptyLayouts[0].image.height)
+    assert.ok(Math.abs(emptyLayouts[3].image.height - emptyLayouts[0].image.height) <= 1)
+
+    const emptyLightBackground = await window.webContents.executeJavaScript(
+      "getComputedStyle(document.querySelector('.fui-FluentProvider')).backgroundColor"
+    )
+    window.webContents.send('theme-changed', 'dark')
+    await settleLayout(window)
+    await waitForRenderer(window, `getComputedStyle(document.querySelector('.fui-FluentProvider')).backgroundColor !== ${JSON.stringify(emptyLightBackground)}`)
+    await checkZeroDataLayout(window)
+    await capture(window, 'zero-data-dark')
+    window.setContentSize(360, 450)
+    window.webContents.setZoomFactor(2)
+    await checkZeroDataLayout(window, true)
+    await capture(window, 'zero-data-zoom')
+    window.webContents.setZoomFactor(1)
+    window.setContentSize(900, 670)
+
+    for (const type of ['ConfigurationRequired', 'Authentication']) {
+      const error = {
+        type,
+        message: type === 'ConfigurationRequired' ? 'Configuration required' : 'Authentication required',
+        details: 'Please check your Azure DevOps integration settings.',
+        actionText: 'Azure DevOps Settings',
+        actionHref: '/settings/azure-devops',
+      }
+      window.webContents.send('pr-data', { items: [], error })
+      await waitForRenderer(window, `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`)
+      await checkZeroDataLayout(window)
+      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+      await waitForRenderer(window, "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')")
+      await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+      await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+    }
+
+    window.webContents.send('pr-data', { items: [], error: {
+      type: 'Unknown',
+      message: 'Unable to load pull requests',
+      details: 'Request failed: ' + 'a'.repeat(1200),
+      actionText: 'Azure DevOps Settings',
+      actionHref: '/settings/azure-devops',
+    } })
+    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'Unable to load pull requests'")
+    window.setContentSize(360, 450)
+    window.webContents.setZoomFactor(2)
+    assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('.zerodata img').length"), 0)
+    await checkZeroDataLayout(window, true)
+    await capture(window, 'zero-data-zoom-long-error')
+    window.webContents.setZoomFactor(1)
+    window.setContentSize(900, 670)
+    window.webContents.send('pr-data', { items: [], error: null })
+    window.webContents.send('theme-changed', 'light')
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+
     await checkPrSearch(window, settings)
     const access = {
       requirementsFingerprint: 'smoke-scopes-v1',
@@ -1067,7 +1181,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(errors, [])
     window.destroy()
     console.log(
-      'Electron smoke test passed: PR search, approval scope, renderer, title menus, sandboxed IPC, profile layout, themes, zoom, creation, and filter validation'
+      'Electron smoke test passed: PR search, approval scope, renderer, empty and error layouts, title menus, sandboxed IPC, profile layout, themes, zoom, creation, and filter validation'
     )
   } catch (error) {
     console.error('Smoke test step:', pendingStep, error, errors)
