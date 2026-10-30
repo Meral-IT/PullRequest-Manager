@@ -8,6 +8,8 @@ import { AzureDevOpsConnection, sameAzureDevOpsConnection } from '../models/azur
 import { updateTrayProfiles } from './tray'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
+const stagedSettingFile = `${settingFile}.tmp`
+const recoverySettingFile = `${settingFile}.rollback`
 const defaultSettings: SettingsModel = {
   general: {
     openAtLogin: false,
@@ -45,6 +47,89 @@ function encryptString(input: string): string {
   return input ? safeStorage.encryptString(input).toString('base64url') : ''
 }
 
+function parseSettings(data: string): SettingsModel {
+  const loaded = JSON.parse(data)
+  loaded.azDo.pat = loaded.azDo.pat ? decryptString(loaded.azDo.pat) : ''
+  return normalizeSettings(loaded)
+}
+
+async function syncSettingsDirectory(): Promise<void> {
+  // Node cannot open directories for flushing on Windows; the staged file is still flushed there.
+  if (process.platform === 'win32') return
+  const directory = await fs.open(path.dirname(settingFile), 'r')
+  try {
+    await directory.sync()
+  } finally {
+    await directory.close()
+  }
+}
+
+async function recoverSettings(): Promise<void> {
+  let recovery: Awaited<ReturnType<typeof fs.open>>
+  try {
+    recovery = await fs.open(recoverySettingFile, 'r+')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  try {
+    // Recovery may follow an interrupted write or failed flush; validate and re-flush before replacing anything.
+    parseSettings(await recovery.readFile('utf8'))
+    await recovery.sync()
+  } finally {
+    await recovery.close()
+  }
+  await fs.rename(recoverySettingFile, settingFile)
+  await syncSettingsDirectory()
+}
+
+async function replaceSettings(data: string): Promise<void> {
+  await recoverSettings()
+  let previous: Buffer | undefined
+  try {
+    previous = await fs.readFile(settingFile)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  // The settings queue also owns this reserved sibling left by an interrupted save.
+  await fs.rm(stagedSettingFile, { force: true })
+  const options = { flag: 'wx', mode: 0o600, flush: true } as const
+  let replaced = false
+  try {
+    await fs.writeFile(stagedSettingFile, data, options)
+    await fs.rename(stagedSettingFile, settingFile)
+    replaced = true
+    await syncSettingsDirectory()
+  } catch (error) {
+    if (replaced) {
+      try {
+        if (previous !== undefined) {
+          await fs.writeFile(recoverySettingFile, previous, options)
+          await fs.rename(recoverySettingFile, settingFile)
+        } else {
+          await fs.rm(settingFile)
+        }
+        await syncSettingsDirectory()
+      } catch (rollbackError) {
+        // Retain a staged recovery copy if restoring the previous complete file also fails.
+        throw new AggregateError(
+          [error, rollbackError],
+          `Settings rollback failed; recovery file: ${recoverySettingFile}`,
+          { cause: rollbackError }
+        )
+      }
+    }
+    try {
+      await fs.rm(stagedSettingFile, { force: true })
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Settings save and staging cleanup failed', {
+        cause: cleanupError,
+      })
+    }
+    throw error
+  }
+}
+
 export function saveSettings(input: SettingsModel): Promise<SettingsModel> {
   return enqueueSettingsWrite(() => writeSettings(input))
 }
@@ -78,8 +163,7 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
     }
   }
   const settings = { ...input, azDo: { ...input.azDo, acknowledgedScopeRequirements: acknowledgement } }
-  await fs.writeFile(
-    settingFile,
+  await replaceSettings(
     JSON.stringify(
       {
         ...settings,
@@ -105,19 +189,21 @@ export async function loadSettings(): Promise<SettingsModel> {
   if (cachedSettings) {
     return cachedSettings
   }
-  try {
-    await fs.access(settingFile)
-  } catch (error) {
-    await saveSettings(defaultSettings)
-  }
-
-  const data = await fs.readFile(settingFile, 'utf-8')
-  const loaded = JSON.parse(data)
-  loaded.azDo.pat = loaded.azDo.pat ? decryptString(loaded.azDo.pat) : ''
-
-  cachedSettings = normalizeSettings(loaded)
-  cachedSettings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
-  return cachedSettings
+  return enqueueSettingsWrite(async () => {
+    if (cachedSettings) return cachedSettings
+    await fs.rm(stagedSettingFile, { force: true })
+    await recoverSettings()
+    let data: string
+    try {
+      data = await fs.readFile(settingFile, 'utf-8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return writeSettings(defaultSettings)
+      throw error
+    }
+    cachedSettings = parseSettings(data)
+    cachedSettings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
+    return cachedSettings
+  })
 }
 
 function normalizeSettings(input: SettingsModel): SettingsModel {

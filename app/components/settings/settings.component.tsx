@@ -101,6 +101,7 @@ export default function SettingsComponent() {
     buttonContent = 'Invalid Profile(s)'
   }
   const [open, setOpen] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const unsavedChangesDialog = (
     <Dialog
       // this controls the dialog open state
@@ -146,11 +147,13 @@ export default function SettingsComponent() {
     </Dialog>
   )
   const onHomeClick = async () => {
-    const hasUnsavedChanges = JSON.stringify(state) !== JSON.stringify(await actions.getInitialSettings())
-    if (hasUnsavedChanges) {
-      setOpen(true)
-    } else {
-      nav('/')
+    setLoadError('')
+    try {
+      const hasUnsavedChanges = JSON.stringify(state) !== JSON.stringify(await actions.getInitialSettings())
+      if (hasUnsavedChanges) setOpen(true)
+      else nav('/')
+    } catch {
+      setLoadError('Unable to check for unsaved changes. Please try again.')
     }
   }
 
@@ -206,8 +209,10 @@ export default function SettingsComponent() {
             </div>
             <Field
               className={styles.bottom}
-              validationState={saveError ? 'error' : undefined}
-              validationMessage={saveError ? <span role="alert">{saveError}</span> : undefined}
+              validationState={saveError || loadError ? 'error' : undefined}
+              validationMessage={
+                saveError || loadError ? <span role="alert">{saveError || loadError}</span> : undefined
+              }
             >
               <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
                 {buttonContent}

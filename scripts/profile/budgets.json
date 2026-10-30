@@ -1,0 +1,46 @@
+{
+  "0": {
+    "startupMs": 3500,
+    "initialReadyMs": 4000,
+    "rssPeakMiB": 700,
+    "interactionMaxMs": 500,
+    "idleCpuMeanPercent": 3,
+    "refreshCpuMeanPercent": 15,
+    "refreshMaxMs": 300,
+    "requestMaxConcurrency": 8,
+    "maxActiveRefreshes": 1
+  },
+  "32": {
+    "startupMs": 3500,
+    "initialReadyMs": 4000,
+    "rssPeakMiB": 800,
+    "interactionMaxMs": 150,
+    "idleCpuMeanPercent": 3,
+    "refreshCpuMeanPercent": 20,
+    "refreshMaxMs": 600,
+    "requestMaxConcurrency": 8,
+    "maxActiveRefreshes": 1
+  },
+  "1000": {
+    "startupMs": 3500,
+    "initialReadyMs": 4000,
+    "rssPeakMiB": 2300,
+    "interactionMaxMs": 1250,
+    "idleCpuMeanPercent": 4,
+    "refreshCpuMeanPercent": 25,
+    "refreshMaxMs": 10000,
+    "requestMaxConcurrency": 8,
+    "maxActiveRefreshes": 1
+  },
+  "10000": {
+    "startupMs": 3500,
+    "initialReadyMs": 15000,
+    "rssPeakMiB": 2560,
+    "interactionMaxMs": 2000,
+    "idleCpuMeanPercent": 8,
+    "refreshCpuMeanPercent": 35,
+    "refreshMaxMs": 90000,
+    "requestMaxConcurrency": 8,
+    "maxActiveRefreshes": 1
+  }
+}

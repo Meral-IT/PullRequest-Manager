@@ -50,6 +50,15 @@ const { output } = await build({
   write: false,
 })
 const compiled = { exports: {} }
+const loading = {
+  active: 0,
+  start() {
+    this.active++
+  },
+  stop() {
+    this.active--
+  },
+}
 runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
   (name) => {
     if (name === 'electron') {
@@ -58,7 +67,7 @@ runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
     if (name === 'electron-log/main') return { debug: () => undefined, error: () => undefined }
     if (name === '../lib/main/notification.service')
       return { NotificationService: { getInstance: () => ({ notifyNewPullRequests: () => {} }) } }
-    if (name === '../lib/tools/loading.service') return { start: () => {}, stop: () => {} }
+    if (name === '../lib/tools/loading.service') return loading
     return load(name)
   },
   compiled,
@@ -132,7 +141,10 @@ test('descriptions are mapped, with missing text defaulting to empty', async () 
   prs[0].description = 'Searchable description'
   const data = await AzureDevOpsService.loadPullRequestData(apiFixture({ prs }), settings)
   assert.equal(data.error, null)
-  assert.deepEqual(data.items.map((pr) => pr.details.description), ['Searchable description', ''])
+  assert.deepEqual(
+    data.items.map((pr) => pr.details.description),
+    ['Searchable description', '']
+  )
 })
 
 test('potentially truncated descriptions are fetched in full with at most four requests at once', async () => {
@@ -157,7 +169,10 @@ test('potentially truncated descriptions are fetched in full with at most four r
   }
   const data = await AzureDevOpsService.loadPullRequestData(api, settings)
   assert.equal(data.error, null)
-  assert.deepEqual(lookups.toSorted((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.deepEqual(
+    lookups.toSorted((a, b) => a - b),
+    [2, 3, 4, 5, 6, 7, 8, 9, 10]
+  )
   assert.equal(maximum, 4)
   assert.equal(data.items[0].details.description.length, 399)
   assert.equal(data.items[9].details.description, `${'x'.repeat(500)} final paragraph 10`)
@@ -168,7 +183,9 @@ test('full-description lookup failures use the existing refresh error state', as
   const api = apiFixture({ prs: [pr] })
   const git = await api.getGitApi()
   api.getGitApi = async () => git
-  git.getPullRequest = async () => { throw Object.assign(new Error('Description lookup failed'), { statusCode: 403 }) }
+  git.getPullRequest = async () => {
+    throw Object.assign(new Error('Description lookup failed'), { statusCode: 403 })
+  }
   const data = await AzureDevOpsService.loadPullRequestData(api, settings)
   assert.equal(data.error?.message, 'Description lookup failed')
   assert.equal(data.access.features.code.status, 'denied')
@@ -475,4 +492,172 @@ test('missing identity responses produce the existing visible error state', asyn
   const data = await AzureDevOpsService.loadPullRequestData(api, settings)
   assert.ok(data.error)
   assert.deepEqual(data.items, [])
+})
+
+test('overlapping refreshes share one request and balance loading state', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  const api = apiFixture()
+  const waiting = Promise.withResolvers()
+  let calls = 0
+  api.connect = async () => {
+    calls++
+    await waiting.promise
+    return { authenticatedUser: me }
+  }
+  service.api = api
+  const first = service.updateDataImmediately()
+  const second = service.updateDataImmediately()
+  const observed = { calls, loading: loading.active }
+  waiting.resolve()
+  await Promise.all([first, second])
+  assert.deepEqual(observed, { calls: 1, loading: 1 })
+  assert.equal(loading.active, 0)
+})
+
+test('connection replacements queue only the latest refresh behind running work', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  const waiting = Promise.withResolvers()
+  let oldCalls = 0
+  let replacementCalls = 0
+  let currentCalls = 0
+  const old = apiFixture()
+  old.connect = async () => {
+    oldCalls++
+    await waiting.promise
+    return { authenticatedUser: me }
+  }
+  service.api = old
+  const first = service.updateDataImmediately()
+  service.setConfiguration({ ...settings, project: 'replacement' })
+  service.api = {
+    ...apiFixture(),
+    connect: async () => {
+      replacementCalls++
+      return { authenticatedUser: me }
+    },
+  }
+  const second = service.updateDataImmediately()
+  service.setConfiguration({ ...settings, project: 'latest' })
+  service.api = {
+    ...apiFixture(),
+    connect: async () => {
+      currentCalls++
+      return { authenticatedUser: me }
+    },
+  }
+  const third = service.updateDataImmediately()
+  const queued = { replacementCalls, currentCalls }
+  waiting.resolve()
+  await Promise.all([first, second, third])
+  assert.deepEqual(queued, { replacementCalls: 0, currentCalls: 0 })
+  assert.equal(oldCalls, 1)
+  assert.equal(replacementCalls, 0)
+  assert.equal(currentCalls, 1)
+  assert.equal(loading.active, 0)
+})
+
+test('refresh cleanup runs after publication throws and unconfigured refreshes do not stop another loader', async () => {
+  const service = new AzureDevOpsService()
+  const before = loading.active
+  await service.updateDataImmediately()
+  assert.equal(loading.active, before)
+  service.setConfiguration(settings)
+  service.api = apiFixture()
+  service.publishData = () => {
+    throw new Error('window closed')
+  }
+  await assert.rejects(service.updateDataImmediately(), /window closed/)
+  assert.equal(loading.active, before)
+  service.publishData = () => {}
+  await service.updateDataImmediately()
+  assert.equal(loading.active, before)
+})
+
+test('polling recovers from failure and stop/restart cannot leave duplicate loops', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const service = new AzureDevOpsService()
+  service.settings = { ...settings, updateInterval: 1 }
+  service.reInitializeApi = () => {}
+  let calls = 0
+  service.updateDataImmediately = async () => {
+    if (++calls === 1) throw new Error('temporary failure')
+  }
+  try {
+    service.start()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 1)
+    t.mock.timers.tick(1000)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 2)
+    service.stop()
+    t.mock.timers.tick(5000)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 2)
+    service.start()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 3)
+    t.mock.timers.tick(1000)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 4)
+  } finally {
+    service.stop()
+  }
+})
+
+test('stopping and restarting during a refresh schedules one subsequent tick', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const service = new AzureDevOpsService()
+  service.settings = { ...settings, updateInterval: 1 }
+  service.reInitializeApi = () => {}
+  const waiting = Promise.withResolvers()
+  let calls = 0
+  service.updateDataImmediately = async () => {
+    calls++
+    await waiting.promise
+  }
+  try {
+    service.start()
+    service.stop()
+    service.start()
+    waiting.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 2)
+    t.mock.timers.tick(1000)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls, 3)
+  } finally {
+    service.stop()
+  }
+})
+
+test('large identity membership batches run concurrently with at most four requests', async () => {
+  const groups = Array.from({ length: 201 }, (_, i) => ({ id: `team-${i}`, descriptor: `team-${i}` }))
+  const api = apiFixture({ memberships: groups.map((group) => group.descriptor), groups })
+  const get = api.rest.get
+  let active = 0
+  let maximum = 0
+  api.rest.get = async (address) => {
+    if (new URL(address).searchParams.has('identityIds')) return get(address)
+    maximum = Math.max(maximum, ++active)
+    await new Promise((resolve) => setImmediate(resolve))
+    active--
+    return get(address)
+  }
+  const teams = await AzureDevOpsService.loadMyTeams(api, settings, me)
+  assert.equal(maximum, 4)
+  assert.deepEqual(
+    teams.map((team) => team.id),
+    groups.map((group) => group.id)
+  )
+})
+
+test('policy enrichment attaches each response without per-result array searches', async () => {
+  const items = Array.from({ length: 1000 }, (_, i) => ({ id: i, details: { projectId: 'project' } }))
+  items.find = () => assert.fail('policy lookup must be linear')
+  const api = apiFixture()
+  api.getPolicyApi = async () => ({ getPolicyEvaluations: async (_project, artifact) => [{ evaluationId: artifact }] })
+  await AzureDevOpsService.enrichPolicyEvaluations(api, settings, { items })
+  assert.equal(items[999].evaluations[0].id, 'vstfs:///CodeReview/CodeReviewId/project/999')
 })

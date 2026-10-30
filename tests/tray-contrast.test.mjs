@@ -4,23 +4,26 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import test from 'node:test'
 import vm from 'node:vm'
 import electron from 'electron'
 import ts from 'typescript'
 
 if (!process.versions.electron) {
-  const userData = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pr-manager-tray-')))
-  let result
-  try {
-    result = spawnSync(electron, [`--user-data-dir=${userData}`, import.meta.filename], {
-      stdio: 'inherit',
-      timeout: 30_000,
-    })
-  } finally {
-    fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-  }
-  if (result.error) console.error(result.error)
-  process.exit(result.status ?? 1)
+  test('native tray and menu contrast survives theme, loading, and profile changes', () => {
+    const userData = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pr-manager-tray-')))
+    let result
+    try {
+      result = spawnSync(electron, [`--user-data-dir=${userData}`, import.meta.filename], {
+        stdio: 'inherit',
+        timeout: 30_000,
+      })
+    } finally {
+      fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    }
+    if (result.error) console.error(result.error)
+    assert.equal(result.status ?? 1, 0, 'Electron tray subprocess must exit successfully')
+  })
 }
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -60,6 +63,7 @@ function loadTray(platform) {
     modules.set(filename, module)
     const requireModule = (specifier) => {
       if (specifier === 'electron') return { ...electron, nativeTheme: theme, Tray: TestTray }
+      if (specifier === 'electron-log/main') return { default: { error: () => undefined } }
       if (specifier.startsWith('@/resources/'))
         return { default: path.join(root, specifier.slice(2).replace('?asset', '')) }
       if (specifier === '../tools/loading.service') return { default: loader }
@@ -204,11 +208,13 @@ async function checkContrast() {
   console.log('PASS: tray/menu contrast, live themes, loading, profiles, active indicator, display scales')
 }
 
-electron.app
-  .whenReady()
-  .then(checkContrast)
-  .then(() => electron.app.quit())
-  .catch((error) => {
-    console.error(error)
-    electron.app.exit(1)
-  })
+if (process.versions.electron) {
+  electron.app
+    .whenReady()
+    .then(checkContrast)
+    .then(() => electron.app.quit())
+    .catch((error) => {
+      console.error(error)
+      electron.app.exit(1)
+    })
+}

@@ -25,6 +25,8 @@ import {
   DataGridRow,
   List,
   ListItem,
+  MessageBar,
+  MessageBarBody,
   Menu,
   MenuDivider,
   MenuItem,
@@ -46,7 +48,7 @@ import {
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
 import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
-import { MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
+import { MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
 
@@ -99,11 +101,13 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
 
       const click = () => {
-        globalThis.api.invoke('web-open-url', item.urls.web)
+        globalThis.api
+          .invoke('web-open-url', item.urls.web)
+          .catch((error) => console.error('Unable to open pull request', error))
       }
 
-      const sourceBranch = normalizeBranchName(item.details.branch);
-      const targetBranch = normalizeBranchName(item.details.targetBranch);
+      const sourceBranch = normalizeBranchName(item.details.branch)
+      const targetBranch = normalizeBranchName(item.details.targetBranch)
 
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
@@ -335,50 +339,70 @@ export default function PrList(props: Readonly<Props>) {
   const [contextMenuPr, setContextMenuPr] = useState<PullRequest | null>(null)
   const [vscodeInstalled, setVscodeInstalled] = useState(false)
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
+  const [actionError, setActionError] = useState('')
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
   const { data, sorting = defaultProfileSorting } = props
-  const compare = sorting?.sortColumn === 'creationDate'
-    ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
-    : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
-  const items = sorting && compare
-    ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
-    : data
+  const items = useMemo(() => {
+    const compare =
+      sorting?.sortColumn === 'creationDate'
+        ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
+        : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
+    return sorting && compare
+      ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
+      : data
+  }, [data, sorting])
 
   useEffect(() => {
     setContextMenuOpen(false)
+    contextMenuRepositoryRef.current = null
+    return () => {
+      contextMenuRepositoryRef.current = null
+    }
   }, [data])
 
   useEffect(() => {
-    async function fetchData() {
-      await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
-        return setTableSize(settings.appearance.tableSize)
+    let active = true
+    let settingsReceived = false
+    const unsubscribe = globalThis.api.receive('settings', (data: SettingsModel) => {
+      settingsReceived = true
+      setTableSize(data.appearance.tableSize)
+    })
+    globalThis.api
+      .invoke('get-settings')
+      .then((settings: SettingsModel) => {
+        if (active && !settingsReceived) setTableSize(settings.appearance.tableSize)
       })
+      .catch((error) => console.error('Unable to load table settings', error))
+    return () => {
+      active = false
+      unsubscribe()
     }
-
-    fetchData()
-  }, [])
+  }, [setTableSize])
 
   useEffect(() => {
-    return globalThis.api.receive('settings', (data: SettingsModel) => {
-      return setTableSize(data.appearance.tableSize)
-    })
+    let active = true
+    globalThis.api
+      .invoke('check-vscode-installed')
+      .then((isInstalled: boolean) => {
+        if (active) setVscodeInstalled(isInstalled)
+      })
+      .catch((error) => console.error('Unable to check VSCode installation', error))
+    return () => {
+      active = false
+    }
   }, [])
 
-  useEffect(() => {
-    globalThis.api.invoke('check-vscode-installed').then((isInstalled: boolean) => {
-      setVscodeInstalled(isInstalled)
-    })
-  }, [])
+  const reportActionError = (error: unknown) => {
+    setActionError(error instanceof Error ? error.message : 'Unable to complete request. Please try again.')
+  }
 
   const closeContextMenu = () => {
     setContextMenuOpen(false)
+    contextMenuRepositoryRef.current = null
   }
 
-  const openContextMenu = async (
-    e: ReactMouseEvent<HTMLElement, MouseEvent>,
-    pr: PullRequest
-  ) => {
+  const openContextMenu = async (e: ReactMouseEvent<HTMLElement, MouseEvent>, pr: PullRequest) => {
     e.preventDefault()
     const target: PositioningVirtualElement = {
       getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
@@ -391,9 +415,13 @@ export default function PrList(props: Readonly<Props>) {
     const requestedRepository = pr.details.repository
     contextMenuRepositoryRef.current = requestedRepository
 
-    const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
-    if (contextMenuRepositoryRef.current === requestedRepository) {
-      setSolutionFiles(Array.isArray(files) ? files : [])
+    try {
+      const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
+      if (contextMenuRepositoryRef.current === requestedRepository) {
+        setSolutionFiles(Array.isArray(files) ? files : [])
+      }
+    } catch (error) {
+      if (contextMenuRepositoryRef.current === requestedRepository) reportActionError(error)
     }
   }
 
@@ -401,7 +429,7 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('approve-prs', [contextMenuPr])
+    globalThis.api.invoke('approve-prs', [contextMenuPr]).catch(reportActionError)
     closeContextMenu()
   }
 
@@ -409,7 +437,7 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('reset-pr-feedback', contextMenuPr)
+    globalThis.api.invoke('reset-pr-feedback', contextMenuPr).catch(reportActionError)
     closeContextMenu()
   }
 
@@ -417,12 +445,12 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('open-in-vscode', contextMenuPr.details.repository)
+    globalThis.api.invoke('open-in-vscode', contextMenuPr.details.repository).catch(reportActionError)
     closeContextMenu()
   }
 
   const openSolutionFile = (solutionFilePath: string) => {
-    globalThis.api.invoke('open-solution-file', solutionFilePath)
+    globalThis.api.invoke('open-solution-file', solutionFilePath).catch(reportActionError)
     closeContextMenu()
   }
 
@@ -438,6 +466,11 @@ export default function PrList(props: Readonly<Props>) {
 
   return (
     <>
+      {actionError && (
+        <MessageBar intent="error" role="alert">
+          <MessageBarBody>{actionError}</MessageBarBody>
+        </MessageBar>
+      )}
       <Menu
         open={contextMenuOpen}
         positioning={{ positioningRef }}

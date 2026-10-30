@@ -29,8 +29,5 @@ export function css(...args: CssArg[]): string {
     }
   }
 
-  return classes
-    .filter(c => c)
-    .join(' ')
-    .trim()
+  return classes.filter(Boolean).join(' ').trim()
 }

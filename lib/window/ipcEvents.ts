@@ -1,4 +1,5 @@
 import { app, type BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import log from 'electron-log/main'
 import { exec } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -75,7 +76,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   handleIPC('web-toggle-fullscreen', () => mainWindow.setFullScreen(!mainWindow.fullScreen))
   handleIPC('web-open-url', (_e, url) => shell.openExternal(url))
 
-  handleIPC('get-settings', async () => {
+  handleIPC('get-settings', () => {
     // Load the settings from the store
     return loadSettings()
   })
@@ -88,7 +89,11 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     const settings = await saveSettings(data)
     NotificationService.getInstance().setSettings(settings.general, settings.profiles)
     AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
-    AzureDevOpsService.getInstance().updateDataImmediately()
+    AzureDevOpsService.getInstance()
+      .updateDataImmediately()
+      .catch((error) => {
+        log.error('Failed to refresh after saving settings', getAzureDevOpsAccessFailure(error).message)
+      })
 
     mainWindow.webContents.send('theme-changed', settings.appearance.theme)
     mainWindow.webContents.send('settings', settings)
@@ -119,11 +124,11 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     }
   )
 
-  handleIPC('get-pr-data', async (_e) => {
+  handleIPC('get-pr-data', (_e) => {
     return AzureDevOpsService.getInstance().getPullRequests()
   })
 
-  handleIPC('update-pr-data', async (_e) => {
+  handleIPC('update-pr-data', (_e) => {
     return AzureDevOpsService.getInstance().updateDataImmediately()
   })
 

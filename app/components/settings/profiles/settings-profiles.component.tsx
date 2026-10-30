@@ -74,6 +74,7 @@ const useStyles = makeStyles({
     columnGap: tokens.spacingHorizontalM,
     rowGap: tokens.spacingVerticalXS,
   },
+  behavior: { border: 0, padding: 0, margin: 0 },
   sortRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
@@ -229,6 +230,7 @@ export default function ProfileSettings() {
   const { state, actions } = useContext(SettingsContext)
   const styles = useStyles()
   const [selectedTab, setSelectedTab] = useState<'general' | 'filter'>('general')
+  const [clipboardError, setClipboardError] = useState('')
 
   const profile = state.profiles.find((p) => p.id === profileId)
   if (!profile) return <NewProfile />
@@ -274,7 +276,7 @@ export default function ProfileSettings() {
               }
             />
           </Field>
-          <div className={styles.options} role="group" aria-label="Profile behavior">
+          <fieldset className={mergeClasses(styles.options, styles.behavior)} aria-label="Profile behavior">
             <Checkbox
               label="Show in profile tabs"
               name="visible"
@@ -308,7 +310,7 @@ export default function ProfileSettings() {
                 })
               }
             />
-          </div>
+          </fieldset>
         </section>
         <section className={styles.section} aria-label="Sorting">
           <div className={styles.sortRow}>
@@ -382,7 +384,14 @@ export default function ProfileSettings() {
             <Button
               size="small"
               appearance="subtle"
-              onClick={() => navigator.clipboard.writeText(profile.filter ?? '')}
+              onClick={async () => {
+                setClipboardError('')
+                try {
+                  await navigator.clipboard.writeText(profile.filter ?? '')
+                } catch {
+                  setClipboardError('Unable to copy filter. Check clipboard access and try again.')
+                }
+              }}
               icon={<CopyRegular />}
             >
               Copy filter
@@ -390,13 +399,14 @@ export default function ProfileSettings() {
             <Button
               size="small"
               appearance="subtle"
-              onClick={() => {
-                navigator.clipboard.readText().then((text) =>
-                  actions.onChangeHandler({
-                    profileId: profile.id,
-                    target: { name: 'filter', value: text },
-                  })
-                )
+              onClick={async () => {
+                setClipboardError('')
+                try {
+                  const text = await navigator.clipboard.readText()
+                  actions.onChangeHandler({ profileId: profile.id, target: { name: 'filter', value: text } })
+                } catch {
+                  setClipboardError('Unable to paste filter. Check clipboard access and try again.')
+                }
               }}
               icon={<ClipboardPasteFilled />}
             >
@@ -404,6 +414,7 @@ export default function ProfileSettings() {
             </Button>
           </div>
         </div>
+        {clipboardError && <span role="alert">{clipboardError}</span>}
         <Field
           validationState={profile.filterValid ? 'success' : 'error'}
           validationMessage={profile.filterValidationMessage}

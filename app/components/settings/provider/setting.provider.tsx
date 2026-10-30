@@ -1,7 +1,7 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
-import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
   AzureDevOpsValidationResult,
@@ -111,14 +111,37 @@ export const SettingProvider = ({ children }: Props) => {
     }
   }, [])
 
+  const cancelValidation = useEffectEvent(() => {
+    validationRequest.current++
+  })
+
   useEffect(() => {
+    let active = true
+    let settingsReceived = false
+    let accessReceived = false
+    const unsubscribeSettings = globalThis.api.receive('settings', (data: SettingsModel) => {
+      settingsReceived = true
+      receiveSettings(data)
+    })
+    const unsubscribeAccess = globalThis.api.receive('pr-data', (data: PullRequestData) => {
+      if (
+        savedConnection.current &&
+        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
+      ) {
+        accessReceived = true
+        setAzDoAccess(data.access)
+      }
+    })
+
     async function fetchData() {
-      await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
-        receiveSettings(settings)
-      })
+      const settings: SettingsModel = await globalThis.api.invoke('get-settings')
+      if (!active) return
+      if (!settingsReceived) receiveSettings(settings)
       const request = validationRequest.current
       const data: PullRequestData = await globalThis.api.invoke('get-pr-data')
       if (
+        active &&
+        !accessReceived &&
         request === validationRequest.current &&
         savedConnection.current &&
         sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
@@ -126,27 +149,16 @@ export const SettingProvider = ({ children }: Props) => {
         setAzDoAccess(data.access)
     }
 
-    fetchData()
-  }, [receiveSettings])
-
-  useEffect(() => {
-    return globalThis.api.receive('settings', (data: SettingsModel) => {
-      receiveSettings(data)
+    fetchData().catch((error) => {
+      if (active) setSaveError(error instanceof Error ? error.message : 'Unable to load settings. Please try again.')
     })
-  }, [receiveSettings])
-
-  useEffect(() => {
-    const receiveAccess = (data: PullRequestData) => {
-      if (
-        savedConnection.current &&
-        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
-      ) {
-        setAzDoAccess(data.access)
-      }
+    return () => {
+      active = false
+      cancelValidation()
+      unsubscribeSettings()
+      unsubscribeAccess()
     }
-    const unsubscribe = globalThis.api.receive('pr-data', receiveAccess)
-    return unsubscribe
-  }, [])
+  }, [receiveSettings])
 
   const value = useMemo<SettingPageProps>(() => {
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import test from 'node:test'
 import ts from 'typescript'
 
 const load = createRequire(import.meta.url)
@@ -65,42 +66,56 @@ pullRequests[7].reviewers.push({
   reviewedBy: [],
 })
 
-const notApproved = reviewerFilter({ isApproved: false })
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, notApproved).map((pr) => pr.id),
-  [1, 2, 3, 8]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, JSON.stringify(notApproved)).map((pr) => pr.id),
-  [1, 2, 3, 8]
-)
-assert.deepEqual(
-  pullRequests.filter((pr) => FilterEvaluator.evaluateProfiles(pr, [notApproved])).map((pr) => pr.id),
-  [1, 2, 3, 8]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({ isApproved: true })).map((pr) => pr.id),
-  [4, 5, 6]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({ user: undefined, isApproved: false })).map((pr) => pr.id),
-  [1, 2, 3, 6, 8]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.NoVote, isApproved: false })).map((pr) => pr.id),
-  [1]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.NoVote })).map((pr) => pr.id),
-  [1]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.Approved })).map((pr) => pr.id),
-  [4, 6]
-)
-assert.deepEqual(
-  FilterEvaluator.evaluate(pullRequests, reviewerFilter({})).map((pr) => pr.id),
-  [1, 2, 3, 4, 5, 6, 8]
-)
+test('unapproved reviewer filters agree for objects, JSON, and profile evaluation', () => {
+  const notApproved = reviewerFilter({ isApproved: false })
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, notApproved).map((pr) => pr.id),
+    [1, 2, 3, 8]
+  )
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, JSON.stringify(notApproved)).map((pr) => pr.id),
+    [1, 2, 3, 8]
+  )
+  assert.deepEqual(
+    pullRequests.filter((pr) => FilterEvaluator.evaluateProfiles(pr, [notApproved])).map((pr) => pr.id),
+    [1, 2, 3, 8]
+  )
+})
 
-console.log('Profile approval filter checks passed')
+test('approved reviewer filters include approvals with suggestions', () => {
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({ isApproved: true })).map((pr) => pr.id),
+    [4, 5, 6]
+  )
+})
+
+test('unapproved reviewer filters can match reviewers other than the current user', () => {
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({ user: undefined, isApproved: false })).map((pr) => pr.id),
+    [1, 2, 3, 6, 8]
+  )
+})
+
+test('explicit votes retain their meaning with and without approval filters', () => {
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.NoVote, isApproved: false })).map(
+      (pr) => pr.id
+    ),
+    [1]
+  )
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.NoVote })).map((pr) => pr.id),
+    [1]
+  )
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({ vote: PrVote.Approved })).map((pr) => pr.id),
+    [4, 6]
+  )
+})
+
+test('empty reviewer filters require a matching current-user reviewer', () => {
+  assert.deepEqual(
+    FilterEvaluator.evaluate(pullRequests, reviewerFilter({})).map((pr) => pr.id),
+    [1, 2, 3, 4, 5, 6, 8]
+  )
+})

@@ -113,7 +113,7 @@ const TitlebarMenuPopupItem = ({ item }: { item: TitlebarMenuItem }) => {
     }
 
     // Invoke the action with the provided parameters
-    globalThis.api.invoke(item.action!, ...(item.actionParams ? item.actionParams : []))
+    globalThis.api.invoke(item.action!, ...(item.actionParams ?? [])).catch(console.error)
   }
 
   if (item.name === '---') {
@@ -166,13 +166,13 @@ const TitlebarControlButton = ({ icon, label }: { icon: Slot<'span'>; label: str
   const handleAction = () => {
     switch (label) {
       case 'minimize':
-        globalThis.api.invoke('window-minimize')
+        globalThis.api.invoke('window-minimize').catch(console.error)
         break
       case 'maximize':
-        globalThis.api.invoke('window-maximize-toggle')
+        globalThis.api.invoke('window-maximize-toggle').catch(console.error)
         break
       case 'close':
-        globalThis.api.invoke('window-close')
+        globalThis.api.invoke('window-close').catch(console.error)
         break
       default:
         console.warn(`Unhandled action for label: ${label}`)

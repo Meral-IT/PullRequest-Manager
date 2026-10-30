@@ -1,31 +1,34 @@
 import electron from 'electron'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { validateSmokeProfilePath, withSmokeProfile } from './smoke-profile-path.mjs'
 
-const userData = process.versions.electron ? process.argv[2] : mkdtempSync(resolve(tmpdir(), 'pr-manager-smoke-'))
 if (!process.versions.electron) {
-  let result
-  try {
-    result = spawnSync(electron, [import.meta.filename, userData], { stdio: 'inherit', timeout: 45_000 })
-  } finally {
-    // Chromium must exit before Windows releases its profile file locks.
-    rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-  }
+  const result = withSmokeProfile((userData) =>
+    spawnSync(electron, [import.meta.filename, userData], { stdio: 'inherit', timeout: 45_000 })
+  )
   if (result.error) console.error(result.error)
   process.exit(result.status ?? 1)
 }
 
 const { app, BrowserWindow, ipcMain } = electron
-app.setPath('userData', userData)
 
 let pendingStep = 'app startup'
 const timeout = setTimeout(() => {
   console.error(`Electron smoke test timed out: ${pendingStep}`)
   app.exit(1)
 }, 35_000)
+
+try {
+  app.setPath('userData', validateSmokeProfilePath(process.argv[2]))
+  app.once('ready', runSmokeTest)
+} catch (error) {
+  clearTimeout(timeout)
+  console.error('Smoke test profile setup failed', error)
+  app.exit(1)
+}
 
 function waitForRenderer(window, condition, description = condition) {
   pendingStep = description
@@ -64,7 +67,7 @@ async function selectProfileTab(window, tab) {
 
 async function checkProfileLayout(window, singleRow = true) {
   await settleLayout(window)
-  const layout = await window.webContents.executeJavaScript(`(() => {
+  const layout = await window.webContents.executeJavaScript(String.raw`(() => {
     const rect = element => {
       const { top, bottom, height } = element.getBoundingClientRect()
       return { top, bottom, height, clientHeight: element.clientHeight }
@@ -87,7 +90,7 @@ async function checkProfileLayout(window, singleRow = true) {
     if (general) {
       const selects = Array.from(panel.querySelectorAll('select'))
       const luminance = color => {
-        const rgb = color.match(/[\\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
+        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
           .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
         return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
       }
@@ -151,8 +154,73 @@ async function capture(window, name) {
   )
 }
 
+async function checkReleaseNotesSanitization(window, errors) {
+  const previousErrorCount = errors.length
+  await window.webContents.executeJavaScript(`
+    const controller = new AbortController()
+    globalThis.smokeReleaseCsp = { violations: [], stop: () => controller.abort() }
+    document.addEventListener('securitypolicyviolation', event => {
+      globalThis.smokeReleaseCsp.violations.push({ directive: event.effectiveDirective, blockedURI: event.blockedURI })
+    }, { signal: controller.signal })
+  `)
+  window.webContents.send('update:update-available', {
+    version: '99.0.0',
+    files: [],
+    releaseDate: '2026-10-30T10:00:00Z',
+    releaseNotes: `<strong data-smoke-release="benign" onmouseover="document.body.dataset.smokeReleaseExecuted = 'yes'">Safe release note</strong>
+      <script>document.body.dataset.smokeReleaseExecuted = 'yes'</script>
+      <a data-smoke-release="unsafe-link" href="javascript:document.body.dataset.smokeReleaseExecuted = 'yes'">Unsafe link</a>`,
+  })
+  await waitForRenderer(window, "!!document.getElementById('release-notes-button')")
+  await window.webContents.executeJavaScript("document.getElementById('release-notes-button').click()")
+  await waitForRenderer(window, "!!document.querySelector('[role=dialog] [data-smoke-release=benign]')")
+  await window.webContents.executeJavaScript(`
+    document.querySelector('[data-smoke-release=benign]').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    document.querySelector('[data-smoke-release=unsafe-link]').click()
+  `)
+  await settleLayout(window)
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`(() => {
+      const dialog = document.querySelector('[role=dialog]')
+      const benign = dialog.querySelector('[data-smoke-release=benign]')
+      return {
+        text: benign.textContent,
+        tag: benign.tagName,
+        script: !!dialog.querySelector('script'),
+        eventHandlers: Array.from(dialog.querySelectorAll('*')).flatMap(element =>
+          element.getAttributeNames().filter(name => /^on/i.test(name))),
+        unsafeHref: dialog.querySelector('[data-smoke-release=unsafe-link]').getAttribute('href'),
+        executed: document.body.dataset.smokeReleaseExecuted ?? null,
+      }
+    })()`),
+    { text: 'Safe release note', tag: 'STRONG', script: false, eventHandlers: [], unsafeHref: null, executed: null }
+  )
+  await capture(window, 'release-notes-sanitized')
+  await window.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('[role=dialog] button')).find(button => button.innerText === 'Close').click()"
+  )
+  await waitForRenderer(window, "!document.querySelector('[role=dialog]')")
+  const violations = await window.webContents.executeJavaScript(`(() => {
+    globalThis.smokeReleaseCsp.stop()
+    const violations = globalThis.smokeReleaseCsp.violations
+    delete globalThis.smokeReleaseCsp
+    return violations
+  })()`)
+  // DOMParser reports blocked inline handlers while DOMPurify parses and removes them.
+  const probeErrors = errors.splice(previousErrorCount)
+  assert.equal(probeErrors.length, violations.length)
+  for (const violation of violations) {
+    assert.deepEqual(violation, { directive: 'script-src-attr', blockedURI: 'inline' })
+  }
+  for (const message of probeErrors) {
+    assert.match(message, /^Executing inline event handler violates the following Content Security Policy directive/)
+  }
+}
+
 async function checkZeroDataLayout(window, allowScroll = false) {
-  await window.webContents.executeJavaScript(`Promise.all(Array.from(document.querySelectorAll('.zerodata img'), image => image.decode()))`)
+  await window.webContents.executeJavaScript(
+    `Promise.all(Array.from(document.querySelectorAll('.zerodata img'), image => image.decode()))`
+  )
   await settleLayout(window)
   const layout = await window.webContents.executeJavaScript(`(() => {
     const root = document.querySelector('.zerodata')
@@ -188,7 +256,8 @@ async function checkZeroDataLayout(window, allowScroll = false) {
   assert.ok(layout.children[0].top >= layout.root.top, details)
   if (allowScroll) {
     assert.ok(layout.scrollHeight > layout.clientHeight, details)
-    assert.equal(await window.webContents.executeJavaScript(`(() => {
+    assert.equal(
+      await window.webContents.executeJavaScript(`(() => {
       const root = document.querySelector('.zerodata')
       const last = root.querySelector('.zero-data-item').lastElementChild
       last.scrollIntoView({ block: 'end' })
@@ -196,7 +265,9 @@ async function checkZeroDataLayout(window, allowScroll = false) {
       const viewport = root.getBoundingClientRect()
       return root.scrollTop > 0 && bounds.bottom <= viewport.bottom + 1 &&
         (bounds.height > root.clientHeight || bounds.top >= viewport.top)
-    })()`), true)
+    })()`),
+      true
+    )
     await settleLayout(window)
   } else {
     assert.ok(layout.scrollHeight <= layout.clientHeight + 1, details)
@@ -338,17 +409,39 @@ async function checkTitlebarMenus(window) {
 async function checkPrSearch(window, settings) {
   const originalProfiles = settings.profiles
   settings.profiles = [
-    { ...originalProfiles[0], enableAcceptAll: true, filter: { op: 'AND', filters: [{ isDraft: false }] },
-      sorting: { sortColumn: 'details', sortDirection: 'ascending' } },
-    { id: 'grace', label: 'Grace', visible: true,
-      filter: { op: 'AND', filters: [{ author: { op: 'AND', filters: [{ label: 'Grace Hopper' }] } }] } },
+    {
+      ...originalProfiles[0],
+      enableAcceptAll: true,
+      filter: { op: 'AND', filters: [{ isDraft: false }] },
+      sorting: { sortColumn: 'details', sortDirection: 'ascending' },
+    },
+    {
+      id: 'grace',
+      label: 'Grace',
+      visible: true,
+      filter: { op: 'AND', filters: [{ author: { op: 'AND', filters: [{ label: 'Grace Hopper' }] } }] },
+    },
   ]
   const pr = (id, title, author, repository, description, isDraft = false) => ({
-    id, author: { id: author, label: author }, isDraft, mergeStatus: 0,
-    creationDate: new Date('2026-10-30T10:00:00Z'), lastUpdated: { label: '', timestamp: 0 },
-    details: { number: id, label: title, repository, repositoryId: 'repo', projectId: 'project',
-      branch: 'feature', targetBranch: 'main', description },
-    reviewers: [], evaluations: [], urls: { web: `https://example.com/pr/${id}` },
+    id,
+    author: { id: author, label: author },
+    isDraft,
+    mergeStatus: 0,
+    creationDate: new Date('2026-10-30T10:00:00Z'),
+    lastUpdated: { label: '', timestamp: 0 },
+    details: {
+      number: id,
+      label: title,
+      repository,
+      repositoryId: 'repo',
+      projectId: 'project',
+      branch: 'feature',
+      targetBranch: 'main',
+      description,
+    },
+    reviewers: [],
+    evaluations: [],
+    urls: { web: `https://example.com/pr/${id}` },
   })
   const prs = [
     pr(2, 'Update dashboard', 'Grace Hopper', 'Portal', 'Improve loading'),
@@ -359,7 +452,8 @@ async function checkPrSearch(window, settings) {
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
   const titleList = `Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent)`
-  const expectTitles = (titles) => waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
+  const expectTitles = (titles) =>
+    waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: [modifier] })
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers: [modifier] })
@@ -373,12 +467,14 @@ async function checkPrSearch(window, settings) {
     })()`)
     await expectTitles(titles)
   }
-  const clickButton = (label) => window.webContents.executeJavaScript(
-    `Array.from(document.querySelectorAll('button, a')).find(button => button.getAttribute('aria-label') === ${JSON.stringify(label)} || button.innerText === ${JSON.stringify(label)}).click()`
-  )
-  const clickTab = (label) => window.webContents.executeJavaScript(
-    `Array.from(document.querySelectorAll('[role="tab"]')).find(tab => tab.textContent.startsWith(${JSON.stringify(label)})).click()`
-  )
+  const clickButton = (label) =>
+    window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('button, a')).find(button => button.getAttribute('aria-label') === ${JSON.stringify(label)} || button.innerText === ${JSON.stringify(label)}).click()`
+    )
+  const clickTab = (label) =>
+    window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('[role="tab"]')).find(tab => tab.textContent.startsWith(${JSON.stringify(label)})).click()`
+    )
   const toggleFilters = () => window.webContents.executeJavaScript(`${filterButton}.click()`)
   const escape = async () => {
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
@@ -395,25 +491,55 @@ async function checkPrSearch(window, settings) {
   }
   const choose = async (label, text, titles, occurrence = 0) => {
     await openDropdown(label)
-    await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).filter(option => option.textContent === ${JSON.stringify(text)})[${occurrence}].click()`)
+    await window.webContents.executeJavaScript(
+      `Array.from(${visibleOptions}).filter(option => option.textContent === ${JSON.stringify(text)})[${occurrence}].click()`
+    )
     await expectTitles(titles)
   }
   const approvals = []
   const openedUrls = []
-  ipcMain.handle('approve-prs', (_event, items) => { approvals.push(items.map(item => item.id)) })
-  ipcMain.handle('web-open-url', (_event, url) => { openedUrls.push(url) })
+  ipcMain.handle('approve-prs', (_event, items) => {
+    approvals.push(items.map((item) => item.id))
+  })
+  ipcMain.handle('web-open-url', (_event, url) => {
+    openedUrls.push(url)
+  })
   ipcMain.handle('find-solution-files', () => [])
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
-  assert.equal(await window.webContents.executeJavaScript(`!!${filterButton}`), true, 'The funnel toggles the filter line')
+  assert.equal(
+    await window.webContents.executeJavaScript(`!!${filterButton}`),
+    true,
+    'The funnel toggles the filter line'
+  )
 
   await shortcut()
-  assert.equal(await window.webContents.executeJavaScript("!!document.querySelector('#pr-filter-line [role=status]')"), false, 'The bar does not display a matching count')
-  assert.equal(await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('#pr-filter-line button')).some(button => button.innerText === 'Clear')"), false, 'Reset actions use icons')
+  assert.equal(
+    await window.webContents.executeJavaScript("!!document.querySelector('#pr-filter-line [role=status]')"),
+    false,
+    'The bar does not display a matching count'
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('#pr-filter-line button')).some(button => button.innerText === 'Clear')"
+    ),
+    false,
+    'Reset actions use icons'
+  )
   assert.equal(await window.webContents.executeJavaScript(`${input}.placeholder`), 'Filter by keyword')
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), 'Created by')
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), 'Target branch')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    'Created by'
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    'Target branch'
+  )
   await capture(window, 'pr-filters-empty')
   const searchLayout = await window.webContents.executeJavaScript(`(() => {
     const input = ${input}
@@ -429,15 +555,26 @@ async function checkPrSearch(window, settings) {
   await search('hopper', ['Update dashboard'])
   await search('INVOICE', ['Fix invoice rounding'])
   await search('final paragraph', ['Fix invoice rounding'])
-  assert.match(await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('All')).textContent"), /All\s*2/)
+  assert.match(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('All')).textContent"
+    ),
+    /All\s*2/
+  )
   await shortcut(process.platform === 'darwin' ? 'meta' : 'control')
-  assert.equal(await window.webContents.executeJavaScript(`${input}.selectionEnd - ${input}.selectionStart`), 'final paragraph'.length)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}.selectionEnd - ${input}.selectionStart`),
+    'final paragraph'.length
+  )
   await settleLayout(window)
   await capture(window, 'pr-search')
   await toggleFilters()
   await waitForRenderer(window, `!${input}`)
   await expectTitles(['Fix invoice rounding'])
-  assert.equal(await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-label')`), 'Filters (active)')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-label')`),
+    'Filters (active)'
+  )
 
   await toggleFilters()
   await waitForRenderer(window, `!!${input}`)
@@ -446,45 +583,85 @@ async function checkPrSearch(window, settings) {
   await waitForRenderer(window, "document.body.innerText.includes('No pull requests match your filters')")
   await clickButton('Clear search')
   await expectTitles(allTitles)
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), '', 'Clear resets the query without closing search')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    '',
+    'Clear resets the query without closing search'
+  )
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${input}`), true)
 
   await shortcut()
   await search('invoice', ['Fix invoice rounding'])
   await escape()
   await expectTitles(allTitles)
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), '', 'Escape clears without hiding the line')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    '',
+    'Escape clears without hiding the line'
+  )
 
   await shortcut()
   await search('invoice', ['Fix invoice rounding'])
   await window.webContents.executeJavaScript("document.querySelector('.scrollable-content').click()")
   await expectTitles(['Fix invoice rounding'])
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice', 'Outside clicks preserve search')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    'invoice',
+    'Outside clicks preserve search'
+  )
   await window.webContents.executeJavaScript("document.querySelector('.pr-title').click()")
   assert.deepEqual(openedUrls, ['https://example.com/pr/1'])
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice', 'Opening a PR preserves search')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    'invoice',
+    'Opening a PR preserves search'
+  )
 
-  await window.webContents.executeJavaScript("document.querySelector('.pr-title').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))")
-  await waitForRenderer(window, "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent === 'Approve')")
+  await window.webContents.executeJavaScript(
+    "document.querySelector('.pr-title').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))"
+  )
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent === 'Approve')"
+  )
   await shortcut()
   await search('hopper', ['Update dashboard'])
-  await waitForRenderer(window, "!Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent === 'Approve')")
+  await waitForRenderer(
+    window,
+    "!Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent === 'Approve')"
+  )
 
   await shortcut()
   await search('invoice', ['Fix invoice rounding'])
   await clickTab('Grace')
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice', 'Switching profiles preserves the expanded filter line and query')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    'invoice',
+    'Switching profiles preserves the expanded filter line and query'
+  )
   await expectTitles([])
   await waitForRenderer(window, "document.body.innerText.includes('No pull requests match your filters')")
-  assert.match(await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('Grace')).textContent"), /Grace\s*1/)
+  assert.match(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('Grace')).textContent"
+    ),
+    /Grace\s*1/
+  )
   await clickTab('All')
   await expectTitles(['Fix invoice rounding'])
   await toggleFilters()
   await waitForRenderer(window, `!${input}`)
   await clickTab('Grace')
   await expectTitles([])
-  assert.equal(await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-expanded')`), 'false', 'Hidden filters stay hidden across profiles')
-  assert.equal(await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-label')`), 'Filters (active)')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-expanded')`),
+    'false',
+    'Hidden filters stay hidden across profiles'
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-label')`),
+    'Filters (active)'
+  )
   await clickTab('All')
   await expectTitles(['Fix invoice rounding'])
   await shortcut()
@@ -503,14 +680,27 @@ async function checkPrSearch(window, settings) {
   })()`)
   window.webContents.sendInputEvent({ type: 'mouseDown', button: 'right', ...point })
   window.webContents.sendInputEvent({ type: 'mouseUp', button: 'right', ...point })
-  await waitForRenderer(window, "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))")
-  await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()")
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))"
+  )
+  await window.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()"
+  )
   assert.deepEqual(approvals, [[1]])
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice', 'Approving matches preserves search')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    'invoice',
+    'Approving matches preserves search'
+  )
 
   await clickTab('All')
   await settleLayout(window)
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice', 'Clicking the selected profile preserves filters')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    'invoice',
+    'Clicking the selected profile preserves filters'
+  )
   await shortcut()
   await search('invoice', ['Fix invoice rounding'])
   await window.webContents.executeJavaScript(`(() => {
@@ -518,8 +708,13 @@ async function checkPrSearch(window, settings) {
     tab.focus()
     tab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
   })()`)
-  await waitForRenderer(window, "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))")
-  await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()")
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))"
+  )
+  await window.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()"
+  )
   assert.deepEqual(approvals, [[1], [1]], 'Keyboard menus use the current search, not an earlier tab click')
 
   await escape()
@@ -530,17 +725,26 @@ async function checkPrSearch(window, settings) {
   adaDevelop.details.targetBranch = 'develop'
   prs[1].details.targetBranch = 'refs/heads/main'
   const extended = [...prs, otherAda, adaDevelop]
-  const extendedTitles = ['Fix invoice rounding', 'Improve invoice validation', 'Rework invoice formatting', 'Update dashboard']
+  const extendedTitles = [
+    'Fix invoice rounding',
+    'Improve invoice validation',
+    'Rework invoice formatting',
+    'Update dashboard',
+  ]
   window.webContents.send('pr-data', { items: extended, error: null })
   await expectTitles(extendedTitles)
   await openDropdown('Created by')
-  assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
-    ['All authors', 'Ada Lovelace', 'Ada Lovelace', 'Grace Hopper'])
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
+    ['All authors', 'Ada Lovelace', 'Ada Lovelace', 'Grace Hopper']
+  )
   await escape()
   await choose('Created by', 'Ada Lovelace', ['Fix invoice rounding', 'Rework invoice formatting'])
   await openDropdown('Target branch')
-  assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
-    ['All target branches', 'develop', 'main'])
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
+    ['All target branches', 'develop', 'main']
+  )
   await escape()
   await expectTitles(extendedTitles)
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${input}`), true)
@@ -567,13 +771,27 @@ async function checkPrSearch(window, settings) {
   await settleLayout(window)
   await clickButton('Clear search')
   await expectTitles(['Fix invoice rounding'])
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), /Ada Lovelace/)
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), 'main')
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    /Ada Lovelace/
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    'main'
+  )
   await clickButton('Clear created by')
   await expectTitles(['Fix invoice rounding', 'Update dashboard'])
   await clickButton('Clear target branch')
   await expectTitles(extendedTitles)
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), '', 'Individual reset icons keep the bar open')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    '',
+    'Individual reset icons keep the bar open'
+  )
   await choose('Created by', 'Ada Lovelace', ['Fix invoice rounding', 'Rework invoice formatting'])
   await choose('Target branch', 'main', ['Fix invoice rounding'])
   await search('invoice', ['Fix invoice rounding'])
@@ -582,8 +800,18 @@ async function checkPrSearch(window, settings) {
   await expectTitles(['Fix invoice rounding'])
   await shortcut()
   assert.equal(await window.webContents.executeJavaScript(`${input}.value`), 'invoice')
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), /Ada Lovelace/)
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), /main/)
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    /Ada Lovelace/
+  )
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    /main/
+  )
   await toggleFilters()
   await waitForRenderer(window, `!${input}`)
   await escape()
@@ -601,26 +829,57 @@ async function checkPrSearch(window, settings) {
   await expectTitles(extendedTitles)
   await waitForRenderer(window, `!${input}`)
   assert.equal(await window.webContents.executeJavaScript(`${filterButton}.getAttribute('aria-label')`), 'Filters')
-  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${filterButton}`), true, 'Closing the bar returns focus to its toggle')
+  assert.equal(
+    await window.webContents.executeJavaScript(`document.activeElement === ${filterButton}`),
+    true,
+    'Closing the bar returns focus to its toggle'
+  )
   await shortcut()
   assert.equal(await window.webContents.executeJavaScript(`${input}.value`), '')
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), 'Created by')
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), 'Target branch')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    'Created by'
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    'Target branch'
+  )
 
   await choose('Created by', 'Ada Lovelace', ['Fix invoice rounding', 'Rework invoice formatting'])
   await choose('Target branch', 'main', ['Fix invoice rounding'])
   window.webContents.sendInputEvent({ type: 'mouseDown', button: 'right', ...point })
   window.webContents.sendInputEvent({ type: 'mouseUp', button: 'right', ...point })
-  await waitForRenderer(window, "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))")
-  await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()")
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))"
+  )
+  await window.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()"
+  )
   assert.deepEqual(approvals, [[1], [1], [1]], 'Bulk approval combines author and branch filters')
   window.webContents.send('pr-data', { items: [otherAda], error: null })
   await expectTitles([])
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), /Ada Lovelace/)
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), /main/)
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    /Ada Lovelace/
+  )
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    /main/
+  )
   await openDropdown('Target branch')
-  assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
-    ['All target branches', 'develop', 'main'])
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
+    ['All target branches', 'develop', 'main']
+  )
   await escape()
   await expectTitles(['Improve invoice validation'])
 
@@ -632,21 +891,43 @@ async function checkPrSearch(window, settings) {
   await clickTab('Grace')
   await expectTitles([])
   assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), 'invoice')
-  assert.match(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Created by\"]').textContent"), /Ada Lovelace/)
-  assert.equal(await window.webContents.executeJavaScript("document.querySelector('[role=combobox][aria-label=\"Target branch\"]').textContent"), 'main')
+  assert.match(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Created by"]\').textContent'
+    ),
+    /Ada Lovelace/
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'[role=combobox][aria-label="Target branch"]\').textContent'
+    ),
+    'main'
+  )
   window.webContents.sendInputEvent({ type: 'mouseDown', button: 'right', ...point })
   window.webContents.sendInputEvent({ type: 'mouseUp', button: 'right', ...point })
-  await waitForRenderer(window, "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))")
-  await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()")
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('[role=menuitem]')).some(item => item.textContent.includes('Approve all'))"
+  )
+  await window.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all')).click()"
+  )
   assert.deepEqual(approvals, [[1], [1], [1], [1]], 'Shared filters also scope approvals on an inactive profile tab')
   await openDropdown('Created by')
-  assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
-    ['All authors', 'Ada Lovelace', 'Grace Hopper'], 'The selected author remains available on a profile without matching PRs')
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`Array.from(${visibleOptions}).map(option => option.textContent)`),
+    ['All authors', 'Ada Lovelace', 'Grace Hopper'],
+    'The selected author remains available on a profile without matching PRs'
+  )
   await escape()
   await expectTitles(['Update dashboard'])
   await clickTab('All')
   await expectTitles(extendedTitles)
-  assert.equal(await window.webContents.executeJavaScript(`${input}?.value`), '', 'Clearing filters applies across profiles without collapsing the line')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}?.value`),
+    '',
+    'Clearing filters applies across profiles without collapsing the line'
+  )
 
   settings.profiles = originalProfiles
   window.webContents.send('settings', settings)
@@ -654,7 +935,7 @@ async function checkPrSearch(window, settings) {
   await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
 }
 
-app.whenReady().then(async () => {
+async function runSmokeTest() {
   let exitCode = 0
   const errors = []
   try {
@@ -793,7 +1074,12 @@ app.whenReady().then(async () => {
     await checkTitlebarLayout(window, windowPlatform, 900)
 
     const emptyLayouts = []
-    for (const [width, height] of [[900, 670], [900, 350], [360, 450], [900, 670]]) {
+    for (const [width, height] of [
+      [900, 670],
+      [900, 350],
+      [360, 450],
+      [900, 670],
+    ]) {
       window.setContentSize(width, height)
       emptyLayouts.push(await checkZeroDataLayout(window))
       await capture(window, `zero-data-${width}x${height}`)
@@ -806,7 +1092,10 @@ app.whenReady().then(async () => {
     )
     window.webContents.send('theme-changed', 'dark')
     await settleLayout(window)
-    await waitForRenderer(window, `getComputedStyle(document.querySelector('.fui-FluentProvider')).backgroundColor !== ${JSON.stringify(emptyLightBackground)}`)
+    await waitForRenderer(
+      window,
+      `getComputedStyle(document.querySelector('.fui-FluentProvider')).backgroundColor !== ${JSON.stringify(emptyLightBackground)}`
+    )
     await checkZeroDataLayout(window)
     await capture(window, 'zero-data-dark')
     window.setContentSize(360, 450)
@@ -825,22 +1114,37 @@ app.whenReady().then(async () => {
         actionHref: '/settings/azure-devops',
       }
       window.webContents.send('pr-data', { items: [], error })
-      await waitForRenderer(window, `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`)
+      await waitForRenderer(
+        window,
+        `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`
+      )
       await checkZeroDataLayout(window)
       await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
-      await waitForRenderer(window, "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')")
+      await waitForRenderer(
+        window,
+        "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+      )
       await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
-      await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+      await waitForRenderer(
+        window,
+        "document.body.innerText.includes('Currently, no pull requests need your attention')"
+      )
     }
 
-    window.webContents.send('pr-data', { items: [], error: {
-      type: 'Unknown',
-      message: 'Unable to load pull requests',
-      details: 'Request failed: ' + 'a'.repeat(1200),
-      actionText: 'Azure DevOps Settings',
-      actionHref: '/settings/azure-devops',
-    } })
-    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'Unable to load pull requests'")
+    window.webContents.send('pr-data', {
+      items: [],
+      error: {
+        type: 'Unknown',
+        message: 'Unable to load pull requests',
+        details: 'Request failed: ' + 'a'.repeat(1200),
+        actionText: 'Azure DevOps Settings',
+        actionHref: '/settings/azure-devops',
+      },
+    })
+    await waitForRenderer(
+      window,
+      "document.querySelector('.zerodata .primary')?.textContent === 'Unable to load pull requests'"
+    )
     window.setContentSize(360, 450)
     window.webContents.setZoomFactor(2)
     assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('.zerodata img').length"), 0)
@@ -964,9 +1268,13 @@ app.whenReady().then(async () => {
       window,
       '!!document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\')'
     )
-    assert.equal(await window.webContents.executeJavaScript(
-      "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }))"
-    ), true, 'The PR search shortcut is removed when navigating to settings')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true }))"
+      ),
+      true,
+      'The PR search shortcut is removed when navigating to settings'
+    )
     await checkProfileLayout(window)
     assert.deepEqual(
       await window.webContents.executeJavaScript(`
@@ -1030,6 +1338,28 @@ app.whenReady().then(async () => {
       navigator.clipboard.readText = async () => ${JSON.stringify(text)}
       Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
     `)
+    await window.webContents.executeJavaScript(
+      'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
+    )
+    const editorKey = (keyCode, modifiers = []) => {
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+    }
+    editorKey('A', [process.platform === 'darwin' ? 'meta' : 'control'])
+    await window.webContents.insertText('{"fi')
+    editorKey('Space', ['control'])
+    await waitForRenderer(
+      window,
+      "Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).some(row => row.textContent.includes('filters'))",
+      'Monaco JSON schema completion'
+    )
+    editorKey('Enter')
+    await waitForRenderer(
+      window,
+      "document.querySelector('.monaco-editor .view-lines').textContent.includes('filters')",
+      'Monaco inserts the selected schema completion'
+    )
+    editorKey('Escape')
     await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
     await waitForRenderer(
       window,
@@ -1178,10 +1508,25 @@ app.whenReady().then(async () => {
         page
       )
     }
+    await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/builtin:all'; void 0")
+    await waitForRenderer(
+      window,
+      '!!document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\')'
+    )
+    await selectProfileTab(window, 'filter')
+    assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('.monaco-editor').length"), 1)
+    await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
+    await waitForRenderer(window, "!!document.querySelector('.squiggly-error')", 'remounted Monaco JSON diagnostics')
+    await pasteFilter('{"op":"AND","filters":[]}')
+    await waitForRenderer(
+      window,
+      "document.body.innerText.includes('Filter is valid.') && !document.querySelector('.squiggly-error')"
+    )
+    await checkReleaseNotesSanitization(window, errors)
     assert.deepEqual(errors, [])
     window.destroy()
     console.log(
-      'Electron smoke test passed: PR search, approval scope, renderer, empty and error layouts, title menus, sandboxed IPC, profile layout, themes, zoom, creation, and filter validation'
+      'Electron smoke test passed: PR search, approval scope, renderer, empty and error layouts, title menus, sandboxed IPC, profile layout, themes, zoom, creation, filter validation and completion, editor remount, and release-note sanitization'
     )
   } catch (error) {
     console.error('Smoke test step:', pendingStep, error, errors)
@@ -1190,4 +1535,4 @@ app.whenReady().then(async () => {
     clearTimeout(timeout)
     app.exit(exitCode)
   }
-})
+}

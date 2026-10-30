@@ -35,7 +35,7 @@ interface Props {
   onChange: (value: string) => void
 }
 
-export default function FilterEditor({ profileId, value, theme, className, onChange }: Props) {
+export default function FilterEditor({ profileId, value, theme, className, onChange }: Readonly<Props>) {
   const container = useRef<HTMLDivElement>(null)
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const onContentChange = useEffectEvent(onChange)

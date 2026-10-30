@@ -38,7 +38,9 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "build": "npm run typecheck && electron-vite build",
-    "test": "tsc -p tsconfig.test.json && node --test temp/tests/tests/*.test.js tests/*.test.mjs && node tests/electron-smoke.mjs"
+    "test": "tsc -p tsconfig.test.json && node --test temp/tests/tests/*.test.js tests/*.test.mjs && node tests/electron-smoke.mjs",
+    "profile:build": "electron-vite build --config electron.profile.config.mts && electron-builder --dir --config electron-builder.profile.yml",
+    "profile:run": "node scripts/profile/run.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -78,6 +80,11 @@
   "engines": {
     "node": ">=24.16.0",
     "npm": ">=11"
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "$dompurify"
+    }
   },
   "allowScripts": {
     "@parcel/watcher@2.6.0": true,
