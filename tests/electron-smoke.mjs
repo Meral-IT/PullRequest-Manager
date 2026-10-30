@@ -235,13 +235,11 @@ async function checkPrSearch(window, settings) {
   })()`)
   assert.equal(searchLayout.inline, true, 'Search belongs inline above the PR rows')
   assert.ok(searchLayout.inputBottom <= searchLayout.rowsTop, JSON.stringify(searchLayout))
-  for (const [query, titles] of [
-    [' PAYMENTS ', ['Fix invoice rounding']], ['hopper', ['Update dashboard']],
-    ['INVOICE', ['Fix invoice rounding']], ['final paragraph', ['Fix invoice rounding']],
-  ]) {
-    await search(query, titles)
-    assert.match(await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('All')).textContent"), /All\s*2/)
-  }
+  await search(' PAYMENTS ', ['Fix invoice rounding'])
+  await search('hopper', ['Update dashboard'])
+  await search('INVOICE', ['Fix invoice rounding'])
+  await search('final paragraph', ['Fix invoice rounding'])
+  assert.match(await window.webContents.executeJavaScript("Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('All')).textContent"), /All\s*2/)
   await shortcut(process.platform === 'darwin' ? 'meta' : 'control')
   assert.equal(await window.webContents.executeJavaScript(`${input}.selectionEnd - ${input}.selectionStart`), 'final paragraph'.length)
   await settleLayout(window)
