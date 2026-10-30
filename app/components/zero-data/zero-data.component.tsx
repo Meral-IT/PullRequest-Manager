@@ -53,11 +53,11 @@ function ZeroDataItem({ item, multiple }: Readonly<{ item: IZeroDataItem; multip
   const { imagePath, imageAltText, primaryText, secondaryText } = item
 
   return (
-    <div className={css('zero-data', multiple ? 'multiple' : 'single', 'flex-row justify-center')}>
-      <div className="flex-column flex-center zero-data-item">
-        <Image className="image" src={imagePath} alt={imageAltText} />
-        <Title1 className="primary margin-horizontal-16">{primaryText}</Title1>
-        <Body1 className="secondary margin-horizontal-16">{secondaryText}</Body1>
+    <div className={css('zero-data', multiple ? 'multiple' : 'single')}>
+      <div className="zero-data-item">
+        {imagePath && <Image className="image" src={imagePath} alt={imageAltText ?? ''} />}
+        {primaryText && <Title1 className="primary">{primaryText}</Title1>}
+        {secondaryText && <Body1 className="secondary">{secondaryText}</Body1>}
         <RenderAction {...item} />
       </div>
     </div>
@@ -76,7 +76,7 @@ function ZeroDataMultiple({ items, className }: IZeroDataMultipleProps) {
   return React.createElement(
     'div',
     {
-      className: css('zerodata flex-row justify-center', multiple ? 'multiple' : 'single', className),
+      className: css('zerodata', multiple ? 'multiple' : 'single', className),
     },
     items.map((item) => {
       return (

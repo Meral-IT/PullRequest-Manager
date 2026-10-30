@@ -1,38 +1,55 @@
-.flex-row {
+.zerodata {
   display: flex;
-  flex-direction: row;
-}
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 16px;
+  overflow: auto;
 
-.flex-column {
-  display: flex;
-  flex-direction: column;
-}
+  .zero-data {
+    display: flex;
+    justify-content: center;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
 
-.zero-data {
-  flex-wrap: wrap;
+  .zero-data-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    max-height: 100%;
+    min-width: 0;
+    margin-block: auto;
+    text-align: center;
+    overflow-wrap: anywhere;
 
-  .image,
+    > * {
+      flex-shrink: 0;
+      max-width: 100%;
+    }
+  }
+
+  .zero-data.single .zero-data-item {
+    max-width: 520px;
+  }
+
   .primary,
   .secondary {
-    margin-bottom: 15px;
-    max-width: 100%;
+    text-align: center;
   }
 
-  .margin-horizontal-16 {
-    margin-left: 16px;
-    margin-right: 16px;
+  .image {
+    flex-shrink: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: 320px;
+    max-height: 240px;
+    object-fit: contain;
   }
-}
-
-.justify-center {
-  justify-content: center;
-}
-
-.zero-data.single .zero-data-item {
-  max-width: 520px;
-  min-width: 10px;
-}
-
-.flex-center {
-  align-items: center;
 }
