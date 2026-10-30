@@ -353,14 +353,16 @@ app.whenReady().then(async () => {
 
     await checkTitlebarLayout(window, 'darwin', 900)
     finishWindowInit()
-    for (const platform of ['darwin', 'win32', process.platform]) {
+    async function checkPlatform(platform) {
       windowPlatform = platform
       await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
       await waitForRenderer(
         window,
         `document.querySelector('.window-titlebar').dataset.platform === ${JSON.stringify(platform)}`
       )
-      for (const width of [900, 640, 480]) await checkTitlebarLayout(window, platform, width)
+      await checkTitlebarLayout(window, platform, 900)
+      await checkTitlebarLayout(window, platform, 640)
+      await checkTitlebarLayout(window, platform, 480)
       await capture(window, `title-menu-${platform}-narrow`)
       window.webContents.send('loading', { isLoading: true })
       await waitForRenderer(window, '!!document.querySelector(".window-titlebar .fui-Spinner")')
@@ -385,6 +387,9 @@ app.whenReady().then(async () => {
       window.webContents.send('loading', { isLoading: false })
       await waitForRenderer(window, '!document.querySelector(".window-titlebar .fui-Spinner")')
     }
+    await checkPlatform('darwin')
+    await checkPlatform('win32')
+    await checkPlatform(process.platform)
     await checkTitlebarLayout(window, windowPlatform, 480)
     await checkTitlebarMenus(window)
     assert.deepEqual(menuActions, ['web-actual-size'])
