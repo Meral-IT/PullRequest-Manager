@@ -2,13 +2,12 @@ import { FluentProvider, webDarkTheme, webLightTheme } from '@fluentui/react-com
 import { ReactNode, useEffect, useState } from 'react'
 import UpdateNotification from '../update-notification/update-notification.component'
 
-const shouldUseDarkColors = (): boolean =>
-  globalThis.matchMedia && globalThis.matchMedia('(prefers-color-scheme: dark)').matches
+const shouldUseDarkColors = (): boolean => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
 
-const getTheme = (name: string) => {
+const getTheme = (name: string, systemDark: boolean) => {
   switch (name) {
     case 'system':
-      return shouldUseDarkColors() ? webDarkTheme : webLightTheme
+      return systemDark ? webDarkTheme : webLightTheme
     case 'light':
       return webLightTheme
     case 'dark':
@@ -25,25 +24,33 @@ interface Props {
 function Layout({ children }: Readonly<Props>) {
   const [theme, setTheme] = useState<string>('system')
 
-  useEffect(() => {
-    return globalThis.api.receive('nativeThemeChanged', () => {
-      if (theme === 'system') {
-        setTheme(shouldUseDarkColors() ? 'dark' : 'light')
-      }
-    })
-  }, [])
+  const [systemDark, setSystemDark] = useState(shouldUseDarkColors)
 
   useEffect(() => {
-    globalThis.api.invoke('get-theme').then((theme) => {
+    let active = true
+    let themeReceived = false
+    const unsubscribeNative = globalThis.api.receive('nativeThemeChanged', () => {
+      setSystemDark(shouldUseDarkColors())
+    })
+    const unsubscribeTheme = globalThis.api.receive('theme-changed', (theme: string) => {
+      themeReceived = true
       setTheme(theme)
     })
+    globalThis.api
+      .invoke('get-theme')
+      .then((theme) => {
+        if (active && !themeReceived) setTheme(theme)
+      })
+      .catch((error) => console.error('Unable to load theme', error))
 
-    globalThis.api.receive('theme-changed', (theme: string) => {
-      setTheme(theme)
-    })
+    return () => {
+      active = false
+      unsubscribeNative()
+      unsubscribeTheme()
+    }
   }, [])
 
-  const fluentTheme = getTheme(theme)
+  const fluentTheme = getTheme(theme, systemDark)
 
   return (
     <FluentProvider theme={fluentTheme} style={{ height: '100vh' }}>

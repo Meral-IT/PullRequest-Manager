@@ -1,7 +1,5 @@
 export type Task<T> = () => Promise<T>
 
-const notSettled = Symbol(`not-settled`)
-
 export const throttleAll = <T>(limit: number, tasks: Task<T>[]): Promise<T[]> => {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new TypeError(`Expected \`limit\` to be a finite number > 0, got \`${limit}\` (${typeof limit})`)
@@ -12,32 +10,28 @@ export const throttleAll = <T>(limit: number, tasks: Task<T>[]): Promise<T[]> =>
   }
 
   return new Promise<T[]>((resolve, reject) => {
-    const result: (T | symbol)[] = new Array(tasks.length).fill(notSettled)
-
-    const entries = tasks.entries()
-
+    const result: T[] = new Array(tasks.length)
+    let index = 0
+    let remaining = tasks.length
+    let failed = false
+    if (remaining === 0) resolve(result)
     const next = () => {
-      const { done, value } = entries.next()
-
-      if (done) {
-        const isLast = !result.includes(notSettled)
-
-        if (isLast) resolve(result as T[])
-
-        return
-      }
-
-      const [index, task] = value
-
-      const onFulfilled = (x: T) => {
-        result[index] = x
-        next()
-      }
-
-      task().then(onFulfilled, reject)
+      if (failed || index === tasks.length) return
+      const current = index++
+      Promise.resolve()
+        .then(tasks[current])
+        .then(
+          (value) => {
+            result[current] = value
+            if (--remaining === 0) resolve(result)
+            else next()
+          },
+          (error) => {
+            failed = true
+            reject(error)
+          }
+        )
     }
-
-    // Run next() `limit` times
-    new Array(limit).fill(0).forEach(next)
+    for (let worker = 0; worker < Math.min(limit, tasks.length); worker++) next()
   })
 }

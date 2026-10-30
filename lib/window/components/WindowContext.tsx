@@ -43,13 +43,21 @@ export const WindowContextProvider = ({ children, titlebar }: WindowContextProvi
   titlebar = { ...defaultTitlebar, ...titlebar }
 
   useEffect(() => {
-    // Load window init props
-    globalThis.api.invoke('init-window').then((value: WindowInitProps) => setInitProps(value))
+    let active = true
+    globalThis.api
+      .invoke('init-window')
+      .then((value: WindowInitProps) => {
+        if (active) setInitProps(value)
+      })
+      .catch((error) => console.error('Unable to load window properties', error))
 
     // Add class to parent element
     const parent = document.querySelector('.window-content')?.parentElement
     if (parent) {
       parent.classList.add('window-frame')
+    }
+    return () => {
+      active = false
     }
   }, [])
 

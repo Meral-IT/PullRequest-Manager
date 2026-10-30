@@ -62,10 +62,13 @@ export function createAppWindow(): BrowserWindow {
   registerWindowIPC(mainWindow)
 
   mainWindow.on('ready-to-show', async () => {
-    await createTrayIcon(mainWindow)
-    initializeAzureDevOps()
-
-    await PullRequestUpdateManager.getInstance().checkForUpdates()
+    try {
+      await createTrayIcon(mainWindow)
+      await initializeAzureDevOps()
+      await PullRequestUpdateManager.getInstance().checkForUpdates()
+    } catch (error) {
+      log.error('Failed to initialize the application', error)
+    }
   })
 
   // Hide the window instead of closing it, so it can be reopened quickly
@@ -75,16 +78,18 @@ export function createAppWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    shell.openExternal(details.url).catch((error) => log.error('Failed to open link', error))
     return { action: 'deny' }
   })
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']).catch((error) => log.error('Failed to load window', error))
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow
+      .loadFile(join(__dirname, '../renderer/index.html'))
+      .catch((error) => log.error('Failed to load window', error))
   }
   return mainWindow
 }

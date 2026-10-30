@@ -23,7 +23,7 @@ import {
 import { DismissFilled } from '@fluentui/react-icons'
 import DomPurify from 'dompurify'
 import { ProgressInfo, UpdateInfo } from 'electron-updater'
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import './update-notification.component.scss'
 
 function UpdateNotification() {
@@ -37,10 +37,18 @@ function UpdateNotification() {
   const installUpdate = () => {
     dismissToast(updateAvailableToastId)
     createDownloadingUpdateToast({ bytesPerSecond: 0, percent: 0, total: 0, delta: 0, transferred: 0 })
-    globalThis.api.invoke('update:install-update')
+    return globalThis.api.invoke('update:install-update').catch(() => {
+      dismissToast(downloadProgressToastId)
+      dispatchToast(
+        <Toast>
+          <ToastTitle>Unable to install update. Please try again.</ToastTitle>
+        </Toast>,
+        { intent: 'error' }
+      )
+    })
   }
 
-  const updateNotify = () => {
+  const updateNotify = useEffectEvent(() => {
     dispatchToast(
       <Toast>
         <ToastTitle
@@ -65,7 +73,7 @@ function UpdateNotification() {
       </Toast>,
       { toastId: updateAvailableToastId, intent: 'info', timeout: -1 }
     )
-  }
+  })
 
   const createDownloadingUpdateToast = (info: ProgressInfo) =>
     dispatchToast(
@@ -79,7 +87,7 @@ function UpdateNotification() {
       { toastId: downloadProgressToastId, intent: 'info', timeout: -1 }
     )
 
-  const updateDownloadingUpdateToast = (info: ProgressInfo) =>
+  const updateDownloadingUpdateToast = useEffectEvent((info: ProgressInfo) =>
     updateToast({
       content: (
         <Toast>
@@ -94,6 +102,7 @@ function UpdateNotification() {
       toastId: downloadProgressToastId,
       timeout: -1,
     })
+  )
 
   const releaseNotesItem = (version: string, note?: string | null) => {
     if (!note) return null
@@ -116,7 +125,9 @@ function UpdateNotification() {
                   e.preventDefault()
                   const href = element.getAttribute('href')
                   if (href) {
-                    globalThis.api.invoke('web-open-url', href)
+                    globalThis.api
+                      .invoke('web-open-url', href)
+                      .catch((error) => console.error('Unable to open release notes link', error))
                   }
                 }
               }

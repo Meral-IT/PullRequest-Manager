@@ -1,0 +1,14 @@
+extends: ./electron-builder.yml
+directories:
+  output: dist/profile
+extraMetadata:
+  main: ./out/profile/main.js
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - from: temp/profile-main
+    to: out/profile
+mac:
+  identity: '-'
+  hardenedRuntime: false

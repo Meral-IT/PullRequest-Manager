@@ -36,6 +36,7 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
     module: settingsModule,
     exports: settingsModule.exports,
     Buffer,
+    process,
     require: (specifier: string) => {
       if (specifier === 'node:fs/promises')
         return {

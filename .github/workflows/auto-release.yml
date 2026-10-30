@@ -45,23 +45,23 @@ jobs:
       preReleaseLabel: ${{ steps.version.outputs.preReleaseLabel }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.doRelease == true
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_PUSH_KEY }}
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.doRelease != true
         with:
           fetch-depth: 0
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v4.7.0
+        uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
         with:
           versionSpec: '6.8.x'
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
@@ -89,12 +89,18 @@ jobs:
 
       - name: Determine Version
         id: version
-        uses: gittools/actions/gitversion/execute@v4.7.0
+        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
         with:
           configFilePath: GitVersion.yml
 
       - name: Install dependencies
-        run: npm ci --no-audit --progress=false
+        run: npm ci --ignore-scripts --no-audit --progress=false
+
+      - name: Rebuild allowlisted native dependencies
+        run: npm rebuild @parcel/watcher electron-winstaller fsevents
+
+      - name: Install Electron application dependencies
+        run: npm run postinstall
 
       - name: Lint
         run: npm run lint
@@ -124,7 +130,7 @@ jobs:
           }
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Installer-${{ matrix.os }}
           if-no-files-found: error
@@ -145,12 +151,12 @@ jobs:
     if: inputs.doRelease == true && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
 
       - name: Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: ${{ needs.build.outputs.semVer }}
           tag_name: v${{ needs.build.outputs.semVer }}

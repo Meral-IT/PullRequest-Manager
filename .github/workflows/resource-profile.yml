@@ -1,0 +1,36 @@
+name: Packaged resource profile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --progress=false
+      - run: npm rebuild @parcel/watcher electron-winstaller fsevents
+      - run: npm run postinstall
+      - run: npm run build
+      - run: npm run profile:build -- --config.electronDist=node_modules/electron/dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: npm run profile:run -- --output temp/resource-profile.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: resource-profile-${{ matrix.os }}
+          path: temp/resource-profile.json
+          if-no-files-found: error

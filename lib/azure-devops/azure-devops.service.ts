@@ -60,6 +60,9 @@ export class AzureDevOpsService {
   private pullRequests: PullRequestData = { items: [], error: null }
   private data: AzureDevOpsData = new AzureDevOpsData()
   private connectionRevision = 0
+  private refresh?: { revision: number; promise: Promise<void> }
+  private pollTimer?: ReturnType<typeof setTimeout>
+  private pollGeneration = 0
 
   private static async checkAccess<T>(
     access: AzureDevOpsAccess,
@@ -201,10 +204,10 @@ export class AzureDevOpsService {
   }
 
   public stop(): void {
-    if (!this.active) {
-      return
-    }
     this.active = false
+    this.pollGeneration++
+    clearTimeout(this.pollTimer)
+    this.pollTimer = undefined
   }
 
   public getPullRequests(): PullRequestData {
@@ -389,7 +392,19 @@ export class AzureDevOpsService {
   }
 
   public async updateDataImmediately(): Promise<void> {
-    return this.updateData()
+    const pending = this.refresh
+    if (pending) {
+      if (pending.revision === this.connectionRevision) return pending.promise
+      // A replacement connection waits for the old request, even if it fails.
+      await pending.promise.catch(() => undefined)
+      return this.updateDataImmediately()
+    }
+    const revision = this.connectionRevision
+    const promise = this.updateData().finally(() => {
+      if (this.refresh?.promise === promise) this.refresh = undefined
+    })
+    this.refresh = { revision, promise }
+    return promise
   }
 
   public start(): void {
@@ -458,21 +473,22 @@ export class AzureDevOpsService {
     }
     const descriptors = [...new Set(memberships.result.value[0]?.memberOf ?? [])]
     const teams = new Map<string, Identity>()
-    // Bound query URLs when users belong to many groups.
-    for (let index = 0; index < descriptors.length; index += 20) {
-      url.search = new URLSearchParams({
-        descriptors: descriptors.slice(index, index + 20).join(','),
+    // Bound both query URLs and concurrent requests for large memberships.
+    const tasks = Array.from({ length: Math.ceil(descriptors.length / 20) }, (_, batch) => async () => {
+      const batchUrl = new URL(url)
+      batchUrl.search = new URLSearchParams({
+        descriptors: descriptors.slice(batch * 20, batch * 20 + 20).join(','),
         'api-version': '7.1',
       }).toString()
-      const response = await api.rest.get<{ value: Identity[] }>(url.toString())
+      const response = await api.rest.get<{ value: Identity[] }>(batchUrl.toString())
       if (!response.result?.value) {
         throw new Error('Azure DevOps team identities are missing')
       }
-      for (const team of response.result.value) {
-        if (team.id) {
-          teams.set(team.id, team)
-        }
-      }
+      return response.result.value
+    })
+    const batches = await throttleAll(4, tasks)
+    for (const team of batches.flat()) {
+      if (team.id) teams.set(team.id, team)
     }
     return [...teams.values()]
   }
@@ -500,14 +516,20 @@ export class AzureDevOpsService {
         this.checkAccess(access, 'identity', () => this.loadMyTeams(api, settings, data.myself)),
         this.checkAccess(access, 'code', async () => {
           const git = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-          const prs = await git.getPullRequestsByProject(settings.project, { includeLinks: true, status: AzDoPrStatus.Active })
+          const prs = await git.getPullRequestsByProject(settings.project, {
+            includeLinks: true,
+            status: AzDoPrStatus.Active,
+          })
           // List responses truncate descriptions to 400 characters.
-          await throttleAll(4, prs
-            .filter((pr) => (pr.description?.length ?? 0) >= 400)
-            .map((pr) => async () => {
-              const full = await git.getPullRequest(pr.repository!.id!, pr.pullRequestId!, settings.project)
-              pr.description = full.description
-            }))
+          await throttleAll(
+            4,
+            prs
+              .filter((pr) => (pr.description?.length ?? 0) >= 400)
+              .map((pr) => async () => {
+                const full = await git.getPullRequest(pr.repository!.id!, pr.pullRequestId!, settings.project)
+                pr.description = full.description
+              })
+          )
           return prs
         }),
       ])
@@ -603,11 +625,8 @@ export class AzureDevOpsService {
 
     const results = await throttleAll<PolicyEvaluation>(4, tasks)
 
-    for (const evaluation of results) {
-      const pr = data.items.find((pr) => pr.id === evaluation.prId)
-      if (pr) {
-        pr.evaluations = evaluation.evaluations
-      }
+    for (const [index, evaluation] of results.entries()) {
+      data.items[index].evaluations = evaluation.evaluations
     }
   }
 
@@ -714,45 +733,41 @@ export class AzureDevOpsService {
 
   private async updateData(): Promise<void> {
     const revision = this.connectionRevision
-    const data: PullRequestData = {
-      items: [],
-      error: null,
+    const settings = this.settings
+    const api = this.api
+    if (!settings || !api || !this.isValidSettings(settings)) {
+      this.pullRequests = {
+        items: [],
+        error: {
+          message: 'Configuration required',
+          details: 'Please set-up an integration first to get started.',
+          type: ErrorType.ConfigurationRequired,
+          actionText: 'Azure DevOps Settings',
+          actionHref: '/settings/azure-devops',
+        },
+      }
+      this.publishData()
+      return
     }
-
-    if (this.settings && this.api && this.isValidSettings(this.settings)) {
-      loader.start()
-
+    loader.start()
+    try {
       const access = structuredClone(
-        this.pullRequests.access ?? createAzureDevOpsAccess(this.settings.acknowledgedScopeRequirements, revision)
+        this.pullRequests.access ?? createAzureDevOpsAccess(settings.acknowledgedScopeRequirements, revision)
       )
-      const newData = await AzureDevOpsService.loadPullRequestData(this.api, this.settings, access)
-      if (revision !== this.connectionRevision) {
-        loader.stop()
-        return
-      }
+      const newData = await AzureDevOpsService.loadPullRequestData(api, settings, access)
+      if (revision !== this.connectionRevision) return
       this.data = newData
-      data.items = newData.items
-      data.error = newData.error
-      data.access = newData.access
-      if (data.access && this.pullRequests.access) {
-        data.access.acknowledged = this.pullRequests.access.acknowledged
-        if (data.access.features.code.reason !== 'authentication')
-          data.access.features.vote = this.pullRequests.access.features.vote
+      if (newData.access && this.pullRequests.access) {
+        newData.access.acknowledged = this.pullRequests.access.acknowledged
+        if (newData.access.features.code.reason !== 'authentication')
+          newData.access.features.vote = this.pullRequests.access.features.vote
       }
-
-      this.handleNewPRNotifications(data.items)
-    } else {
-      data.error = {
-        message: 'Configuration required',
-        details: 'Please set-up an integration first to get started.',
-        type: ErrorType.ConfigurationRequired,
-        actionText: 'Azure DevOps Settings',
-        actionHref: '/settings/azure-devops',
-      }
+      this.handleNewPRNotifications(newData.items)
+      this.pullRequests = { items: newData.items, error: newData.error, access: newData.access }
+      this.publishData()
+    } finally {
+      loader.stop()
     }
-    this.pullRequests = data
-    this.publishData()
-    loader.stop()
   }
 
   private handleNewPRNotifications(prs: PullRequest[]): void {
@@ -781,21 +796,32 @@ export class AzureDevOpsService {
     this.api = this.initializeApi()
   }
 
-  private async onTick(): Promise<void> {
-    if (!this.active) {
-      return
+  private async onTick(generation: number): Promise<void> {
+    if (!this.active || generation !== this.pollGeneration) return
+    try {
+      await this.updateDataImmediately()
+    } catch (error) {
+      log.error('Failed to refresh pull requests', getAzureDevOpsAccessFailure(error).message)
+    } finally {
+      if (this.active && generation === this.pollGeneration) {
+        const interval = this.settings?.updateInterval ?? 180
+        const delay = Number.isFinite(interval) && interval > 0 ? interval : 180
+        this.pollTimer = setTimeout(() => {
+          this.pollTimer = undefined
+          this.onTick(generation).catch((error) =>
+            log.error('Polling failed', getAzureDevOpsAccessFailure(error).message)
+          )
+        }, delay * 1000)
+      }
     }
-
-    await this.updateData()
-    const interval = this.settings?.updateInterval ?? 180
-    setTimeout(() => this.onTick(), interval * 1000)
   }
 
   private startCore(): void {
     this.reInitializeApi()
     this.active = true
 
-    this.onTick()
+    const generation = ++this.pollGeneration
+    this.onTick(generation).catch((error) => log.error('Polling failed', getAzureDevOpsAccessFailure(error).message))
   }
 
   private isValidSettings(input?: AzDoSettings): boolean {

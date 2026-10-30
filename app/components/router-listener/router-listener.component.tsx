@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 function RouterListener() {
   const navigate = useNavigate()
   useEffect(() => {
-    async function handleIPCResponse(e) {
+    function handleIPCResponse(e) {
       console.log('navigate event received', e)
       navigate(e.path)
     }

@@ -40,6 +40,7 @@ export class PullRequestUpdateManager {
     autoUpdater.autoDownload = false
     autoUpdater.forceDevUpdateConfig = !app.isPackaged
     autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.on('error', (error: Error) => log.error('Auto updater failed', error))
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       log.info('Update available:', info)

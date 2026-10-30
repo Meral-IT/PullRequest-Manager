@@ -26,23 +26,36 @@ test('test loader bundles Windows, POSIX, relative, and aliased paths while keep
 
 async function component(entry) {
   const states = []
-  const effects = []
+  const effects = new Map()
+  const cleanups = new Map()
+  const setters = []
+  const subscriptions = new Map()
   const listeners = new Map()
   const calls = []
+  const toasts = []
   const document = new EventTarget()
+  document.querySelector = () => null
   let cursor = 0
   let context
   let settings
+  let dark = false
   const api = {
     invoke: async (name, ...args) => {
       calls.push([name, ...args])
+      if (name === 'get-theme') return 'system'
       if (name === 'get-settings') return settings
       if (name === 'get-pr-data') return { error: null, items: [] }
       return false
     },
     receive: (name, callback) => {
-      listeners.set(name, callback)
-      return () => listeners.delete(name)
+      if (!subscriptions.has(name)) subscriptions.set(name, new Set())
+      const callbacks = subscriptions.get(name)
+      callbacks.add(callback)
+      listeners.set(name, (...args) => callbacks.forEach((listener) => listener(...args)))
+      return () => {
+        callbacks.delete(callback)
+        if (!callbacks.size) listeners.delete(name)
+      }
     },
   }
   const hooks = {
@@ -50,22 +63,25 @@ async function component(entry) {
     useState(initial) {
       const index = cursor++
       if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial
-      return [
-        states[index],
-        (value) => {
-          states[index] = typeof value === 'function' ? value(states[index]) : value
-        },
-      ]
+      setters[index] ??= (value) => {
+        states[index] = typeof value === 'function' ? value(states[index]) : value
+      }
+      return [states[index], setters[index]]
     },
     useRef(value) {
       return hooks.useState({ current: value })[0]
     },
     useEffect(effect, dependencies) {
       const index = cursor++
-      if (!states[index] || dependencies.some((value, i) => value !== states[index][i])) {
-        effects.push(effect)
+      if (!states[index] || dependencies.some((value, i) => !Object.is(value, states[index][i]))) {
+        effects.set(index, effect)
         states[index] = dependencies
       }
+    },
+    useEffectEvent(callback) {
+      const ref = hooks.useRef(callback)
+      ref.current = callback
+      return hooks.useCallback((...args) => ref.current(...args), [])
     },
     useMemo(factory, dependencies) {
       const index = cursor++
@@ -86,6 +102,13 @@ async function component(entry) {
     {
       get: (_, name) => {
         if (name === 'tokens') return {}
+        if (name === 'useId') return (prefix) => hooks.useState(prefix)[0]
+        if (name === 'useToastController')
+          return () => ({
+            dispatchToast: (content, options) => toasts.push({ content, options }),
+            dismissToast: () => undefined,
+            updateToast: () => undefined,
+          })
         if (name === 'makeStyles') return () => () => ({})
         if (name === 'makeResetStyles') return () => () => ''
         if (name === 'mergeClasses') return () => ''
@@ -125,7 +148,12 @@ async function component(entry) {
   return {
     api,
     calls,
+    toasts,
     listeners,
+    listenerCount: (name) => subscriptions.get(name)?.size ?? 0,
+    setDark: (value) => {
+      dark = value
+    },
     setContext: (value) => {
       context = value
     },
@@ -136,13 +164,24 @@ async function component(entry) {
       cursor = 0
       globalThis.api = api
       globalThis.document = document
+      globalThis.matchMedia = () => ({ matches: dark })
       globalThis.localStorage = { getItem: () => null, setItem: () => undefined }
       return result.exports[name](props)
     },
     async flush() {
-      effects.splice(0).forEach((effect) => effect())
-      await Promise.resolve()
-      await Promise.resolve()
+      for (const [index, effect] of effects) {
+        cleanups.get(index)?.()
+        cleanups.set(index, effect())
+      }
+      effects.clear()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    },
+    unmount() {
+      for (const cleanup of cleanups.values()) cleanup?.()
+      cleanups.clear()
+      effects.clear()
+      states.length = 0
+      setters.length = 0
     },
   }
 }
@@ -391,4 +430,339 @@ test('creation sorting orders dates chronologically, keeps ties stable, and hand
     data.map((pr) => pr.id),
     [1, 2, 3, 4]
   )
+})
+
+test('grid reuses sorted rows until its data or sorting changes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const data = [
+    { id: 1, creationDate: new Date('2026-10-29') },
+    { id: 2, creationDate: new Date('2026-10-28') },
+  ]
+  const sorting = { sortColumn: 'creationDate', sortDirection: 'ascending' }
+  const rows = (props) => elements(view.render(props), (element) => element.type === 'DataGrid')[0].props.items
+  const first = rows({ data, sorting })
+  assert.strictEqual(rows({ data, sorting }), first)
+  const descending = rows({ data, sorting: { ...sorting, sortDirection: 'descending' } })
+  assert.deepEqual(
+    descending.map((pr) => pr.id),
+    [1, 2]
+  )
+  assert.notStrictEqual(descending, first)
+  assert.notStrictEqual(rows({ data: [...data], sorting }), first)
+})
+
+test('profile filtering caches badges while search touches only the active profile or menu target', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  let evaluations = 0
+  let searches = [0, 0]
+  const filter = (id) => ({ op: 'AND', filters: [{ author: { op: 'AND', filters: [{ id }] } }] })
+  const profiles = ['one', 'two'].map((id, index) => ({
+    ...profile,
+    id,
+    label: id,
+    isDefault: index === 0,
+    enableAcceptAll: true,
+    get filter() {
+      evaluations++
+      return filter(id)
+    },
+  }))
+  const items = ['one', 'two', 'two'].map((id, index) => ({
+    id: index + 1,
+    author: { id, label: id },
+    details: {
+      label: 'Unrelated',
+      repository: 'Repo',
+      targetBranch: 'main',
+      get description() {
+        searches[index === 0 ? 0 : 1]++
+        return index === 2 ? 'different' : 'needle'
+      },
+    },
+  }))
+  view.setSettings({ ...settings, profiles })
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'get-pr-data' ? Promise.resolve({ items, error: null }) : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  let tree = view.render()
+  const initialEvaluations = evaluations
+  view.render()
+  assert.equal(evaluations, initialEvaluations)
+  elements(
+    tree,
+    (element) => element.type === 'Button' && element.props['aria-controls'] === 'pr-filter-line'
+  )[0].props.onClick()
+  tree = view.render()
+  elements(tree, (element) => element.type === 'Input')[0].props.onChange(null, { value: 'needle' })
+  tree = view.render()
+  assert.equal(evaluations, initialEvaluations)
+  assert.deepEqual(searches, [1, 0])
+  assert.deepEqual(
+    elements(tree, (element) => element.type === 'CounterBadge').map((badge) => badge.props.children),
+    [1, 2]
+  )
+  assert.deepEqual(
+    elements(tree, (element) => element.type?.name === 'PrList')[0].props.data.map((pr) => pr.id),
+    [1]
+  )
+  const secondTab = elements(tree, (element) => element.type === 'Tab' && element.props.value === 'two')[0]
+  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: {} })
+  tree = view.render()
+  elements(tree, (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([name]) => name === 'approve-prs')[1].map((pr) => pr.id),
+    [2]
+  )
+  assert.equal(searches[1], 2)
+  view.listeners.get('pr-data')({ items: [...items], error: null })
+  view.render()
+  assert.ok(evaluations > initialEvaluations)
+  const refreshedEvaluations = evaluations
+  view.listeners.get('settings')({ ...settings, profiles: [...profiles] })
+  view.render()
+  assert.ok(evaluations > refreshedEvaluations)
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'two' })
+  assert.deepEqual(
+    elements(view.render(), (element) => element.type?.name === 'PrList')[0].props.data.map((pr) => pr.id),
+    [2]
+  )
+})
+
+test('system theme follows repeated native updates while explicit modes ignore them and remount removes listeners', async () => {
+  const view = await component('app/components/layout/layout.component.tsx')
+  view.render()
+  await view.flush()
+  assert.equal(view.render().props.theme, 'webLightTheme')
+  for (const dark of [true, false, true]) {
+    view.setDark(dark)
+    view.listeners.get('nativeThemeChanged')()
+    assert.equal(view.render().props.theme, dark ? 'webDarkTheme' : 'webLightTheme')
+  }
+  for (const theme of ['light', 'dark']) {
+    view.listeners.get('theme-changed')(theme)
+    view.render()
+    view.setDark(theme !== 'dark')
+    view.listeners.get('nativeThemeChanged')()
+    assert.equal(view.render().props.theme, theme === 'dark' ? 'webDarkTheme' : 'webLightTheme')
+  }
+  view.unmount()
+  assert.equal(view.listenerCount('nativeThemeChanged'), 0)
+  assert.equal(view.listenerCount('theme-changed'), 0)
+  view.render()
+  await view.flush()
+  assert.equal(view.listenerCount('nativeThemeChanged'), 1)
+  assert.equal(view.listenerCount('theme-changed'), 1)
+})
+
+test('theme startup ignores stale responses after a change event or unmount', async () => {
+  const view = await component('app/components/layout/layout.component.tsx')
+  let release
+  view.api.invoke = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  view.render()
+  await view.flush()
+  view.listeners.get('theme-changed')('light')
+  release('dark')
+  await view.flush()
+  assert.equal(view.render().props.theme, 'webLightTheme')
+  view.unmount()
+  view.render()
+  await view.flush()
+  const oldRelease = release
+  view.unmount()
+  view.api.invoke = async () => 'light'
+  view.render()
+  await view.flush()
+  oldRelease('dark')
+  await view.flush()
+  assert.equal(view.render().props.theme, 'webLightTheme')
+})
+
+test('settings startup cannot overwrite settings received while its request was pending', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  let release
+  provider.api.invoke = (name) =>
+    name === 'get-settings'
+      ? new Promise((resolve) => {
+          release = resolve
+        })
+      : Promise.resolve({ error: null, items: [] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  provider.listeners.get('settings')({ ...settings, azDo: { project: 'new-project' } })
+  release({ ...settings, azDo: { project: 'old-project' } })
+  await provider.flush()
+  assert.equal(provider.render({}, 'SettingProvider').props.value.state.azDoProject, 'new-project')
+})
+
+test('grid startup cannot overwrite live table settings and removes listeners on unmount', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  let release
+  view.api.invoke = (name) =>
+    name === 'get-settings'
+      ? new Promise((resolve) => {
+          release = resolve
+        })
+      : Promise.resolve(false)
+  const props = { data: [{ id: 1, creationDate: new Date() }] }
+  view.render(props)
+  await view.flush()
+  view.listeners.get('settings')({ ...settings, appearance: { ...settings.appearance, tableSize: 'medium' } })
+  release({ ...settings, appearance: { ...settings.appearance, tableSize: 'extra-small' } })
+  await view.flush()
+  const grid = elements(view.render(props), (element) => element.type === 'DataGrid')[0]
+  assert.equal(grid.props.size, 'medium')
+  view.unmount()
+  assert.equal(view.listenerCount('settings'), 0)
+})
+
+test('settings startup failure reaches the existing visible error field', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.api.invoke = async () => {
+    throw new Error('Settings are unavailable')
+  }
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  assert.equal(provider.render({}, 'SettingProvider').props.value.saveError, 'Settings are unavailable')
+})
+
+test('clipboard failures are displayed without losing the edited filter', async () => {
+  for (const action of ['Copy filter', 'Paste filter']) {
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    const changes = []
+    view.setContext({
+      state: { profiles: [{ ...profile, filter: 'draft filter' }] },
+      actions: { onChangeHandler: (event) => changes.push(event) },
+    })
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        clipboard: {
+          writeText: async () => {
+            throw new Error('Clipboard unavailable')
+          },
+          readText: async () => {
+            throw new Error('Clipboard unavailable')
+          },
+        },
+      },
+    })
+    try {
+      const button = elements(
+        view.render(),
+        (element) => element.type === 'Button' && element.props.children === action
+      )[0]
+      await button.props.onClick()
+      await view.flush()
+      assert.ok(elements(view.render(), (element) => element.props?.role === 'alert').length)
+      assert.equal(changes.length, 0)
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', originalNavigator)
+    }
+  }
+})
+
+test('failed update installation replaces progress with an error toast', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  view.api.invoke = async () => {
+    throw new Error('Download unavailable')
+  }
+  const tree = view.render()
+  const install = elements(
+    tree,
+    (element) => element.type === 'Button' && element.props.children === 'Restart & Update'
+  )[0]
+  await install.props.onClick()
+  await view.flush()
+  assert.ok(view.toasts.some(({ options }) => options.intent === 'error'))
+})
+
+test('window startup ignores completions from an earlier mount', async () => {
+  const view = await component('lib/window/components/WindowContext.tsx')
+  let release
+  view.api.invoke = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  view.render({}, 'WindowContextProvider')
+  await view.flush()
+  view.unmount()
+  view.api.invoke = async () => ({ platform: 'darwin' })
+  view.render({}, 'WindowContextProvider')
+  await view.flush()
+  release({ platform: 'win32' })
+  await view.flush()
+  assert.equal(view.render({}, 'WindowContextProvider').props.value.window.platform, 'darwin')
+})
+
+test('window startup logs rejected loads without an unhandled rejection', async () => {
+  const view = await component('lib/window/components/WindowContext.tsx')
+  const failure = new Error('Window unavailable')
+  view.api.invoke = async () => {
+    throw failure
+  }
+  const errors = []
+  const original = console.error
+  console.error = (...args) => errors.push(args)
+  try {
+    view.render({}, 'WindowContextProvider')
+    await view.flush()
+    assert.ok(errors.some((args) => args.includes(failure)))
+  } finally {
+    console.error = original
+  }
+})
+
+test('settings received before startup select the current default without resetting later tab choices', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  let release
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'get-settings'
+      ? new Promise((resolve) => {
+          release = resolve
+        })
+      : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  const liveSettings = {
+    ...settings,
+    profiles: [
+      { ...profile, id: 'one', isDefault: true },
+      { ...profile, id: 'two' },
+    ],
+  }
+  view.listeners.get('settings')(liveSettings)
+  release(settings)
+  await view.flush()
+  let tabs = elements(view.render(), (element) => element.type === 'TabList')[0]
+  assert.equal(tabs.props.selectedValue, 'one')
+  tabs.props.onTabSelect(null, { value: 'two' })
+  view.listeners.get('settings')(liveSettings)
+  tabs = elements(view.render(), (element) => element.type === 'TabList')[0]
+  assert.equal(tabs.props.selectedValue, 'two')
+})
+
+test('settings startup retains access diagnostics when PR events precede connection settings', async () => {
+  for (const liveSettings of [false, true]) {
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    const initialSettings = Promise.withResolvers()
+    const access = { features: { code: { status: 'denied', message: 'Access denied' } } }
+    provider.api.invoke = async (channel) => {
+      if (channel === 'get-settings') return initialSettings.promise
+      if (channel === 'get-pr-data') return { items: [], error: null, access }
+    }
+    provider.render({}, 'SettingProvider')
+    await provider.flush()
+    provider.listeners.get('pr-data')({ items: [], error: null, access })
+    if (liveSettings) provider.listeners.get('settings')(settings)
+    initialSettings.resolve(settings)
+    await provider.flush()
+    assert.equal(provider.render({}, 'SettingProvider').props.value.azDoAccess, access)
+  }
 })

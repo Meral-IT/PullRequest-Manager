@@ -15,6 +15,7 @@
 - [DevOps Integration](#devops-integration-work-in-progress)
 - [Installation](#installation)
 - [Building the Application](#building-the-application)
+- [Packaged Resource Profiling](#packaged-resource-profiling)
 - [Project Structure](#project-structure)
 - [Special Thanks](#special-thanks)
 - [License](#license)
@@ -187,6 +188,15 @@ application. For a local macOS package without a Developer ID certificate, use
 after the fuse changes. Distribution builds still need your Developer ID signing and notarization credentials;
 notarization is currently disabled in
 `electron-builder.yml`.
+
+## Packaged Resource Profiling
+
+Run `npm run build`, `npm run profile:build -- --config.electronDist=node_modules/electron/dist`, then
+`npm run profile:run -- --output temp/resource-profile.json` on native macOS or Windows. The separate package
+uses deterministic empty, typical, 1,000-PR and 10,000-PR fixtures with temporary settings and no Azure traffic.
+The manual **Packaged resource profile** workflow produces the same JSON on both platforms.
+Reports include the methodology and environment; thresholds are in [the profiling budgets](scripts/profile/budgets.json).
+The default run currently fails the 2.5 GiB memory ceiling with 10,000 PRs on macOS; native Windows measurements are pending.
 
 ## Project Structure
 
