@@ -23,6 +23,7 @@ async function component(entry) {
   const effects = []
   const listeners = new Map()
   const calls = []
+  const document = new EventTarget()
   let cursor = 0
   let context
   let settings
@@ -102,6 +103,7 @@ async function component(entry) {
     render(props = {}, name = 'default') {
       cursor = 0
       globalThis.api = api
+      globalThis.document = document
       globalThis.localStorage = { getItem: () => null, setItem: () => undefined }
       return result.exports[name](props)
     },

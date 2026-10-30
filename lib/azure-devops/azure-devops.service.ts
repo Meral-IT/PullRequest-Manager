@@ -299,6 +299,13 @@ export class AzureDevOpsService {
         includeLinks: true,
         status: AzDoPrStatus.Active,
       })
+      // List responses truncate descriptions to 400 characters.
+      await throttleAll(4, azDoBuilds
+        .filter((pr) => (pr.description?.length ?? 0) >= 400)
+        .map((pr) => async () => {
+          const full = await buildApi.getPullRequest(pr.repository!.id!, pr.pullRequestId!, settings.project)
+          pr.description = full.description
+        }))
       data.items = azDoBuilds
         .map((pr) => AzureDevOpsService.mapPullRequests(pr, data))
         .toSorted((a, b) => {
@@ -347,6 +354,7 @@ export class AzureDevOpsService {
       isDraft: pr.isDraft,
       details: {
         label: pr.title,
+        description: pr.description ?? '',
         number: pr.pullRequestId,
         repositoryId: pr.repository?.id ?? '',
         repository: pr.repository?.name ?? '',

@@ -346,6 +346,10 @@ export default function PrList(props: Readonly<Props>) {
     : data
 
   useEffect(() => {
+    setContextMenuOpen(false)
+  }, [data])
+
+  useEffect(() => {
     async function fetchData() {
       await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
         return setTableSize(settings.appearance.tableSize)

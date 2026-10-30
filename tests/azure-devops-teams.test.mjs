@@ -112,6 +112,52 @@ function apiFixture({ memberships = [team1.descriptor, team2.descriptor], prs = 
   }
 }
 
+test('descriptions are mapped, with missing text defaulting to empty', async () => {
+  const prs = [pullRequest(1, me.id), pullRequest(2, me.id)]
+  prs[0].description = 'Searchable description'
+  const data = await AzureDevOpsService.loadPullRequestData(apiFixture({ prs }), settings)
+  assert.equal(data.error, null)
+  assert.deepEqual(data.items.map((pr) => pr.details.description), ['Searchable description', ''])
+})
+
+test('potentially truncated descriptions are fetched in full with at most four requests at once', async () => {
+  const prs = Array.from({ length: 10 }, (_, index) => ({
+    ...pullRequest(index + 1, me.id),
+    description: 'x'.repeat(index === 0 ? 399 : 400),
+  }))
+  const api = apiFixture({ prs })
+  const git = await api.getGitApi()
+  api.getGitApi = async () => git
+  const lookups = []
+  let active = 0
+  let maximum = 0
+  git.getPullRequest = async (repository, id, project) => {
+    assert.equal(repository, 'repo')
+    assert.equal(project, settings.project)
+    lookups.push(id)
+    maximum = Math.max(maximum, ++active)
+    await new Promise((resolve) => setImmediate(resolve))
+    active--
+    return { description: `${'x'.repeat(500)} final paragraph ${id}` }
+  }
+  const data = await AzureDevOpsService.loadPullRequestData(api, settings)
+  assert.equal(data.error, null)
+  assert.deepEqual(lookups.toSorted((a, b) => a - b), [2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.equal(maximum, 4)
+  assert.equal(data.items[0].details.description.length, 399)
+  assert.equal(data.items[9].details.description, `${'x'.repeat(500)} final paragraph 10`)
+})
+
+test('full-description lookup failures use the existing refresh error state', async () => {
+  const pr = { ...pullRequest(1, me.id), description: 'x'.repeat(400) }
+  const api = apiFixture({ prs: [pr] })
+  const git = await api.getGitApi()
+  api.getGitApi = async () => git
+  git.getPullRequest = async () => { throw new Error('Description lookup failed') }
+  const data = await AzureDevOpsService.loadPullRequestData(api, settings)
+  assert.equal(data.error?.message, 'Description lookup failed')
+})
+
 test('nested team reviewers reach My Team, To do, and intelligent approval', async () => {
   const api = apiFixture({ prs: [pullRequest(1, team2.id), pullRequest(2, 'unrelated'), pullRequest(3, me.id, me.id)] })
   const data = await AzureDevOpsService.loadPullRequestData(api, settings)
