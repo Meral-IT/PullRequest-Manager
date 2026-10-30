@@ -1,6 +1,6 @@
 import {
   Button,
-  buttonClassNames,
+  Badge,
   Checkbox,
   Field,
   Input,
@@ -14,6 +14,7 @@ import {
 import { CheckmarkFilled, DismissFilled } from '@fluentui/react-icons'
 import { useContext } from 'react'
 import { SettingsContext } from '../context'
+import { azureDevOpsRequirements, createAzureDevOpsAccess } from '@/lib/models/azure-devops-access'
 
 const useStackClassName = makeResetStyles({
   display: 'flex',
@@ -22,27 +23,23 @@ const useStackClassName = makeResetStyles({
 })
 
 const useStyles = makeStyles({
-  // Disable interaction
-  loadingButton: {
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `${tokens.strokeWidthThin} solid ${tokens.colorNeutralStroke1}`,
-    color: tokens.colorNeutralForeground1,
-    cursor: 'default',
-    pointerEvents: 'none',
+  requirements: {
+    listStyleType: 'none',
+    paddingLeft: 0,
+    margin: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalL,
   },
-  // Negative feedback
-  failedButton: {
-    [`& .${buttonClassNames.icon}`]: {
-      color: tokens.colorStatusDangerForeground1,
-    },
-  },
-  // Positive feedback
-  succeededButton: {
-    [`& .${buttonClassNames.icon}`]: {
-      color: tokens.colorStatusSuccessForeground1,
-    },
-  },
+  scopeHeading: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: tokens.spacingHorizontalS },
+  explanation: { marginTop: tokens.spacingVerticalXS, marginBottom: 0, color: tokens.colorNeutralForeground2 },
 })
+
+const accessStatuses = {
+  verified: { label: 'Verified', color: 'success' },
+  denied: { label: 'Access denied', color: 'danger' },
+  unverified: { label: 'Not verified', color: 'warning' },
+} as const
 
 export default function AzureDevOpsSettings() {
   const styles = useStyles()
@@ -50,41 +47,21 @@ export default function AzureDevOpsSettings() {
     return useContext(SettingsContext)
   }
 
-  const { state, actions, validatingAzDo } = useSettings()
-
-  const validateAgain = ' - Validate again?'
-  let validationMessage = 'Validate'
-  if (state.azDoValidationState === 'success') {
-    validationMessage = state.azDoValidationMessage
-  } else if (state.azDoValidationState === 'error') {
-    validationMessage = state.azDoValidationMessage + validateAgain
-  }
-
-  const validatingText = validatingAzDo ? 'Validating...' : validationMessage
+  const { state, actions, validatingAzDo, azDoAccess, azDoValidation } = useSettings()
+  const access = azDoAccess ?? createAzureDevOpsAccess()
+  let validationLabel = 'Validate connection'
+  if (azDoValidation) validationLabel = 'Recheck access'
+  if (validatingAzDo) validationLabel = 'Validating...'
 
   let validatingIcon: React.ReactNode = undefined
   if (validatingAzDo) {
     validatingIcon = <Spinner size="tiny" />
-  } else if (state.azDoValidationState === 'success') {
+  } else if (azDoValidation && !azDoValidation.error) {
     validatingIcon = <CheckmarkFilled />
-  } else if (state.azDoValidationState === 'error') {
+  } else if (azDoValidation?.error) {
     validatingIcon = <DismissFilled />
   }
 
-  const getButtonClass = () => {
-    if (validatingAzDo) {
-      return styles.loadingButton
-    }
-    if (state.azDoValidationState === 'success') {
-      return styles.succeededButton
-    }
-    if (state.azDoValidationState === 'error') {
-      return styles.failedButton
-    }
-    return undefined
-  }
-
-  const buttonClass = getButtonClass()
   const isValidOrganizationUrl = state.azDoOrganizationUrl.match(/https:\/\/dev\.azure\.com\/[a-zA-Z0-9-]+/g)
   const patUrl = `${state.azDoOrganizationUrl}/_usersSettings/tokens`
 
@@ -109,10 +86,46 @@ export default function AzureDevOpsSettings() {
       </Field>
       <Field
         label={InfoLabel}
-        hint="Your personal access token. Required scopes: 'Build (Read); Code (Read & write); Identity (Read)'"
+        hint="The full PAT scope list cannot be retrieved automatically. The checks below verify feature access, not token metadata."
       >
         <Input name="azDoPat" value={state.azDoPat} onChange={actions.onChangeHandler} type="password" />
       </Field>
+      <Field
+        validationState={azDoValidation?.error ? 'error' : 'none'}
+        validationMessage={
+          azDoValidation ? (
+            <output>{azDoValidation.error ?? `Connected as ${azDoValidation.userDisplayName}`}</output>
+          ) : undefined
+        }
+      >
+        <Button onClick={actions.validateAzDo} disabled={validatingAzDo} icon={validatingIcon}>
+          {validationLabel}
+        </Button>
+      </Field>
+      <section aria-label="PAT scope requirements" aria-busy={validatingAzDo}>
+        <ul className={styles.requirements}>
+          {azureDevOpsRequirements.map((requirement) => {
+            const result = access.features[requirement.id]
+            const status = accessStatuses[result.status]
+            return (
+              <li key={requirement.id}>
+                <div className={styles.scopeHeading}>
+                  <strong>{requirement.label}</strong>
+                  <span>{requirement.required ? 'Required' : 'Optional'}</span>
+                  <Badge appearance="tint" color={status.color}>
+                    {status.label}
+                  </Badge>
+                </div>
+                <p className={styles.explanation}>
+                  {requirement.features} · <code>{requirement.scope}</code>
+                </p>
+                <p className={styles.explanation}>{result.message}</p>
+              </li>
+            )
+          })}
+        </ul>
+      </section>
+
       <Field
         label="Smart Approval"
         hint="Enable smart approval for pull requests by only approving the changes that matter."
@@ -142,11 +155,6 @@ export default function AzureDevOpsSettings() {
           min={1}
           max={3000}
         ></SpinButton>
-      </Field>
-      <Field>
-        <Button className={buttonClass} onClick={actions.validateAzDo} disabled={validatingAzDo} icon={validatingIcon}>
-          {validatingText}
-        </Button>
       </Field>
     </div>
   )

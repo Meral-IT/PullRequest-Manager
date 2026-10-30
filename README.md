@@ -71,6 +71,14 @@ Edit a profile's JSON filter in Settings. To find PRs you have not approved, inc
 
 Each reviewer filter must match at least one reviewer. The example checks your review, so another reviewer's approval does not hide a PR you still need to review; PRs without a matching reviewer are excluded. Without the `user` condition, it matches any reviewer who has not approved. `reviewers.op` combines these existence checks with `AND` or `OR`; it does not require all reviewers to have the same approval state.
 
+## Azure DevOps connection access
+
+In Settings → Azure DevOps, enter your organization URL, project, and personal access token (PAT), then select **Validate connection**. Required scopes are **Code (Read)** for PRs and policy status, and **Identity (Read)** for team membership and reviewer matching. **Code (Read & write)** is optional for approving PRs and resetting votes. Build access is not required.
+
+The feature list shows **Verified**, **Access denied**, or **Not verified**. Azure DevOps does not expose the full PAT scope list through PAT-only authentication, so these results describe observed feature access rather than token metadata. Validation makes read-only requests; approval access is verified only when you approve a PR or reset a vote. Policy access remains unverified until a PR is available to check. Access can also depend on your project and repository permissions.
+
+The main view shows a banner when access is denied or requirements need review, including after an update changes the scope requirements. You can acknowledge unverified requirements; denied access remains visible. Changing the organization, project, or PAT clears the acknowledgement. Use the token-settings link to review your PAT scopes and **Recheck access** after making changes.
+
 ## Screenshots
 
 Below are screenshots showcasing the PullRequestManager interface:

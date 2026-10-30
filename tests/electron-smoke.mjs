@@ -481,7 +481,22 @@ app.whenReady().then(async () => {
     }
     ipcMain.handle('get-settings', () => settings)
     ipcMain.handle('get-theme', () => settings.appearance.theme)
-    ipcMain.handle('get-pr-data', () => ({ items: [], error: null }))
+    let prData = { items: [], error: null }
+    let pendingValidation
+    let deferValidation = false
+    ipcMain.handle('get-pr-data', () => prData)
+    ipcMain.handle('validate-azure-devops', () =>
+      deferValidation
+        ? new Promise((resolve) => {
+            pendingValidation = resolve
+          })
+        : { userDisplayName: 'Scope Test User', error: null, access: prData.access }
+    )
+    ipcMain.handle('acknowledge-azure-devops-requirements', () => {
+      prData.access.acknowledged = true
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send('pr-data', prData)
+      return true
+    })
     ipcMain.handle('check-vscode-installed', () => false)
     ipcMain.handle('init-window', () => ({
       width: 900,
@@ -529,6 +544,112 @@ app.whenReady().then(async () => {
     )
 
     await checkPrSearch(window, settings)
+    const access = {
+      requirementsFingerprint: 'smoke-scopes-v1',
+      connectionRevision: 1,
+      acknowledged: false,
+      features: {
+        code: { status: 'verified', message: 'Read access verified.' },
+        identity: { status: 'verified', message: 'Identity access verified.' },
+        vote: { status: 'unverified', message: 'Checked only when you approve a PR or reset a vote.' },
+      },
+    }
+    prData = { items: [], error: null, access }
+    window.webContents.send('pr-data', prData)
+    await waitForRenderer(window, '!!document.querySelector(\'[aria-label="Azure DevOps access notice"]\')')
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Azure DevOps settings').click()"
+    )
+    await waitForRenderer(
+      window,
+      "document.body.innerText.includes('PAT scope requirements') || !!document.querySelector('[aria-label=\"PAT scope requirements\"]')"
+    )
+    await waitForRenderer(
+      window,
+      `(document.querySelector('[aria-label="PAT scope requirements"]').innerText.match(/Verified/g) || []).length === 2`
+    )
+    assert.deepEqual(
+      await window.webContents.executeJavaScript(`(() => {
+      const section = document.querySelector('[aria-label="PAT scope requirements"]')
+      return { rows: section.querySelectorAll('li').length, required: (section.innerText.match(/Required/g) || []).length,
+        optional: section.innerText.includes('Optional'), verified: (section.innerText.match(/Verified/g) || []).length,
+        metadata: document.body.innerText.includes('not token metadata'), build: document.body.innerText.includes('Build (Read)') }
+    })()`),
+      { rows: 3, required: 2, optional: true, verified: 2, metadata: true, build: false }
+    )
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Validate connection').click()"
+    )
+    await waitForRenderer(window, "document.body.innerText.includes('Connected as Scope Test User')")
+    await capture(window, 'azdo-access-settings')
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
+    )
+    await waitForRenderer(window, "location.hash === '#/' || location.hash === ''")
+    await waitForRenderer(
+      window,
+      "Array.from(document.querySelectorAll('button')).some(b => b.innerText === 'Acknowledge unverified')"
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript("document.body.innerText.includes('Unsaved changes')"),
+      false
+    )
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Acknowledge unverified').click()"
+    )
+    await waitForRenderer(window, '!document.querySelector(\'[aria-label="Azure DevOps access notice"]\')')
+
+    access.features.vote = {
+      status: 'denied',
+      reason: 'authorization',
+      message: 'Check PAT scopes and Azure DevOps permissions.',
+    }
+    prData.error = { type: 'Unknown', message: 'Read access failed', details: 'Check connection settings.' }
+    window.webContents.send('pr-data', prData)
+    await waitForRenderer(
+      window,
+      "document.body.innerText.includes('Azure DevOps access needs attention') && document.body.innerText.includes('Read access failed')"
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript("document.body.innerText.includes('Acknowledge unverified')"),
+      false
+    )
+    await capture(window, 'azdo-access-denied')
+
+    access.requirementsFingerprint = 'smoke-scopes-v2'
+    access.acknowledged = false
+    access.features.vote = { status: 'unverified', message: 'Approval access not verified.' }
+    prData.error = null
+    window.webContents.send('pr-data', prData)
+    await waitForRenderer(window, "document.body.innerText.includes('Review Azure DevOps scope requirements')")
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Azure DevOps settings').click()"
+    )
+    await waitForRenderer(window, '!!document.querySelector(\'input[name="azDoProject"]\')')
+    await waitForRenderer(
+      window,
+      `(document.querySelector('[aria-label="PAT scope requirements"]').innerText.match(/Verified/g) || []).length === 2`
+    )
+    deferValidation = true
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Validate connection').click()"
+    )
+    await waitForRenderer(window, "document.body.innerText.includes('Validating...')")
+    await window.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('input[name="azDoProject"]')
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'edited-project')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    pendingValidation({ userDisplayName: 'Stale Token User', error: null, access })
+    await waitForRenderer(window, "!document.body.innerText.includes('Validating...')")
+    assert.equal(
+      await window.webContents.executeJavaScript("document.body.innerText.includes('Stale Token User')"),
+      false
+    )
+    deferValidation = false
+    window.webContents.send('settings', settings)
+    prData = { items: [], error: null }
+
     await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/builtin:all'; void 0")
     await waitForRenderer(
       window,
