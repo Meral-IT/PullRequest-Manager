@@ -4,6 +4,7 @@ import path from 'node:path'
 import { defaultProfiles } from '../models/pr-profile'
 import { getProfileFilterErrors } from '../models/profile-filter.schema'
 import { SettingsModel, TableSize } from '../models/settings.model'
+import { AzureDevOpsConnection, sameAzureDevOpsConnection } from '../models/azure-devops-access'
 import { updateTrayProfiles } from './tray'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
@@ -28,6 +29,13 @@ const defaultSettings: SettingsModel = {
   profiles: defaultProfiles,
 }
 let cachedSettings: SettingsModel | null = null
+let pendingSettingsWrite: Promise<unknown> = Promise.resolve()
+
+function enqueueSettingsWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = pendingSettingsWrite.then(operation)
+  pendingSettingsWrite = result.catch(() => undefined)
+  return result
+}
 
 function decryptString(bufferString: string): string {
   return bufferString ? safeStorage.decryptString(Buffer.from(bufferString, 'base64url')) : ''
@@ -37,26 +45,52 @@ function encryptString(input: string): string {
   return input ? safeStorage.encryptString(input).toString('base64url') : ''
 }
 
-export async function saveSettings(input: SettingsModel): Promise<SettingsModel> {
+export function saveSettings(input: SettingsModel): Promise<SettingsModel> {
+  return enqueueSettingsWrite(() => writeSettings(input))
+}
+
+export async function acknowledgeAzureDevOpsRequirements(
+  fingerprint: string,
+  connection: AzureDevOpsConnection
+): Promise<boolean> {
+  await loadSettings()
+  return enqueueSettingsWrite(async () => {
+    const settings = cachedSettings!
+    if (!sameAzureDevOpsConnection(settings.azDo, connection)) return false
+    await writeSettings({ ...settings, azDo: { ...settings.azDo, acknowledgedScopeRequirements: fingerprint } })
+    return true
+  })
+}
+
+async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
   for (const profile of input.profiles) {
     if (profile.filter === undefined) continue
     const errors = getProfileFilterErrors(profile.filter)
     if (errors.length) throw new Error(`Invalid filter for profile "${profile.label}": ${errors.join('; ')}`)
   }
 
+  let acknowledgement = input.azDo.acknowledgedScopeRequirements
+  if (cachedSettings) {
+    if (sameAzureDevOpsConnection(input.azDo, cachedSettings.azDo)) {
+      acknowledgement ??= cachedSettings.azDo.acknowledgedScopeRequirements
+    } else {
+      acknowledgement = undefined
+    }
+  }
+  const settings = { ...input, azDo: { ...input.azDo, acknowledgedScopeRequirements: acknowledgement } }
   await fs.writeFile(
     settingFile,
     JSON.stringify(
       {
-        ...input,
-        azDo: { ...input.azDo, pat: encryptString(input.azDo.pat) },
+        ...settings,
+        azDo: { ...settings.azDo, pat: encryptString(settings.azDo.pat) },
       },
       null,
       2
     )
   )
 
-  cachedSettings = normalizeSettings(input)
+  cachedSettings = normalizeSettings(settings)
 
   app.setLoginItemSettings({
     openAtLogin: cachedSettings.general.openAtLogin,
@@ -101,6 +135,7 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       pat: input.azDo.pat || defaultSettings.azDo.pat,
       updateInterval: input.azDo.updateInterval || defaultSettings.azDo.updateInterval,
       intelligentApproval: input.azDo.intelligentApproval ?? defaultSettings.azDo.intelligentApproval,
+      acknowledgedScopeRequirements: input.azDo.acknowledgedScopeRequirements,
     },
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance.theme,

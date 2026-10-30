@@ -1,4 +1,5 @@
 import ErrorComponent from '@/app/components/error/error.component'
+import AzureDevOpsAccessBanner from '@/app/components/azure-devops-access-banner'
 import PrList from '@/app/components/pr-list/pr-list'
 import { ErrorDetail } from '@/lib/models/error-detail'
 import { PullRequestData } from '@/lib/models/pr-data'
@@ -191,7 +192,10 @@ export default function PullRequestsOverview() {
   }, [])
 
   if (pullRequests.error) {
-    return PullRequestErrors(pullRequests.error)
+    return <div className="container">
+      <AzureDevOpsAccessBanner access={pullRequests.access} />
+      {PullRequestErrors(pullRequests.error)}
+    </div>
   }
 
   const onTabSelect = (profileId: string) => {
@@ -252,6 +256,7 @@ export default function PullRequestsOverview() {
         onOpenChange={onOpenChange}
       />
       <div className="container">
+        <AzureDevOpsAccessBanner access={pullRequests.access} />
         <div className="section">
           <div className="content header">
             <Overflow minimumVisible={2}>

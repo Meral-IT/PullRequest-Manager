@@ -11,7 +11,13 @@ const load = createRequire(import.meta.url)
 const isExternal = (id) => !id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id) && !id.startsWith('@/')
 
 test('test loader bundles Windows, POSIX, relative, and aliased paths while keeping packages external', () => {
-  for (const id of ['D:/a/project/context.ts', 'D:\\a\\project\\context.ts', '/project/context.ts', '../context.ts', '@/lib/context.ts']) {
+  for (const id of [
+    'D:/a/project/context.ts',
+    'D:\\a\\project\\context.ts',
+    '/project/context.ts',
+    '../context.ts',
+    '@/lib/context.ts',
+  ]) {
     assert.equal(isExternal(id), false, id)
   }
   assert.equal(isExternal('react'), true)
@@ -43,9 +49,12 @@ async function component(entry) {
     useState(initial) {
       const index = cursor++
       if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial
-      return [states[index], (value) => {
-        states[index] = typeof value === 'function' ? value(states[index]) : value
-      }]
+      return [
+        states[index],
+        (value) => {
+          states[index] = typeof value === 'function' ? value(states[index]) : value
+        },
+      ]
     },
     useRef(value) {
       return hooks.useState({ current: value })[0]
@@ -57,19 +66,33 @@ async function component(entry) {
         states[index] = dependencies
       }
     },
-    useMemo: (factory) => factory(),
+    useMemo(factory, dependencies) {
+      const index = cursor++
+      if (!states[index] || dependencies.some((value, i) => value !== states[index].dependencies[i]))
+        states[index] = { value: factory(), dependencies }
+      return states[index].value
+    },
+    useCallback(callback, dependencies) {
+      const index = cursor++
+      if (!states[index] || dependencies.some((value, i) => value !== states[index].dependencies[i]))
+        states[index] = { callback, dependencies }
+      return states[index].callback
+    },
     useContext: () => context,
   }
-  const fluent = new Proxy({}, {
-    get: (_, name) => {
-      if (name === 'tokens') return {}
-      if (name === 'makeStyles') return () => () => ({})
-      if (name === 'makeResetStyles') return () => () => ''
-      if (name === 'mergeClasses') return () => ''
-      if (name === 'createTableColumn') return (column) => column
-      return name
-    },
-  })
+  const fluent = new Proxy(
+    {},
+    {
+      get: (_, name) => {
+        if (name === 'tokens') return {}
+        if (name === 'makeStyles') return () => () => ({})
+        if (name === 'makeResetStyles') return () => () => ''
+        if (name === 'mergeClasses') return () => ''
+        if (name === 'createTableColumn') return (column) => column
+        return name
+      },
+    }
+  )
   const { output } = await build({
     input: resolve(__dirname, '..', entry),
     write: false,
@@ -87,18 +110,27 @@ async function component(entry) {
     moduleTypes: { '.scss': 'empty', '.svg': 'text' },
   })
   const result = { exports: {} }
-  new Function('require', 'module', 'exports', output[0].code)((name) => {
-    if (name === 'react') return hooks
-    if (name.startsWith('@fluentui/')) return fluent
-    if (name === 'react-router-dom') return { useParams: () => ({ profileId: 'test' }) }
-    return load(name)
-  }, result, result.exports)
+  new Function('require', 'module', 'exports', output[0].code)(
+    (name) => {
+      if (name === 'react') return hooks
+      if (name.startsWith('@fluentui/')) return fluent
+      if (name === 'react-router-dom') return { useParams: () => ({ profileId: 'test' }) }
+      return load(name)
+    },
+    result,
+    result.exports
+  )
 
   return {
+    api,
     calls,
     listeners,
-    setContext: (value) => { context = value },
-    setSettings: (value) => { settings = value },
+    setContext: (value) => {
+      context = value
+    },
+    setSettings: (value) => {
+      settings = value
+    },
     render(props = {}, name = 'default') {
       cursor = 0
       globalThis.api = api
@@ -120,10 +152,17 @@ function elements(node, predicate) {
 }
 
 const profile = {
-  id: 'test', label: 'Test', visible: true, enableAcceptAll: false, notifyOnNewPrs: false,
+  id: 'test',
+  label: 'Test',
+  visible: true,
+  enableAcceptAll: false,
+  notifyOnNewPrs: false,
 }
 const settings = {
-  general: {}, azDo: {}, appearance: { tableSize: 'small', theme: 'system' }, profiles: [profile],
+  general: {},
+  azDo: {},
+  appearance: { tableSize: 'small', theme: 'system' },
+  profiles: [profile],
 }
 
 test('profile sorting and explicit manual sorting survive load, duplication, and save', async () => {
@@ -150,11 +189,97 @@ test('profile sorting and explicit manual sorting survive load, duplication, and
   assert.equal(value.state.profiles[0].sorting, undefined)
 })
 
+test('AzDo validation leaves editable settings unchanged and discards results after editing or loading different inputs', async () => {
+  for (const replaceSavedSettings of [false, true, 'restore']) {
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings(settings)
+    provider.render({}, 'SettingProvider')
+    await provider.flush()
+    let value = provider.render({}, 'SettingProvider').props.value
+    if (replaceSavedSettings === 'restore') {
+      value.actions.onChangeHandler({ target: { name: 'azDoPat', value: 'unsaved-token' } })
+      value = provider.render({}, 'SettingProvider').props.value
+    }
+    const before = structuredClone(value.state)
+    let release
+    provider.api.invoke = async () =>
+      new Promise((resolve) => {
+        release = resolve
+      })
+    const pending = value.actions.validateAzDo()
+    if (replaceSavedSettings === 'restore') provider.listeners.get('settings')(settings)
+    else if (replaceSavedSettings) provider.listeners.get('settings')({ ...settings, azDo: { project: 'replacement' } })
+    else value.actions.onChangeHandler({ target: { name: 'azDoPat', value: 'replacement' } })
+    release({ userDisplayName: 'Old credentials', error: null, access: { features: {} } })
+    await pending
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.equal(value.azDoValidation, undefined)
+    assert.equal(value.azDoAccess, undefined)
+    assert.equal(value.validatingAzDo, false)
+    assert.deepEqual(value.state.profiles, before.profiles)
+  }
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  const before = structuredClone(value.state)
+  provider.api.invoke = async () => ({ userDisplayName: 'Current user', error: null, access: { features: {} } })
+  await value.actions.validateAzDo()
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(value.state, before)
+  assert.equal(value.azDoValidation.userDisplayName, 'Current user')
+})
+
+test('settings context retains its value across unchanged renders and updates after edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const initial = provider.render({}, 'SettingProvider').props.value
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value, initial)
+  initial.actions.onChangeHandler({ target: { name: 'azDoProject', value: 'updated-project' } })
+  const updated = provider.render({}, 'SettingProvider').props.value
+  assert.notStrictEqual(updated, initial)
+  assert.equal(updated.state.azDoProject, 'updated-project')
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value, updated)
+})
+
+test('AzDo connection status uses native output and retains validate, recheck, and loading labels', async () => {
+  const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
+  const context = { state: { azDoOrganizationUrl: '' }, actions: {}, validatingAzDo: false }
+  view.setContext(context)
+  let tree = view.render()
+  assert.ok(
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Validate connection').length
+  )
+  context.azDoValidation = { userDisplayName: 'Test User', error: null }
+  view.setContext(context)
+  tree = view.render()
+  const field = elements(tree, (element) => element.type === 'Field' && element.props.validationMessage)[0]
+  assert.equal(field.props.validationMessage.type, 'output')
+  assert.equal(field.props.validationMessage.props.children, 'Connected as Test User')
+  assert.ok(
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Recheck access').length
+  )
+  context.validatingAzDo = true
+  view.setContext(context)
+  assert.ok(
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props.children === 'Validating...' && element.props.disabled
+    ).length
+  )
+})
+
 test('profile controls default to creation descending and preserve explicit and manual sorting', async () => {
   const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
   const changes = []
   const render = (sorting) => {
-    view.setContext({ state: { profiles: [{ ...profile, sorting }] }, actions: { onChangeHandler: (event) => changes.push(event) } })
+    view.setContext({
+      state: { profiles: [{ ...profile, sorting }] },
+      actions: { onChangeHandler: (event) => changes.push(event) },
+    })
     return elements(view.render(), (element) => element.type === 'Select')
   }
   let selects = render(undefined)
@@ -162,7 +287,9 @@ test('profile controls default to creation descending and preserve explicit and 
   assert.equal(selects[0].props.value, 'creationDate')
   assert.equal(selects[1].props.value, 'descending')
   assert.equal(selects[1].props.disabled, false)
-  assert.ok(elements(selects[0], (element) => element.type === 'option').some((option) => option.props.value === 'creationDate'))
+  assert.ok(
+    elements(selects[0], (element) => element.type === 'option').some((option) => option.props.value === 'creationDate')
+  )
   selects[0].props.onChange({ target: { value: 'details' } })
   assert.deepEqual(changes.at(-1).target.value, { sortColumn: 'details', sortDirection: 'descending' })
   selects[1].props.onChange({ target: { value: 'ascending' } })
@@ -196,11 +323,17 @@ test('grid applies both sort directions to each supported column and prevents ma
     for (const sortDirection of ['ascending', 'descending']) {
       const sorting = { sortColumn, sortDirection }
       const props = grid(sorting).props
-      assert.deepEqual(props.items.map((pr) => pr.id), sortDirection === 'ascending' ? [2, 1] : [1, 2])
+      assert.deepEqual(
+        props.items.map((pr) => pr.id),
+        sortDirection === 'ascending' ? [2, 1] : [1, 2]
+      )
       assert.equal(props.sortable, false)
     }
   }
-  assert.deepEqual(data.map((pr) => pr.id), [1, 2])
+  assert.deepEqual(
+    data.map((pr) => pr.id),
+    [1, 2]
+  )
   assert.equal(grid(null).props.sortable, true)
 })
 
@@ -224,18 +357,36 @@ test('creation sorting orders dates chronologically, keeps ties stable, and hand
     { id: 3 },
     { id: 4, creationDate: new Date('2026-10-29T12:00:00Z') },
   ]
-  for (const [sortDirection, expected] of [['ascending', [3, 2, 1, 4]], ['descending', [1, 4, 2, 3]]]) {
-    const grid = elements(view.render({ data, sorting: { sortColumn: 'creationDate', sortDirection } }), (element) => element.type === 'DataGrid')[0]
-    assert.deepEqual(grid.props.items.map((pr) => pr.id), expected)
+  for (const [sortDirection, expected] of [
+    ['ascending', [3, 2, 1, 4]],
+    ['descending', [1, 4, 2, 3]],
+  ]) {
+    const grid = elements(
+      view.render({ data, sorting: { sortColumn: 'creationDate', sortDirection } }),
+      (element) => element.type === 'DataGrid'
+    )[0]
+    assert.deepEqual(
+      grid.props.items.map((pr) => pr.id),
+      expected
+    )
     assert.equal(grid.props.sortable, false)
   }
   for (const sorting of [undefined, { sortColumn: 'creationDate' }]) {
     const grid = elements(view.render({ data, sorting }), (element) => element.type === 'DataGrid')[0]
-    assert.deepEqual(grid.props.items.map((pr) => pr.id), [1, 4, 2, 3])
+    assert.deepEqual(
+      grid.props.items.map((pr) => pr.id),
+      [1, 4, 2, 3]
+    )
     assert.equal(grid.props.sortable, false)
   }
   const manualGrid = elements(view.render({ data, sorting: null }), (element) => element.type === 'DataGrid')[0]
-  assert.deepEqual(manualGrid.props.items.map((pr) => pr.id), [1, 2, 3, 4])
+  assert.deepEqual(
+    manualGrid.props.items.map((pr) => pr.id),
+    [1, 2, 3, 4]
+  )
   assert.equal(manualGrid.props.sortable, true)
-  assert.deepEqual(data.map((pr) => pr.id), [1, 2, 3, 4])
+  assert.deepEqual(
+    data.map((pr) => pr.id),
+    [1, 2, 3, 4]
+  )
 })
