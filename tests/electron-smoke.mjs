@@ -163,13 +163,16 @@ async function checkReleaseNotesSanitization(window, errors) {
       globalThis.smokeReleaseCsp.violations.push({ directive: event.effectiveDirective, blockedURI: event.blockedURI })
     }, { signal: controller.signal })
   `)
-  window.webContents.send('update:update-available', {
-    version: '99.0.0',
-    files: [],
-    releaseDate: '2026-10-30T10:00:00Z',
-    releaseNotes: `<strong data-smoke-release="benign" onmouseover="document.body.dataset.smokeReleaseExecuted = 'yes'">Safe release note</strong>
+  window.webContents.send('update:state-changed', {
+    status: 'available',
+    info: {
+      version: '99.0.0',
+      files: [],
+      releaseDate: '2026-10-30T10:00:00Z',
+      releaseNotes: `<strong data-smoke-release="benign" onmouseover="document.body.dataset.smokeReleaseExecuted = 'yes'">Safe release note</strong>
       <script>document.body.dataset.smokeReleaseExecuted = 'yes'</script>
       <a data-smoke-release="unsafe-link" href="javascript:document.body.dataset.smokeReleaseExecuted = 'yes'">Unsafe link</a>`,
+    },
   })
   await waitForRenderer(window, "!!document.getElementById('release-notes-button')")
   await window.webContents.executeJavaScript("document.getElementById('release-notes-button').click()")
@@ -215,6 +218,231 @@ async function checkReleaseNotesSanitization(window, errors) {
   for (const message of probeErrors) {
     assert.match(message, /^Executing inline event handler violates the following Content Security Policy directive/)
   }
+}
+
+async function checkUpdateNotification(window, settings, updates) {
+  const info = {
+    version: '2.0.0',
+    files: [],
+    releaseDate: '2026-10-30T10:00:00Z',
+    releaseNotes: '<p>Update improvements.</p>',
+  }
+  const panel = "document.querySelector('.update-notification')"
+  const expectState = (status) => waitForRenderer(window, `${panel}?.dataset.updateState === '${status}'`)
+  const clickAction = () =>
+    window.webContents.executeJavaScript(`${panel}.querySelector('.update-notification-actions button').click()`)
+  const progress = { percent: 25, transferred: 20_000_000, total: 80_000_000, bytesPerSecond: 2_000_000, delta: 0 }
+  const publishProgress = (overrides = {}) =>
+    updates.publish({ status: 'downloading', info, progress: { ...progress, ...overrides } })
+  const checkLayout = async () => {
+    await settleLayout(window)
+    const layout = await window.webContents.executeJavaScript(String.raw`(() => {
+      const panel = ${panel}
+      const { left, right, top, bottom, width } = panel.getBoundingClientRect()
+      const luminance = color => {
+        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(value => Number(value) / 255)
+          .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
+      }
+      const background = luminance(getComputedStyle(panel).backgroundColor)
+      const contrast = Array.from(panel.querySelectorAll('.fui-Text, .fui-ToastTitle'))
+        .map(element => luminance(getComputedStyle(element).color))
+        .map(foreground => (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05))
+      return { left, right, top, bottom, width, viewport: [innerWidth, innerHeight],
+        overflow: panel.scrollWidth > panel.clientWidth,
+        contrast: Math.min(...contrast),
+        count: document.querySelectorAll('.update-notification').length,
+        invalid: /NaN|Infinity/.test(panel.innerText) }
+    })()`)
+    const detail = JSON.stringify(layout)
+    assert.equal(layout.count, 1, detail)
+    assert.equal(layout.overflow, false, detail)
+    assert.equal(layout.invalid, false, detail)
+    assert.ok(layout.left >= 15 && layout.right <= layout.viewport[0] - 15, detail)
+    assert.ok(layout.top >= 15 && layout.bottom <= layout.viewport[1] - 15, detail)
+    assert.ok(Math.abs(layout.width - Math.min(360, layout.viewport[0] - 32)) <= 1, detail)
+    assert.ok(layout.contrast >= 4.5, detail)
+  }
+
+  await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+  await waitForRenderer(window, "!!document.querySelector('.window-titlebar button')")
+  await window.webContents.executeJavaScript("document.querySelector('.window-titlebar button').focus()")
+  updates.publish({ status: 'available', info })
+  await expectState('available')
+  await waitForRenderer(window, "!!document.querySelector('.window-titlebar-update')")
+  const platform = await window.webContents.executeJavaScript(
+    "document.querySelector('.window-titlebar').dataset.platform"
+  )
+  await checkTitlebarLayout(window, platform, 900)
+  await checkTitlebarLayout(window, platform, 640)
+  await checkTitlebarLayout(window, platform, 480)
+  await capture(window, 'update-titlebar-narrow')
+  await checkTitlebarLayout(window, platform, 900)
+  assert.equal(
+    await window.webContents.executeJavaScript("document.activeElement.closest('.window-titlebar') !== null"),
+    true,
+    'Update arrival preserves focus'
+  )
+  await checkLayout()
+  await capture(window, 'update-available-light')
+  settings.appearance.theme = 'dark'
+  window.webContents.send('theme-changed', 'dark')
+  await settleLayout(window)
+  await capture(window, 'update-titlebar-dark')
+  settings.appearance.theme = 'light'
+  window.webContents.send('theme-changed', 'light')
+  await window.webContents.executeJavaScript(
+    `${panel}.querySelector('[aria-label="Dismiss update notification"]').focus()`
+  )
+  await waitForRenderer(
+    window,
+    `document.activeElement === ${panel}.querySelector('[aria-label="Dismiss update notification"]')`,
+    'Update dismiss button receives keyboard focus'
+  )
+  pressKey(window, 'Escape')
+  await waitForRenderer(window, `!${panel}`)
+  updates.publish({ status: 'available', info })
+  await expectState('available')
+  await window.webContents.executeJavaScript(
+    `${panel}.querySelector('[aria-label="Dismiss update notification"]').click()`
+  )
+  await waitForRenderer(window, `!${panel}`)
+  assert.equal(
+    await window.webContents.executeJavaScript("document.querySelector('.window-titlebar-update').innerText"),
+    'Update available'
+  )
+  await window.webContents.executeJavaScript("document.querySelector('.window-titlebar-update').focus()")
+  pressKey(window, 'Enter')
+  await expectState('downloading')
+  await waitForRenderer(window, "!document.querySelector('.window-titlebar-update')")
+  assert.equal(updates.downloads, 1)
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `${panel}.querySelector('[role=progressbar]').hasAttribute('aria-valuenow')`
+    ),
+    false
+  )
+  publishProgress()
+  await waitForRenderer(window, `${panel}.querySelector('[role=progressbar]').getAttribute('aria-valuenow') === '25'`)
+  assert.match(await window.webContents.executeJavaScript(`${panel}.innerText`), /20 MB of 80 MB/)
+  assert.match(await window.webContents.executeJavaScript(`${panel}.innerText`), /2 MB\/s/)
+  await checkLayout()
+  await capture(window, 'update-downloading-light')
+  publishProgress({ percent: 26 })
+  await waitForRenderer(window, `${panel}.querySelector('[role=progressbar]').getAttribute('aria-valuenow') === '26'`)
+  assert.equal(
+    await window.webContents.executeJavaScript("document.querySelector('.update-announcement').textContent"),
+    'Downloading update'
+  )
+  publishProgress({ percent: 100, transferred: progress.total })
+  await waitForRenderer(window, `${panel}.innerText.includes('Finishing download')`)
+  assert.equal(updates.installs, 0)
+  updates.publish({ status: 'ready', info })
+  await expectState('ready')
+  await checkLayout()
+  await capture(window, 'update-ready-light')
+  await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
+  const checkReadyKeyboardDismissal = async (key) => {
+    pressKey(window, key)
+    await settleLayout(window)
+    assert.equal(
+      await window.webContents.executeJavaScript(`!!${panel}`),
+      true,
+      'Keyboard dismissal must preserve the ready panel'
+    )
+  }
+  await checkReadyKeyboardDismissal('Escape')
+  await checkReadyKeyboardDismissal('Delete')
+
+  await new Promise((resolve) => {
+    window.webContents.once('did-finish-load', resolve)
+    window.reload()
+  })
+  await expectState('ready')
+  assert.equal(updates.installs, 0, 'Reload restores readiness without installing')
+  const checkUpdateTheme = async (theme, width, zoom) => {
+    settings.appearance.theme = theme
+    window.webContents.send('theme-changed', theme)
+    window.setContentSize(width, 670)
+    window.webContents.setZoomFactor(zoom)
+    publishProgress()
+    await expectState('downloading')
+    await checkLayout()
+    await capture(window, `update-downloading-${theme}-${width}-zoom${zoom}`)
+    updates.publish({ status: 'ready', info })
+    await expectState('ready')
+    await checkLayout()
+    await capture(window, `update-ready-${theme}-${width}-zoom${zoom}`)
+  }
+  await checkUpdateTheme('dark', 900, 1)
+  await checkUpdateTheme('dark', 360, 1)
+  await checkUpdateTheme('light', 900, 2)
+  window.setContentSize(900, 670)
+  window.webContents.setZoomFactor(1)
+  settings.appearance.theme = 'light'
+  window.webContents.send('theme-changed', 'light')
+
+  updates.publish({ status: 'available', info })
+  await expectState('available')
+  updates.failDownload = true
+  await clickAction()
+  await expectState('error')
+  await checkLayout()
+  await capture(window, 'update-download-error')
+  updates.failDownload = false
+  await clickAction()
+  await expectState('downloading')
+  assert.equal(updates.downloads, 3)
+  publishProgress({ percent: Number.NaN, total: Infinity, transferred: -1, bytesPerSecond: Infinity })
+  await checkLayout()
+  updates.publish({ status: 'ready', info })
+  await expectState('ready')
+  await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
+  pressKey(window, 'Enter')
+  await expectState('installing')
+  assert.equal(updates.installs, 1, 'Keyboard activation explicitly starts installation')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `Array.from(${panel}.querySelectorAll('button')).every(button => button.disabled)`
+    ),
+    true
+  )
+  updates.publish({ status: 'error', info, operation: 'install' })
+  await expectState('error')
+  await checkLayout()
+  await capture(window, 'update-install-error')
+  await clickAction()
+  await expectState('installing')
+  assert.equal(updates.installs, 2)
+  assert.equal(updates.downloads, 3, 'Retry installation reuses the download')
+  const longInfo = { ...info, version: '2.0.0-alpha.' + '1234567890'.repeat(12) }
+  updates.publish({ status: 'ready', info: longInfo })
+  await expectState('ready')
+  await checkLayout()
+  window.webContents.debugger.attach('1.3')
+  try {
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+    })
+    updates.publish({ status: 'downloading', info })
+    await expectState('downloading')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `${panel}.querySelector('[role=progressbar]').getAttribute('aria-label')`
+      ),
+      'Update download progress'
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `getComputedStyle(${panel}.querySelector('.fui-ProgressBar__bar')).animationName`
+      ),
+      'none'
+    )
+  } finally {
+    window.webContents.debugger.detach()
+  }
+  updates.publish({ status: 'idle' })
+  await waitForRenderer(window, `!${panel}`)
 }
 
 async function checkZeroDataLayout(window, allowScroll = false) {
@@ -317,9 +545,11 @@ async function checkTitlebarLayout(window, platform, width) {
     const title = bar.querySelector('.window-titlebar-title')
     const menu = bar.querySelector('nav')
     const controls = bar.querySelector('.window-titlebar-controls')
+    const update = bar.querySelector('.window-titlebar-update')
     return {
       bar: rect(bar), title: rect(title), menu: rect(menu),
       controls: controls && rect(controls),
+      update: update && { ...rect(update), draggable: getComputedStyle(update).webkitAppRegion },
       buttons: Array.from(bar.querySelectorAll('button')).map(rect),
       draggable: getComputedStyle(bar).webkitAppRegion,
       menuDraggable: getComputedStyle(menu).webkitAppRegion,
@@ -350,6 +580,15 @@ async function checkTitlebarLayout(window, platform, width) {
     if (layout.controls) assert.ok(layout.menu.right <= layout.controls.left, detail)
   }
   if (layout.spinner) assert.ok(layout.spinner.right <= layout.title.right, detail)
+  checkUpdateButtonLayout(layout, width, detail)
+}
+
+function checkUpdateButtonLayout(layout, width, detail) {
+  if (!layout.update) return
+  assert.equal(layout.update.draggable, 'no-drag')
+  assert.ok(layout.title.right <= layout.update.left, detail)
+  if (width >= 640) assert.ok(layout.menu.right <= layout.update.left, detail)
+  if (layout.controls) assert.ok(layout.update.right <= layout.controls.left, detail)
 }
 
 async function clickElement(window, selector, text) {
@@ -427,6 +666,28 @@ async function checkTitlebarMenus(window) {
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
   await clickElement(window, '[role="menuitem"]', 'Actual Size')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+
+  assert.equal((await window.webContents.executeJavaScript("globalThis.api.invoke('update:get-state')")).status, 'idle')
+  const releaseUrls = []
+  ipcMain.handle('web-open-url', (_event, url) => {
+    releaseUrls.push(url)
+  })
+  try {
+    await clickElement(window, '.window-titlebar button', 'View')
+    await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="menuitem"]')).some(item => item.textContent === 'Release notes')`
+      ),
+      true,
+      'Release notes remain available without an update'
+    )
+    await clickElement(window, '[role="menuitem"]', 'Release notes')
+    await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+    assert.deepEqual(releaseUrls, ['https://github.com/Meral-IT/PullRequest-Manager/releases'])
+  } finally {
+    ipcMain.removeHandler('web-open-url')
+  }
 }
 
 async function checkPrSearch(window, settings) {
@@ -975,6 +1236,29 @@ async function runSmokeTest() {
     }
     ipcMain.handle('get-settings', () => settings)
     ipcMain.handle('get-theme', () => settings.appearance.theme)
+    let updateState = { status: 'idle' }
+    const updates = {
+      downloads: 0,
+      installs: 0,
+      failDownload: false,
+      publish(state) {
+        updateState = state
+        window.webContents.send('update:state-changed', state)
+      },
+    }
+    ipcMain.handle('update:get-state', () => updateState)
+    ipcMain.handle('update:download-update', () => {
+      updates.downloads++
+      updates.publish({ status: 'downloading', info: updateState.info })
+      if (updates.failDownload) {
+        updates.publish({ status: 'error', info: updateState.info, operation: 'download' })
+        throw new Error('Smoke test download failure')
+      }
+    })
+    ipcMain.handle('update:install-update', () => {
+      updates.installs++
+      updates.publish({ status: 'installing', info: updateState.info })
+    })
     let prData = { items: [], error: null }
     let pendingValidation
     let deferValidation = false
@@ -1523,10 +1807,11 @@ async function runSmokeTest() {
       "document.body.innerText.includes('Filter is valid.') && !document.querySelector('.squiggly-error')"
     )
     await checkReleaseNotesSanitization(window, errors)
+    await checkUpdateNotification(window, settings, updates)
     assert.deepEqual(errors, [])
     window.destroy()
     console.log(
-      'Electron smoke test passed: PR search, approval scope, renderer, empty and error layouts, title menus, sandboxed IPC, profile layout, themes, zoom, creation, filter validation and completion, editor remount, and release-note sanitization'
+      'Electron smoke test passed: PR search, approval scope, renderer, empty and error layouts, title menus, sandboxed IPC, profile layout, themes, zoom, creation, filter validation and completion, editor remount, release-note sanitization, and update states, retry, reload, keyboard installation, contrast, and reduced motion'
     )
   } catch (error) {
     console.error('Smoke test step:', pendingStep, error, errors)

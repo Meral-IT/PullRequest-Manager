@@ -258,8 +258,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     return result.filePaths[0]
   })
 
-  handleIPC('update:install-update', async (_e) => {
-    const updater = PullRequestUpdateManager.getInstance()
-    await updater.downloadUpdate()
-  })
+  handleIPC('update:get-state', () => PullRequestUpdateManager.getInstance().getState())
+  handleIPC('update:download-update', () => PullRequestUpdateManager.getInstance().downloadUpdate())
+  handleIPC('update:install-update', () => PullRequestUpdateManager.getInstance().installUpdate())
 }

@@ -73,6 +73,7 @@ export function createAppWindow(): BrowserWindow {
 
   // Hide the window instead of closing it, so it can be reopened quickly
   mainWindow.on('close', (e) => {
+    if (PullRequestUpdateManager.getInstance().isQuittingForUpdate()) return
     e.preventDefault()
     mainWindow?.hide()
   })
