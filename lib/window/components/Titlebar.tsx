@@ -14,84 +14,28 @@ import {
   Tooltip,
 } from '@fluentui/react-components'
 import { DismissFilled, LineHorizontal1Filled, MaximizeFilled } from '@fluentui/react-icons'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
-import { useTitlebarContext } from './TitlebarContext'
 import { useWindowContext } from './WindowContext'
 
 const useStyles = makeStyles({
   titlebar: {
     backgroundColor: tokens.colorNeutralBackground3,
-    height: '40px',
-  },
-  titleBarMenu: {
-    display: 'flex',
-    flexDirection: 'row',
-    gap: '2px',
-    position: 'absolute',
-    top: '9px',
-    left: '42px',
-    '-webkit-app-region': 'no-drag',
-  },
-  titleBarTitle: {
-    display: 'flex',
-    flexDirection: 'row',
-    gap: '2px',
-    position: 'absolute',
-    top: '9px',
-    left: '42px',
-    '-webkit-app-region': 'no-drag',
-  },
-  icon: {
-    left: 0,
-    top: 0,
-    width: '42px',
-    height: '100%',
-    padding: '0 10px',
-    boxSizing: 'border-box',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-
-    '& img': {
-      width: '24px',
-      height: '24px',
-    },
   },
 })
 
 export const Titlebar = () => {
   const styles = useStyles()
-  const { title, icon, menuItems } = useWindowContext().titlebar
-  const { menusVisible, setMenusVisible, closeActiveMenu } = useTitlebarContext()
+  const { title, icon } = useWindowContext().titlebar
   const [loaderVisible, setLoaderVisible] = useState(false)
   const wcontext = useWindowContext().window
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && menuItems?.length) {
-        // Ignore repeated keydown events
-        if (e.repeat) return
-        // Close active menu if it's open
-        if (menusVisible) closeActiveMenu()
-        setMenusVisible(!menusVisible)
-      }
-    }
-
-    // Add event listener for Alt key
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [menusVisible])
 
   useEffect(() => {
     return globalThis.api.receive('loading', (event) => {
       setLoaderVisible(event.isLoading)
     })
-  }, [loaderVisible])
+  }, [])
 
   const titleSpinner = loaderVisible ? (
     <Tooltip content={'Loading...'} relationship="label" withArrow>
@@ -99,71 +43,41 @@ export const Titlebar = () => {
     </Tooltip>
   ) : null
 
-  // TODO: Implement centered title
   return (
-    <div className={['window-titlebar', styles.titlebar].join(' ')}>
+    <div className={['window-titlebar', styles.titlebar].join(' ')} data-platform={wcontext?.platform ?? 'darwin'}>
       {wcontext?.platform === 'win32' && (
-        <div className={styles.icon}>
+        <div className="window-titlebar-icon">
           <img src={icon} alt="PullRequest-Manager Logo" />
         </div>
       )}
 
-      <div className={styles.titleBarTitle} style={{ visibility: menusVisible ? 'hidden' : 'visible' }}>
-        <Button iconPosition="after" icon={titleSpinner} appearance="subtle" size="small">
+      <div className="window-titlebar-title">
+        <span className="window-titlebar-title-text" title={title}>
           {title}
-        </Button>
+        </span>
+        {titleSpinner}
       </div>
-      {menusVisible && <TitlebarMenu />}
+      <TitlebarMenu />
       {wcontext?.platform === 'win32' && <TitlebarControls />}
     </div>
   )
 }
 
 function TitlebarMenu() {
-  const styles = useStyles()
   const { menuItems } = useWindowContext().titlebar
 
-  // If there are no menu items, hide the menu
-  if (!menuItems) return null
+  if (!menuItems?.length) return null
 
   return (
-    <div className={styles.titleBarMenu}>
-      {menuItems?.map((menu, index) => (
-        <TitlebarMenuItem key={menu.name} menu={menu} index={index} />
+    <nav className="window-titlebar-menu" aria-label="Application menu">
+      {menuItems.map((menu) => (
+        <TitlebarMenuItem key={menu.name} menu={menu} />
       ))}
-    </div>
+    </nav>
   )
 }
 
-function TitlebarMenuItem({ menu, index }: Readonly<{ menu: TitlebarMenu; index: number }>) {
-  const { activeMenuIndex, setActiveMenuIndex } = useTitlebarContext()
-  const menuItemRef = useRef<HTMLDivElement | null>(null)
-
-  const handleClickOutside = (event: MouseEvent) => {
-    if (
-      menuItemRef.current &&
-      !menuItemRef.current.contains(event.target as Node) &&
-      menuItemRef.current.classList.contains('active')
-    ) {
-      setActiveMenuIndex(null)
-    }
-  }
-
-  useEffect(() => {
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (activeMenuIndex === index) {
-      menuItemRef.current?.classList.add('active')
-    } else {
-      menuItemRef.current?.classList.remove('active')
-    }
-  }, [activeMenuIndex])
-
+function TitlebarMenuItem({ menu }: Readonly<{ menu: TitlebarMenu }>) {
   return (
     <Menu>
       <MenuTrigger disableButtonEnhancement>
@@ -174,32 +88,22 @@ function TitlebarMenuItem({ menu, index }: Readonly<{ menu: TitlebarMenu; index:
 
       <MenuPopover>
         <MenuList>
-          <TitlebarMenuPopup menu={menu} />
+          {menu.items.map((item) => (
+            <TitlebarMenuPopupItem key={item.name} item={item} />
+          ))}
         </MenuList>
       </MenuPopover>
     </Menu>
   )
 }
 
-const TitlebarMenuPopup = ({ menu }: { menu: TitlebarMenu }) => {
-  return (
-    <div>
-      {menu.items.map((item) => (
-        <TitlebarMenuPopupItem key={item.name} item={item} />
-      ))}
-    </div>
-  )
-}
-
 const TitlebarMenuPopupItem = ({ item }: { item: TitlebarMenuItem }) => {
-  const { setActiveMenuIndex } = useTitlebarContext()
   const nav = useNavigate()
 
   function handleAction() {
     // Check if the item has a valid action callback
     if (typeof item.actionCallback === 'function') {
       item.actionCallback()
-      setActiveMenuIndex(null)
       return
     } else if (item.action === 'navigate' && item.actionParams) {
       // Navigate to the provided route
@@ -210,7 +114,6 @@ const TitlebarMenuPopupItem = ({ item }: { item: TitlebarMenuItem }) => {
 
     // Invoke the action with the provided parameters
     globalThis.api.invoke(item.action!, ...(item.actionParams ? item.actionParams : []))
-    setActiveMenuIndex(null)
   }
 
   if (item.name === '---') {

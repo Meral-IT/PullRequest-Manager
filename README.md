@@ -32,6 +32,9 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
 - 🔔 **Desktop Notifications** – Get notified when new pull requests arrive, with optional sound alerts.
 
+The title bar always shows File, Edit, View, Window, and Credits; no Alt key is required. On narrow windows,
+the menus move below the title. macOS window buttons have their own space to the left of the title.
+
 ## Profile Filters
 
 Open a profile in Settings to edit its filter with JSON completion, hover help, formatting, and inline errors. Filters are checked against the supported fields and values, including nested author and reviewer conditions. Unknown properties and invalid filters block saving until repaired.

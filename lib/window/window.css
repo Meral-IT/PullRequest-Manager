@@ -15,41 +15,86 @@
 }
 
 .window-titlebar {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr) auto;
+  grid-template-areas: 'icon title menu . controls';
+  grid-template-rows: 40px;
+  align-items: center;
+  column-gap: 8px;
+  padding-right: 8px;
+  flex-shrink: 0;
   -webkit-app-region: drag;
 }
 
+.window-titlebar[data-platform='darwin']::before {
+  content: '';
+  grid-area: icon;
+  width: 96px;
+  height: 40px;
+}
+
+.window-titlebar[data-platform='win32'] {
+  padding-right: 0;
+}
+
 .window-titlebar-icon {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: var(--window-title-margin);
-  height: 100%;
-  padding: 0 10px;
-  box-sizing: border-box;
+  grid-area: icon;
+  width: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.window-titlebar-title {
-  display: flex;
-  flex: 1;
-  font-size: var(--window-titlebar-font-size);
-  margin-left: var(--window-title-margin);
-  font-weight: var(--window-titlebar-font-weight, normal);
-  padding-left: 4px;
+.window-titlebar-icon img {
+  width: 24px;
+  height: 24px;
 }
 
-.window-titlebar-title[data-centered] {
-  text-align: center;
-  padding-left: 0;
-  margin: 0;
+.window-titlebar-title {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.window-titlebar-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-titlebar-title .fui-Spinner {
+  flex-shrink: 0;
+}
+
+.window-titlebar-menu {
+  grid-area: menu;
+  display: flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
 }
 
 .window-titlebar-controls {
+  grid-area: controls;
   display: flex;
-  position: absolute;
-  right: 0;
-  top: 0;
   -webkit-app-region: no-drag;
+}
+
+@media (width < 640px) {
+  .window-titlebar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'icon title controls'
+      'menu menu menu';
+    grid-template-rows: 40px auto;
+    padding-right: 0;
+  }
+
+  .window-titlebar-menu {
+    flex-wrap: wrap;
+    padding: 0 8px 8px;
+  }
 }
