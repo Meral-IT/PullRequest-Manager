@@ -660,6 +660,28 @@ async function checkTitlebarMenus(window) {
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
   await clickElement(window, '[role="menuitem"]', 'Actual Size')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+
+  assert.equal((await window.webContents.executeJavaScript("globalThis.api.invoke('update:get-state')")).status, 'idle')
+  const releaseUrls = []
+  ipcMain.handle('web-open-url', (_event, url) => {
+    releaseUrls.push(url)
+  })
+  try {
+    await clickElement(window, '.window-titlebar button', 'View')
+    await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="menuitem"]')).some(item => item.textContent === 'Release notes')`
+      ),
+      true,
+      'Release notes remain available without an update'
+    )
+    await clickElement(window, '[role="menuitem"]', 'Release notes')
+    await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+    assert.deepEqual(releaseUrls, ['https://github.com/Meral-IT/PullRequest-Manager/releases'])
+  } finally {
+    ipcMain.removeHandler('web-open-url')
+  }
 }
 
 async function checkPrSearch(window, settings) {

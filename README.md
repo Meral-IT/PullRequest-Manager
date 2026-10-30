@@ -53,6 +53,7 @@ the download; the app waits for **Restart & update** before installing. If downl
 use the panel's retry action. A downloaded update remains available if you reload or hide the window.
 Dismiss the available-update panel with its **×** button. The blue **Update available** button in the title bar
 stays visible; select it to bring back the panel and start downloading.
+Choose **View → Release notes** to open the complete release history in your browser, even when no update is available.
 
 ## Profile Filters
 
