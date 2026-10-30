@@ -587,7 +587,7 @@ export class AzureDevOpsService {
     const url = new URL(settings.organizationUrl)
     const organization = url.hostname.endsWith('.visualstudio.com')
       ? url.hostname.slice(0, -'.visualstudio.com'.length)
-      : decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) ?? url.hostname)
+      : decodeURIComponent(url.pathname.split('/').findLast(Boolean) ?? url.hostname)
     return {
       id: pr.pullRequestId,
       author: {

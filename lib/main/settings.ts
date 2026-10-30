@@ -177,11 +177,10 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
     ...normalized,
     azDoIntegrations: normalized.azDoIntegrations.map((integration) => {
       const previous = cachedSettings?.azDoIntegrations.find((item) => item.id === integration.id)
-      const acknowledgedScopeRequirements = previous
-        ? sameAzureDevOpsConnection(integration, previous)
-          ? (integration.acknowledgedScopeRequirements ?? previous.acknowledgedScopeRequirements)
-          : undefined
-        : integration.acknowledgedScopeRequirements
+      const acknowledgedScopeRequirements =
+        previous && !sameAzureDevOpsConnection(integration, previous)
+          ? undefined
+          : (integration.acknowledgedScopeRequirements ?? previous?.acknowledgedScopeRequirements)
       return { ...integration, acknowledgedScopeRequirements }
     }),
   }

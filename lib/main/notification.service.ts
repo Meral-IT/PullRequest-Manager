@@ -9,7 +9,7 @@ import { FilterEvaluator, PullRequestFilter } from '../models/ui-filter.model'
 export class NotificationService {
   private static instance: NotificationService
   private lastNotificationTime: Date = new Date()
-  private notified = new Set<string>()
+  private readonly notified = new Set<string>()
   private settings: GeneralSettings | null = null
   private filters: PullRequestFilter[] = []
 

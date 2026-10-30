@@ -1,8 +1,8 @@
-import { pullRequestKey } from '@/lib/models/pull-request.model'
 import { defaultProfileSorting, PrProfile } from '@/lib/models/pr-profile'
 import { PrVote } from '@/lib/models/pr-vote'
 import {
   PullRequest,
+  pullRequestKey,
   PullRequestMergeStatus,
   PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,

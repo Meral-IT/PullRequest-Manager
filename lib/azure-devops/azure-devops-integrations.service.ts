@@ -13,10 +13,11 @@ import { AzureDevOpsService } from './azure-devops.service'
 export class AzureDevOpsIntegrationsService {
   private static instance: AzureDevOpsIntegrationsService
   public static getInstance(): AzureDevOpsIntegrationsService {
-    return (this.instance ??= new AzureDevOpsIntegrationsService())
+    this.instance ??= new AzureDevOpsIntegrationsService()
+    return this.instance
   }
 
-  private services = new Map<string, { settings: AzDoIntegration; service: AzureDevOpsService }>()
+  private readonly services = new Map<string, { settings: AzDoIntegration; service: AzureDevOpsService }>()
   private active = false
   private configuring = false
 
