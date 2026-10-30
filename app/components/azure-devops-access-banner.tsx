@@ -3,7 +3,11 @@ import { Button, MessageBar, MessageBarActions, MessageBarBody, MessageBarTitle 
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-export default function AzureDevOpsAccessBanner({ access }: Readonly<{ access?: AzureDevOpsAccess }>) {
+export default function AzureDevOpsAccessBanner({
+  access,
+  integrationId,
+  name,
+}: Readonly<{ access?: AzureDevOpsAccess; integrationId?: string; name?: string }>) {
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -19,6 +23,7 @@ export default function AzureDevOpsAccessBanner({ access }: Readonly<{ access?: 
     setError('')
     try {
       const saved = await globalThis.api.invoke('acknowledge-azure-devops-requirements', {
+        integrationId,
         requirementsFingerprint: access.requirementsFingerprint,
         connectionRevision: access.connectionRevision,
       })
@@ -39,6 +44,7 @@ export default function AzureDevOpsAccessBanner({ access }: Readonly<{ access?: 
     >
       <MessageBarBody>
         <MessageBarTitle>
+          {name && `${name}: `}
           {denied ? 'Azure DevOps access needs attention' : 'Review Azure DevOps scope requirements'}
         </MessageBarTitle>
         {requirements

@@ -1,3 +1,4 @@
+import { pullRequestKey } from '@/lib/models/pull-request.model'
 import { defaultProfileSorting, PrProfile } from '@/lib/models/pr-profile'
 import { PrVote } from '@/lib/models/pr-vote'
 import {
@@ -506,6 +507,7 @@ export default function PrList(props: Readonly<Props>) {
       </Menu>
       <DataGrid
         items={items}
+        getRowId={pullRequestKey}
         columns={columns}
         columnSizingOptions={columnSizingOptions}
         // selectionMode="multiselect"

@@ -7,4 +7,10 @@ export type PullRequestData = {
 
   error: ErrorDetail | null
   access?: AzureDevOpsAccess
+  integrations?: {
+    id: string
+    name: string
+    access?: AzureDevOpsAccess
+    error: ErrorDetail | null
+  }[]
 }

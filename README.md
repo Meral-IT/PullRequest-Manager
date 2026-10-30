@@ -44,11 +44,34 @@ Each control's **×** resets its value. The **×** at the end clears all filters
 **Escape** resets all filters without hiding it. Toggling the filter icon keeps filters active,
 as indicated by the highlighted icon. The profile's **Approve all** action includes only matching PRs.
 
+You can manage multiple connections under **Settings → Integrations** in the left navigation. Select a connection to
+edit it, or choose **Add Integration**, give the new connection a name, and enter its organization URL, project name or ID, and PAT. Refresh intervals, smart approval,
+validation, and scope acknowledgements apply to each connection separately. Use **Save Settings** to apply additions,
+edits, or removals. Existing Azure DevOps settings migrate automatically on first launch, keeping PATs encrypted.
+
+PRs from all connections appear together. Overlapping connections produce one row per PR; votes use the first
+connection that supplied that row. Matching PR numbers in different organizations remain separate. A failed connection
+shows its own error while PRs from healthy connections remain available.
+
 ## Profile Filters
 
 Open a profile in Settings to edit its filter with JSON completion, hover help, formatting, and inline errors. Filters are checked against the supported fields and values, including nested author and reviewer conditions. Unknown properties and invalid filters block saving until repaired.
 
 Leave the filter blank to include all pull requests. Previously saved invalid filters match no pull requests until corrected; opening Settings keeps them available for repair.
+
+Use the provider-neutral `organization` and `project` fields to select names or IDs. Each supports the same `AND`/`OR`
+combinations as other filters; supplying both `name` and `id` in one condition requires both to match. Names match exactly.
+For example:
+
+```json
+{
+  "op": "AND",
+  "filters": [
+    { "organization": { "op": "OR", "filters": [{ "name": "my-organization" }] } },
+    { "project": { "op": "OR", "filters": [{ "name": "Platform" }, { "id": "project-id" }] } }
+  ]
+}
+```
 
 Edit a profile's JSON filter in Settings. To find PRs you have not approved, including rejected, waiting-for-author, and unvoted reviews, use:
 

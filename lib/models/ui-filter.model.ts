@@ -4,7 +4,7 @@ import { getProfileFilterErrors } from './profile-filter.schema'
 import { PullRequest, Reviewer } from './pull-request.model'
 import { User } from './user.model'
 
-export interface PullRequestFilter extends CombinationFilter<FilterNode> { }
+export interface PullRequestFilter extends CombinationFilter<FilterNode> {}
 
 export interface FilterNode {
   author?: CombinationFilter<UserFilter>
@@ -12,6 +12,13 @@ export interface FilterNode {
   isDraft?: boolean
   targetBranch?: CombinationFilter<string>
   sourceBranch?: CombinationFilter<string>
+  organization?: CombinationFilter<ResourceFilter>
+  project?: CombinationFilter<ResourceFilter>
+}
+
+export interface ResourceFilter {
+  name?: string
+  id?: string
 }
 
 export interface UserFilter {
@@ -35,17 +42,17 @@ export interface CombinationFilter<TFilter> {
 
 export class FilterEvaluator {
   public static evaluate(data: PullRequest[], filter: string | PullRequestFilter): PullRequest[] {
-    let parsedFilter: PullRequestFilter;
+    let parsedFilter: PullRequestFilter
 
     if (typeof filter === 'string') {
       if (!filter.trim()) return data
       try {
-        parsedFilter = JSON.parse(filter);
+        parsedFilter = JSON.parse(filter)
       } catch {
         return []
       }
     } else {
-      parsedFilter = filter;
+      parsedFilter = filter
     }
 
     if (getProfileFilterErrors(parsedFilter).length) return []
@@ -67,24 +74,37 @@ export class FilterEvaluator {
       ((!filter.author || this.evaluateAuthor(pr, filter.author)) &&
         (!filter.reviewers || this.evaluateReviewers(pr, filter.reviewers)) &&
         (filter.isDraft === undefined || pr.isDraft === filter.isDraft) &&
+        (!filter.organization ||
+          this.evaluateResource(pr.details.organization, pr.details.organizationId, filter.organization)) &&
+        (!filter.project || this.evaluateResource(pr.details.project, pr.details.projectId, filter.project)) &&
         (!filter.targetBranch || this.evaluateTargetBranch(pr, filter.targetBranch)) &&
         (!filter.sourceBranch || this.evaluateSourceBranch(pr, filter.sourceBranch))) ??
       false
     )
   }
 
+  private static evaluateResource(
+    name: string | undefined,
+    id: string | undefined,
+    filter: CombinationFilter<ResourceFilter>
+  ): boolean {
+    const matches = (resource: ResourceFilter) =>
+      (resource.name === undefined || resource.name === name) && (resource.id === undefined || resource.id === id)
+    return filter.op === 'AND' ? filter.filters.every(matches) : filter.filters.some(matches)
+  }
+
   private static evaluateTargetBranch(pr: PullRequest, filter: CombinationFilter<string>): boolean {
-    const prBranch = normalizeBranch(pr.details.targetBranch);
+    const prBranch = normalizeBranch(pr.details.targetBranch)
     return filter.op === 'AND'
       ? filter.filters.every((f) => prBranch === normalizeBranch(f))
-      : filter.filters.some((f) => prBranch === normalizeBranch(f));
+      : filter.filters.some((f) => prBranch === normalizeBranch(f))
   }
 
   private static evaluateSourceBranch(pr: PullRequest, filter: CombinationFilter<string>): boolean {
-    const prBranch = normalizeBranch(pr.details.branch);
+    const prBranch = normalizeBranch(pr.details.branch)
     return filter.op === 'AND'
       ? filter.filters.every((f) => prBranch === normalizeBranch(f))
-      : filter.filters.some((f) => prBranch === normalizeBranch(f));
+      : filter.filters.some((f) => prBranch === normalizeBranch(f))
   }
 
   private static evaluateAuthor(pr: PullRequest, filter: CombinationFilter<UserFilter>): boolean {
@@ -104,7 +124,7 @@ export class FilterEvaluator {
       ((!filter.user || this.evaluateUser(reviewer.user, filter.user)) &&
         (!filter.isRequired || reviewer.isRequired) &&
         (filter.vote === undefined || reviewer.vote === filter.vote) &&
-        (filter.isApproved === undefined || (reviewer.vote > PrVote.NoVote) === filter.isApproved)) ??
+        (filter.isApproved === undefined || reviewer.vote > PrVote.NoVote === filter.isApproved)) ??
       false
     )
   }

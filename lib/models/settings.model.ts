@@ -9,6 +9,11 @@ export interface AzDoSettings {
   acknowledgedScopeRequirements?: string
 }
 
+export interface AzDoIntegration extends AzDoSettings {
+  id: string
+  name: string
+}
+
 export interface AppearanceSettings {
   theme: 'system' | 'light' | 'dark'
   tableSize: TableSize
@@ -30,6 +35,6 @@ export interface GeneralSettings {
 export interface SettingsModel {
   general: GeneralSettings
   appearance: AppearanceSettings
-  azDo: AzDoSettings
+  azDoIntegrations: AzDoIntegration[]
   profiles: PrProfile[]
 }

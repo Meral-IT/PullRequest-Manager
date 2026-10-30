@@ -14,7 +14,7 @@ import shutDown from '@/resources/tray/shut-down.png?asset'
 import tableLayout from '@/resources/tray/table-layout.png?asset'
 import { app, BrowserWindow, Menu, MenuItem, nativeImage, NativeImage, nativeTheme, Tray } from 'electron'
 import log from 'electron-log/main'
-import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
+import { AzureDevOpsIntegrationsService } from '../azure-devops/azure-devops-integrations.service'
 import { PrProfile } from '../models/pr-profile'
 import { getAzureDevOpsAccessFailure } from '../models/azure-devops-access'
 import loader from '../tools/loading.service'
@@ -83,7 +83,7 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
       icon: createMenuImage(refresh),
       enabled: !loader.isLoading,
       click: () =>
-        AzureDevOpsService.getInstance()
+        AzureDevOpsIntegrationsService.getInstance()
           .updateDataImmediately()
           .catch((error) => {
             log.error('Failed to refresh pull requests', getAzureDevOpsAccessFailure(error).message)
@@ -117,7 +117,7 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
             label: profile.label,
             type: 'normal',
             click: () => {
-              AzureDevOpsService.getInstance()
+              AzureDevOpsIntegrationsService.getInstance()
                 .approvePullRequestsForProfile(profile)
                 .catch((error) => {
                   log.error('Failed to approve pull requests', getAzureDevOpsAccessFailure(error).message)

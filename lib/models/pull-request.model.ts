@@ -46,6 +46,10 @@ export type DetailsCell = {
   repositoryId: string
   repository: string
   projectId: string
+  project?: string
+  organization?: string
+  organizationId?: string
+  organizationUrl?: string
   branch: string
   targetBranch: string
   isDraft?: boolean
@@ -69,6 +73,7 @@ export type ReviewerState = {
 
 export type PullRequest = {
   id: number
+  integrationId?: string
   author: User
   creationDate?: Date
   lastUpdated: LastUpdatedCell
@@ -79,6 +84,17 @@ export type PullRequest = {
   mergeStatus: PullRequestMergeStatus
   mergeFailureMessage?: string
   evaluations: PullRequestPolicyEvaluationRecord[]
+}
+
+export function pullRequestKey(pr: PullRequest): string {
+  return JSON.stringify([
+    pr.details.organizationId ||
+      pr.details.organizationUrl?.replace(/\/$/, '').toLowerCase() ||
+      pr.integrationId ||
+      pr.urls.web.replace(/\/_git\/.*$/, '').toLowerCase(),
+    pr.details.repositoryId,
+    pr.id,
+  ])
 }
 
 export type PullRequestPolicyEvaluationRecord = {

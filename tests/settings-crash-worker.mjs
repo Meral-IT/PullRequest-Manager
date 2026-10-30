@@ -34,7 +34,10 @@ localRequire.cache[tray.id] = tray
 try {
   const settings = localRequire('./settings.js')
   const current = await settings.loadSettings()
-  await settings.saveSettings({ ...current, azDo: { ...current.azDo, project: 'replacement' } })
+  await settings.saveSettings({
+    ...current,
+    azDoIntegrations: [{ ...current.azDoIntegrations[0], project: 'replacement' }],
+  })
   throw new Error('Crash-test phase was never reached')
 } catch (error) {
   console.error(error)

@@ -9,7 +9,7 @@ test('settings saves publish immediately and handle a failed background refresh'
   const handlers = new Map()
   const published = []
   const errors = []
-  const settings = { general: {}, profiles: [], azDo: {}, appearance: { theme: 'light' } }
+  const settings = { general: {}, profiles: [], azDoIntegrations: [], appearance: { theme: 'light' } }
   const service = {
     setConfiguration: () => undefined,
     updateDataImmediately: () => Promise.reject(new Error('temporary outage')),
@@ -26,7 +26,8 @@ test('settings saves publish immediately and handle a failed background refresh'
       if (name === 'electron') return { ipcMain: { handle: (name, callback) => handlers.set(name, callback) } }
       if (name === 'electron-log/main') return { error: (...args) => errors.push(args) }
       if (name === '../main/settings') return { saveSettings: async () => settings }
-      if (name === '../azure-devops/azure-devops.service') return { AzureDevOpsService: { getInstance: () => service } }
+      if (name === '../azure-devops/azure-devops-integrations.service')
+        return { AzureDevOpsIntegrationsService: { getInstance: () => service } }
       if (name === '../main/notification.service')
         return { NotificationService: { getInstance: () => ({ setSettings: () => undefined }) } }
       if (name === '../models/azure-devops-access')

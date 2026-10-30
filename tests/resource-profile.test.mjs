@@ -10,7 +10,7 @@ test('profile fixtures are deterministic, bounded and span multiple identity bat
     assert.equal(prs.length, count)
     assert.equal(new Set(prs.map((pr) => pr.pullRequestId)).size, count)
     assert.equal(fixture.groups.length, 65)
-    assert.equal(fixtureSettings.azDo.pat, '')
+    assert.equal(fixtureSettings.azDoIntegrations[0].pat, '')
     assert.equal(fixtureSettings.general.openAtLogin, false)
     assert.deepEqual(prs, await (await createFixture({ count }).api.getGitApi()).getPullRequestsByProject())
   }

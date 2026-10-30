@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { defaultProfiles } from '../models/pr-profile'
 import { getProfileFilterErrors } from '../models/profile-filter.schema'
 import { SettingsModel, TableSize } from '../models/settings.model'
@@ -17,13 +18,7 @@ const defaultSettings: SettingsModel = {
     notificationSound: false,
     repositoriesRootDirectory: '',
   },
-  azDo: {
-    organizationUrl: '',
-    project: '',
-    pat: '',
-    updateInterval: 180,
-    intelligentApproval: true,
-  },
+  azDoIntegrations: [],
   appearance: {
     theme: 'system',
     tableSize: TableSize.Small,
@@ -49,7 +44,23 @@ function encryptString(input: string): string {
 
 function parseSettings(data: string): SettingsModel {
   const loaded = JSON.parse(data)
-  loaded.azDo.pat = loaded.azDo.pat ? decryptString(loaded.azDo.pat) : ''
+  if (!('azDoIntegrations' in loaded)) {
+    // The previous settings form stored edited intervals as strings.
+    const interval = Number(loaded.azDo?.updateInterval)
+    loaded.azDoIntegrations = loaded.azDo
+      ? [
+          {
+            ...loaded.azDo,
+            id: randomUUID(),
+            name: loaded.azDo.project || 'Azure DevOps',
+            organizationUrl: loaded.azDo.organizationUrl || '',
+            project: loaded.azDo.project || '',
+            updateInterval: Number.isFinite(interval) && interval > 0 && interval <= 3000 ? interval : 180,
+          },
+        ]
+      : []
+  }
+  for (const integration of loaded.azDoIntegrations) integration.pat = decryptString(integration.pat)
   return normalizeSettings(loaded)
 }
 
@@ -136,45 +147,47 @@ export function saveSettings(input: SettingsModel): Promise<SettingsModel> {
 
 export async function acknowledgeAzureDevOpsRequirements(
   fingerprint: string,
-  connection: AzureDevOpsConnection
+  connection: AzureDevOpsConnection,
+  integrationId: string
 ): Promise<boolean> {
   await loadSettings()
   return enqueueSettingsWrite(async () => {
     const settings = cachedSettings!
-    if (!sameAzureDevOpsConnection(settings.azDo, connection)) return false
-    await writeSettings({ ...settings, azDo: { ...settings.azDo, acknowledgedScopeRequirements: fingerprint } })
+    const integration = settings.azDoIntegrations.find((item) => item.id === integrationId)
+    if (!integration || !sameAzureDevOpsConnection(integration, connection)) return false
+    await writeSettings({
+      ...settings,
+      azDoIntegrations: settings.azDoIntegrations.map((item) =>
+        item.id === integrationId ? { ...item, acknowledgedScopeRequirements: fingerprint } : item
+      ),
+    })
     return true
   })
 }
 
 async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
+  const normalized = normalizeSettings(input)
   for (const profile of input.profiles) {
     if (profile.filter === undefined) continue
     const errors = getProfileFilterErrors(profile.filter)
     if (errors.length) throw new Error(`Invalid filter for profile "${profile.label}": ${errors.join('; ')}`)
   }
 
-  let acknowledgement = input.azDo.acknowledgedScopeRequirements
-  if (cachedSettings) {
-    if (sameAzureDevOpsConnection(input.azDo, cachedSettings.azDo)) {
-      acknowledgement ??= cachedSettings.azDo.acknowledgedScopeRequirements
-    } else {
-      acknowledgement = undefined
-    }
+  const settings = {
+    ...normalized,
+    azDoIntegrations: normalized.azDoIntegrations.map((integration) => {
+      const previous = cachedSettings?.azDoIntegrations.find((item) => item.id === integration.id)
+      const acknowledgedScopeRequirements = previous
+        ? sameAzureDevOpsConnection(integration, previous)
+          ? (integration.acknowledgedScopeRequirements ?? previous.acknowledgedScopeRequirements)
+          : undefined
+        : integration.acknowledgedScopeRequirements
+      return { ...integration, acknowledgedScopeRequirements }
+    }),
   }
-  const settings = { ...input, azDo: { ...input.azDo, acknowledgedScopeRequirements: acknowledgement } }
-  await replaceSettings(
-    JSON.stringify(
-      {
-        ...settings,
-        azDo: { ...settings.azDo, pat: encryptString(settings.azDo.pat) },
-      },
-      null,
-      2
-    )
-  )
+  await persistSettings(settings)
 
-  cachedSettings = normalizeSettings(settings)
+  cachedSettings = settings
 
   app.setLoginItemSettings({
     openAtLogin: cachedSettings.general.openAtLogin,
@@ -183,6 +196,22 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
   updateTrayProfiles(cachedSettings.profiles)
 
   return cachedSettings
+}
+
+async function persistSettings(settings: SettingsModel): Promise<void> {
+  await replaceSettings(
+    JSON.stringify(
+      {
+        ...settings,
+        azDoIntegrations: settings.azDoIntegrations.map((integration) => ({
+          ...integration,
+          pat: encryptString(integration.pat),
+        })),
+      },
+      null,
+      2
+    )
+  )
 }
 
 export async function loadSettings(): Promise<SettingsModel> {
@@ -200,13 +229,34 @@ export async function loadSettings(): Promise<SettingsModel> {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return writeSettings(defaultSettings)
       throw error
     }
-    cachedSettings = parseSettings(data)
-    cachedSettings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
+    const settings = parseSettings(data)
+    settings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
+    // Migration preserves old invalid profile filters so Settings can still repair them.
+    if (!('azDoIntegrations' in JSON.parse(data))) await persistSettings(settings)
+    cachedSettings = settings
     return cachedSettings
   })
 }
 
 function normalizeSettings(input: SettingsModel): SettingsModel {
+  if (!Array.isArray(input.azDoIntegrations)) throw new Error('Azure DevOps integrations must be a list.')
+  const ids = new Set<string>()
+  for (const integration of input.azDoIntegrations) {
+    if (!integration || typeof integration.id !== 'string' || !integration.id || ids.has(integration.id))
+      throw new Error('Azure DevOps integrations must have unique IDs.')
+    ids.add(integration.id)
+    for (const field of ['name', 'organizationUrl', 'project', 'pat'] as const)
+      if (typeof integration[field] !== 'string') throw new Error(`Invalid integration ${field}.`)
+    if (integration.intelligentApproval !== undefined && typeof integration.intelligentApproval !== 'boolean')
+      throw new Error('Invalid integration smart approval setting.')
+    if (
+      integration.updateInterval !== undefined &&
+      (!Number.isFinite(integration.updateInterval) ||
+        integration.updateInterval <= 0 ||
+        integration.updateInterval > 3000)
+    )
+      throw new Error('Integration refresh interval must be greater than 0 and at most 3000 seconds.')
+  }
   const settings = {
     general: {
       openAtLogin: input.general?.openAtLogin || defaultSettings.general.openAtLogin,
@@ -215,23 +265,19 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       repositoriesRootDirectory:
         input.general?.repositoriesRootDirectory || defaultSettings.general.repositoriesRootDirectory,
     },
-    azDo: {
-      organizationUrl: input.azDo.organizationUrl || defaultSettings.azDo.organizationUrl,
-      project: input.azDo.project || defaultSettings.azDo.project,
-      pat: input.azDo.pat || defaultSettings.azDo.pat,
-      updateInterval: input.azDo.updateInterval || defaultSettings.azDo.updateInterval,
-      intelligentApproval: input.azDo.intelligentApproval ?? defaultSettings.azDo.intelligentApproval,
-      acknowledgedScopeRequirements: input.azDo.acknowledgedScopeRequirements,
-    },
+    azDoIntegrations: input.azDoIntegrations.map((integration) => ({
+      ...integration,
+      updateInterval: integration.updateInterval ?? 180,
+      intelligentApproval: integration.intelligentApproval ?? true,
+    })),
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance.theme,
       tableSize: input.appearance.tableSize || defaultSettings.appearance.tableSize,
     },
-    profiles: input.profiles || defaultSettings.profiles,
-  }
-
-  for (const profile of settings.profiles) {
-    profile.visible ??= true
+    profiles: (input.profiles || defaultSettings.profiles).map((profile) => ({
+      ...profile,
+      visible: profile.visible ?? true,
+    })),
   }
 
   return settings
