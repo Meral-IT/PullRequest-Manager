@@ -32,10 +32,16 @@ function waitForRenderer(window, condition, description = condition) {
   return window.webContents.executeJavaScript(`new Promise((resolve) => {
     const ready = () => (${condition})
     if (ready()) return resolve()
-    const observer = new MutationObserver(() => {
-      if (ready()) { observer.disconnect(); resolve() }
-    })
+    const check = () => {
+      if (ready()) {
+        observer.disconnect()
+        document.removeEventListener('focusin', check)
+        resolve()
+      }
+    }
+    const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+    document.addEventListener('focusin', check)
   })`)
 }
 
@@ -232,14 +238,17 @@ async function checkTitlebarMenus(window) {
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'File menu opens by mouse')
   pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+  await waitForRenderer(window, 'document.activeElement.innerText === "File"', 'Escape returns focus to File')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'File')
 
   pressKey(window, 'Tab')
+  await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Tab moves focus to Edit')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'Edit')
   pressKey(window, 'Enter')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu opens by Enter')
   pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+  await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Escape returns focus to Edit')
   pressKey(window, 'Space')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu reopens by Space')
   await clickElement(window, '.window-content', '')
