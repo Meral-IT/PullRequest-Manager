@@ -20,13 +20,17 @@ test('accepts an existing canonical smoke profile directly inside the temporary 
 
 test('refuses missing, relative, and noncanonical smoke profile paths', (t) => {
   const userData = temporaryDirectory(t)
+  const missing = temporaryDirectory(t)
+  rmSync(missing, { recursive: true })
   for (const candidate of [
     undefined,
     null,
     '',
     basename(userData),
+    missing,
     `${userData}/`,
     `${temporaryRoot}/./${basename(userData)}`,
+    `${userData}/../${basename(userData)}`,
   ]) {
     assert.throws(() => validateSmokeProfilePath(candidate), /Invalid smoke profile directory/)
   }

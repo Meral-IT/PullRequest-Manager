@@ -276,6 +276,29 @@ async function checkZeroDataLayout(window, allowScroll = false) {
   return layout
 }
 
+async function checkSettingsError(window, type) {
+  const error = {
+    type,
+    message: type === 'ConfigurationRequired' ? 'Configuration required' : 'Authentication required',
+    details: 'Please check your Azure DevOps integration settings.',
+    actionText: 'Azure DevOps Settings',
+    actionHref: '/settings/azure-devops',
+  }
+  window.webContents.send('pr-data', { items: [], error })
+  await waitForRenderer(
+    window,
+    `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`
+  )
+  await checkZeroDataLayout(window)
+  await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+  await waitForRenderer(
+    window,
+    "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+  )
+  await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+  await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+}
+
 async function checkTitlebarLayout(window, platform, width) {
   window.setContentSize(width, 670)
   await settleLayout(window)
@@ -1105,31 +1128,8 @@ async function runSmokeTest() {
     window.webContents.setZoomFactor(1)
     window.setContentSize(900, 670)
 
-    for (const type of ['ConfigurationRequired', 'Authentication']) {
-      const error = {
-        type,
-        message: type === 'ConfigurationRequired' ? 'Configuration required' : 'Authentication required',
-        details: 'Please check your Azure DevOps integration settings.',
-        actionText: 'Azure DevOps Settings',
-        actionHref: '/settings/azure-devops',
-      }
-      window.webContents.send('pr-data', { items: [], error })
-      await waitForRenderer(
-        window,
-        `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`
-      )
-      await checkZeroDataLayout(window)
-      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
-      await waitForRenderer(
-        window,
-        "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
-      )
-      await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
-      await waitForRenderer(
-        window,
-        "document.body.innerText.includes('Currently, no pull requests need your attention')"
-      )
-    }
+    await checkSettingsError(window, 'ConfigurationRequired')
+    await checkSettingsError(window, 'Authentication')
 
     window.webContents.send('pr-data', {
       items: [],

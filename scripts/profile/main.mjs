@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, session } from 'electron'
 import fs from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
+import { setInterval as interval, setTimeout as delay } from 'node:timers/promises'
 import { createFixture, summarizeSamples } from './fixtures.mjs'
 import { readProfileConfig } from './config.mjs'
 
@@ -36,12 +37,12 @@ async function finish(error) {
   await checkpoint()
   app.exit(error ? 1 : 0)
 }
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 async function waitFor(expression, label) {
   const deadline = performance.now() + 15000
-  while (performance.now() < deadline) {
+  if (await window.webContents.executeJavaScript(expression)) return
+  for await (const expires of interval(50, deadline)) {
+    if (performance.now() >= expires) break
     if (await window.webContents.executeJavaScript(expression)) return
-    await delay(50)
   }
   throw new Error(
     `Timed out: ${label}; renderer: ${await window.webContents.executeJavaScript('JSON.stringify({text:document.body.innerText.slice(-2000),selects:Array.from(document.querySelectorAll("select")).map(el=>({name:el.name,value:el.value}))})')}`
@@ -77,10 +78,96 @@ async function resources() {
 }
 let loader
 let getTrayManager
+async function runCycle(fixture, cycle) {
+  fixture.setMode('slow')
+  report.stage = 'refresh'
+  const before = fixture.stats().requests
+  const started = performance.now()
+  const pending = service.updateDataImmediately()
+  const during = service.updateDataImmediately()
+  const refreshStart = performance.now()
+  await interact(
+    'filter-show',
+    `document.querySelector('[aria-label="Filters"]').click()`,
+    `Boolean(document.querySelector('[aria-label="Search pull requests"]'))`
+  )
+  await interact(
+    'search',
+    `const input=document.querySelector('[aria-label="Search pull requests"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Fixture PR 00001'); input.dispatchEvent(new Event('input',{bubbles:true}))`
+  )
+  await interact(
+    'filter-branch-open',
+    `document.querySelector('[aria-label="Target branch"]').click()`,
+    `Boolean(document.querySelector('[role="option"]'))`
+  )
+  await interact(
+    'filter-branch-select',
+    `Array.from(document.querySelectorAll('[role="option"]')).find(el=>el.textContent==='${config.count ? 'main' : 'All target branches'}').click()`
+  )
+  await interact(
+    'filter-clear',
+    `document.querySelector('[aria-label="Clear all filters and hide filter bar"]').click()`
+  )
+  if (config.count) await interact('sort', `document.querySelector('[role="columnheader"]').click()`)
+  await interact(
+    'profile-review',
+    `Array.from(document.querySelectorAll('[role="tab"]')).find(el=>el.textContent.startsWith('Review')).click()`
+  )
+  await interact(
+    'profile-all',
+    `Array.from(document.querySelectorAll('[role="tab"]')).find(el=>el.textContent.startsWith('All')).click()`
+  )
+  report.stage = 'settings-navigation'
+  const navStart = performance.now()
+  await window.webContents.executeJavaScript("location.hash = '#/settings/appearance'")
+  await waitFor(`document.body.innerText.includes('Save Settings')`, 'settings navigation')
+  report.interactions.push({ name: 'settings-navigation', ms: performance.now() - navStart })
+  await waitFor(
+    `document.querySelector('select[name="appearanceTheme"]').value === '${cycle % 2 === 0 ? 'light' : 'dark'}'`,
+    'loaded settings theme'
+  )
+  await interact(
+    'settings-theme',
+    `const control=document.querySelector('select[name="appearanceTheme"]'); if(!control) throw new Error('Theme selector missing'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(control,'${cycle % 2 === 0 ? 'dark' : 'light'}'); control.dispatchEvent(new Event('input',{bubbles:true})); control.dispatchEvent(new Event('change',{bubbles:true}))`
+  )
+  await interact(
+    'settings-save',
+    `Array.from(document.querySelectorAll('button')).find(el=>el.textContent==='Save Settings').click()`,
+    `(async () => (await globalThis.api.invoke('get-settings')).appearance.theme === '${cycle % 2 === 0 ? 'dark' : 'light'}' && !document.body.innerText.includes('Saving settings') && !document.querySelector('[role="alert"]'))()`
+  )
+  const homeStart = performance.now()
+  await window.webContents.executeJavaScript("location.hash = '#/'")
+  await waitFor('Boolean(document.querySelector("[aria-label=Filters]"))', 'home navigation')
+  report.interactions.push({ name: 'home-navigation', ms: performance.now() - homeStart })
+  await Promise.all([pending, during])
+  fixture.setMode('healthy')
+  await service.updateDataImmediately()
+  await delay(200)
+  report.cycles.push({
+    cycle,
+    refreshMs: performance.now() - started,
+    duringRefreshMs: performance.now() - refreshStart,
+    requests: fixture.stats().requests - before,
+    resources: await resources(),
+  })
+  await checkpoint()
+}
+
+async function checkRecovery(fixture, mode) {
+  report.stage = mode
+  fixture.setMode(mode)
+  await service.updateDataImmediately()
+  if (!service.getPullRequests().error || loader.isLoading) throw new Error(`${mode}: missing error or stuck loading`)
+  fixture.setMode('healthy')
+  await service.updateDataImmediately()
+  if (service.getPullRequests().error || service.getPullRequests().items.length !== config.count || loader.isLoading)
+    throw new Error(`${mode}: recovery failed`)
+}
+
 async function run() {
   await app.whenReady()
   // Deny renderer HTTP traffic too; all synthetic SDK operations stay in process.
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) =>
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (_details, callback) =>
     callback({ cancel: true })
   )
   const fixture = createFixture({ count: config.count })
@@ -156,90 +243,12 @@ async function run() {
   report.stage = 'idle'
   await delay(1500)
   report.idle = summarizeSamples(report.samples.filter((sample) => sample.phase === 'idle'))
-  for (let cycle = 0; cycle < config.cycles; cycle++) {
-    fixture.setMode('slow')
-    report.stage = 'refresh'
-    const before = fixture.stats().requests
-    const started = performance.now()
-    const pending = service.updateDataImmediately()
-    const during = service.updateDataImmediately()
-    const refreshStart = performance.now()
-    await interact(
-      'filter-show',
-      `document.querySelector('[aria-label="Filters"]').click()`,
-      `Boolean(document.querySelector('[aria-label="Search pull requests"]'))`
-    )
-    await interact(
-      'search',
-      `const input=document.querySelector('[aria-label="Search pull requests"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Fixture PR 00001'); input.dispatchEvent(new Event('input',{bubbles:true}))`
-    )
-    await interact(
-      'filter-branch-open',
-      `document.querySelector('[aria-label="Target branch"]').click()`,
-      `Boolean(document.querySelector('[role="option"]'))`
-    )
-    await interact(
-      'filter-branch-select',
-      `Array.from(document.querySelectorAll('[role="option"]')).find(el=>el.textContent==='${config.count ? 'main' : 'All target branches'}').click()`
-    )
-    await interact(
-      'filter-clear',
-      `document.querySelector('[aria-label="Clear all filters and hide filter bar"]').click()`
-    )
-    if (config.count) await interact('sort', `document.querySelector('[role="columnheader"]').click()`)
-    await interact(
-      'profile-review',
-      `Array.from(document.querySelectorAll('[role="tab"]')).find(el=>el.textContent.startsWith('Review')).click()`
-    )
-    await interact(
-      'profile-all',
-      `Array.from(document.querySelectorAll('[role="tab"]')).find(el=>el.textContent.startsWith('All')).click()`
-    )
-    report.stage = 'settings-navigation'
-    const navStart = performance.now()
-    await window.webContents.executeJavaScript("location.hash = '#/settings/appearance'")
-    await waitFor(`document.body.innerText.includes('Save Settings')`, 'settings navigation')
-    report.interactions.push({ name: 'settings-navigation', ms: performance.now() - navStart })
-    await waitFor(
-      `document.querySelector('select[name="appearanceTheme"]').value === '${cycle === 0 ? 'light' : cycle % 2 === 0 ? 'light' : 'dark'}'`,
-      'loaded settings theme'
-    )
-    await interact(
-      'settings-theme',
-      `const control=document.querySelector('select[name="appearanceTheme"]'); if(!control) throw new Error('Theme selector missing'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(control,'${cycle % 2 === 0 ? 'dark' : 'light'}'); control.dispatchEvent(new Event('input',{bubbles:true})); control.dispatchEvent(new Event('change',{bubbles:true}))`
-    )
-    await interact(
-      'settings-save',
-      `Array.from(document.querySelectorAll('button')).find(el=>el.textContent==='Save Settings').click()`,
-      `(async () => (await globalThis.api.invoke('get-settings')).appearance.theme === '${cycle % 2 === 0 ? 'dark' : 'light'}' && !document.body.innerText.includes('Saving settings') && !document.querySelector('[role="alert"]'))()`
-    )
-    const homeStart = performance.now()
-    await window.webContents.executeJavaScript("location.hash = '#/'")
-    await waitFor('Boolean(document.querySelector("[aria-label=Filters]"))', 'home navigation')
-    report.interactions.push({ name: 'home-navigation', ms: performance.now() - homeStart })
-    await Promise.all([pending, during])
-    fixture.setMode('healthy')
-    await service.updateDataImmediately()
-    await delay(200)
-    report.cycles.push({
-      cycle,
-      refreshMs: performance.now() - started,
-      duringRefreshMs: performance.now() - refreshStart,
-      requests: fixture.stats().requests - before,
-      resources: await resources(),
-    })
-    await checkpoint()
-  }
-  for (const mode of ['offline', 'failing']) {
-    report.stage = mode
-    fixture.setMode(mode)
-    await service.updateDataImmediately()
-    if (!service.getPullRequests().error || loader.isLoading) throw new Error(`${mode}: missing error or stuck loading`)
-    fixture.setMode('healthy')
-    await service.updateDataImmediately()
-    if (service.getPullRequests().error || service.getPullRequests().items.length !== config.count || loader.isLoading)
-      throw new Error(`${mode}: recovery failed`)
-  }
+  // The validated workload uses three cycles on the same window and saved settings.
+  await runCycle(fixture, 0)
+  await runCycle(fixture, 1)
+  await runCycle(fixture, 2)
+  await checkRecovery(fixture, 'offline')
+  await checkRecovery(fixture, 'failing')
   report.stage = 'connection-replacement'
   fixture.setMode('slow')
   const stale = service.updateDataImmediately()
@@ -302,6 +311,16 @@ async function run() {
     cpuPercent: Math.round(sample.cpuPercent * 10) / 10,
   }))
 }
-run()
-  .then(() => finish())
-  .catch(finish)
+async function startProfile() {
+  try {
+    await run()
+  } catch (error) {
+    await finish(error)
+    return
+  }
+  await finish()
+}
+// Electron's ESM bootstrap must finish before readiness can fire.
+app.once('ready', () => {
+  startProfile().catch(() => app.exit(2))
+})

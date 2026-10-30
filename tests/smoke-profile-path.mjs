@@ -5,15 +5,16 @@ import { basename, join } from 'node:path'
 const temporaryRoot = realpathSync(tmpdir())
 
 export function validateSmokeProfilePath(userData) {
+  const directoryName = typeof userData === 'string' ? basename(userData) : ''
+  const profilePath = join(temporaryRoot, directoryName)
   if (
-    typeof userData !== 'string' ||
-    userData !== join(temporaryRoot, basename(userData)) ||
-    !/^pr-manager-smoke-[A-Za-z0-9]{6}$/.test(basename(userData)) ||
-    !lstatSync(userData, { throwIfNoEntry: false })?.isDirectory()
+    userData !== profilePath ||
+    !/^pr-manager-smoke-[A-Za-z0-9]{6}$/.test(directoryName) ||
+    !lstatSync(profilePath, { throwIfNoEntry: false })?.isDirectory()
   ) {
     throw new Error('Invalid smoke profile directory')
   }
-  return userData
+  return profilePath
 }
 
 export function withSmokeProfile(run) {

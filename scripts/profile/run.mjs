@@ -6,6 +6,7 @@ import { profileTemporaryRoot } from './config.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixtureSettings, evaluateBudgets, summarizeSamples } from './fixtures.mjs'
+import { profileToolPaths, sourceSha256 } from './tools.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
@@ -14,17 +15,16 @@ const output = path.resolve(
 )
 const selected = args.includes('--count') ? [Number(args[args.indexOf('--count') + 1])] : [0, 32, 1000, 10000]
 if (selected.some((count) => ![0, 32, 1000, 10000].includes(count))) throw new Error('Use --count 0, 32, 1000 or 10000')
-if (!['darwin', 'win32'].includes(process.platform)) throw new Error('Run on native macOS or Windows')
+const { gitExecutable, taskkillExecutable } = profileToolPaths(process.platform)
+const macDirectory = process.arch === 'arm64' ? 'mac-arm64' : 'mac'
 const executable =
   process.platform === 'darwin'
-    ? path.join(
-        root,
-        `dist/profile/mac${process.arch === 'arm64' ? '-arm64' : ''}/PullRequest-Manager.app/Contents/MacOS/PullRequest-Manager`
-      )
+    ? path.join(root, `dist/profile/${macDirectory}/PullRequest-Manager.app/Contents/MacOS/PullRequest-Manager`)
     : path.join(root, 'dist/profile/win-unpacked/PullRequest-Manager.exe')
 await fs.access(executable)
+if (process.platform === 'win32') await fs.access(taskkillExecutable)
 const sourceFiles = execFileSync(
-  'git',
+  gitExecutable,
   [
     'ls-files',
     '--cached',
@@ -46,11 +46,9 @@ const sourceFiles = execFileSync(
   .split('\0')
   .filter(Boolean)
   .sort()
-const sourceHash = createHash('sha256')
-for (const file of sourceFiles) sourceHash.update(file).update(await fs.readFile(path.join(root, file)))
 const report = {
   schema: 1,
-  sourceSha256: sourceHash.digest('hex'),
+  sourceSha256: await sourceSha256(root, sourceFiles),
   appAsarSha256: createHash('sha256')
     .update(
       await fs.readFile(
@@ -70,8 +68,8 @@ const report = {
     memoryGiB: os.totalmem() / 1024 ** 3,
   },
   appVersion: JSON.parse(await fs.readFile(path.join(root, 'package.json'))).version,
-  revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-  dirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()),
+  revision: execFileSync(gitExecutable, ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+  dirty: Boolean(execFileSync(gitExecutable, ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()),
   methodology:
     'Separate packaged profile main; real renderer/preload/window/tray/IPC/settings/service. SDK calls replaced by deterministic in-process synthetic requests (1ms healthy, 25ms slow), no wire latency or retries. RSS/CPU sum Electron getAppMetrics; controls use two animation frames and readiness predicates; navigation uses DOM readiness only. DOM/listeners after explicit renderer GC. Not a live Azure/network benchmark.',
   limits: { processTimeoutMs: 120000, stepTimeoutMs: 15000, residentMemoryMiB: 2560 },
@@ -112,7 +110,8 @@ profiles: for (const count of selected) {
     let timedOut = false
     const kill = () => {
       if (!child.pid) return
-      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      if (process.platform === 'win32')
+        spawn(taskkillExecutable, ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
       else {
         try {
           process.kill(-child.pid, 'SIGKILL')

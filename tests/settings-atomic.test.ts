@@ -1,3 +1,5 @@
+/// <reference types="electron-vite/node" />
+
 import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
 import { once } from 'node:events'
@@ -9,6 +11,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
+import type * as Settings from '../lib/main/settings'
 import type { SettingsModel } from '../lib/models/settings.model'
 
 const original: SettingsModel = {
@@ -24,10 +27,7 @@ function settingsModule(directory: string, overrides: Partial<typeof fs> = {}, p
   }).outputText
   const localRequire = createRequire(path.join(__dirname, '../lib/main/settings.js'))
   const result = {
-    exports: {} as {
-      saveSettings(input: SettingsModel): Promise<SettingsModel>
-      loadSettings(): Promise<SettingsModel>
-    },
+    exports: {} as Pick<typeof Settings, 'saveSettings' | 'loadSettings'>,
   }
   let effects = 0
   runInNewContext(source, {
@@ -260,6 +260,7 @@ for (const phase of ['before', 'after']) {
     const file = path.join(directory, 'settings.json')
     await fs.writeFile(file, JSON.stringify(original), { mode: 0o600 })
     const child = fork(path.resolve('tests/settings-crash-worker.mjs'), [directory, phase], {
+      cwd: directory,
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     })
     t.after(() => {
