@@ -31,6 +31,10 @@ import {
   MenuList,
   MenuPopover,
   MenuTrigger,
+  MessageBar,
+  MessageBarBody,
+  MessageBarTitle,
+  MessageBarActions,
   Overflow,
   OverflowItem,
   Option,
@@ -50,11 +54,37 @@ import {
   PersonRegular,
   ThumbLikeFilled,
 } from '@fluentui/react-icons'
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import './pull-requests.scss'
 
 function PullRequestErrors(error: Readonly<ErrorDetail>) {
   return <ErrorComponent error={error} />
+}
+
+function IntegrationNotices({ data }: Readonly<{ data: PullRequestData }>) {
+  const navigate = useNavigate()
+  if (!data.integrations) return <AzureDevOpsAccessBanner access={data.access} />
+  return data.integrations.map(({ id, name, access, error }) => (
+    <Fragment key={id}>
+      <AzureDevOpsAccessBanner access={access} integrationId={id} name={name} />
+      {error && (
+        <MessageBar intent="error" role="alert" layout="multiline">
+          <MessageBarBody>
+            <MessageBarTitle>
+              {name}: {error.message}
+            </MessageBarTitle>
+            {error.details}
+          </MessageBarBody>
+          {error.actionHref && (
+            <MessageBarActions>
+              <Button onClick={() => navigate(error.actionHref!)}>{error.actionText ?? 'Integration settings'}</Button>
+            </MessageBarActions>
+          )}
+        </MessageBar>
+      )}
+    </Fragment>
+  ))
 }
 
 function TabHeaderMenu({
@@ -301,7 +331,7 @@ export default function PullRequestsOverview() {
   if (pullRequests.error) {
     return (
       <div className="container">
-        <AzureDevOpsAccessBanner access={pullRequests.access} />
+        <IntegrationNotices data={pullRequests} />
         {PullRequestErrors(pullRequests.error)}
       </div>
     )
@@ -388,7 +418,7 @@ export default function PullRequestsOverview() {
         onOpenChange={onOpenChange}
       />
       <div className="container">
-        <AzureDevOpsAccessBanner access={pullRequests.access} />
+        <IntegrationNotices data={pullRequests} />
         <div className="section">
           <div className="content header pr-list-header">
             <div className="pr-profile-tabs">

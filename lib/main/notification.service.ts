@@ -2,13 +2,14 @@ import { Notification, shell } from 'electron'
 import log from 'electron-log/main'
 import { getTrayManager } from '../main/tray'
 import { PrProfile } from '../models/pr-profile'
-import { PullRequest } from '../models/pull-request.model'
+import { PullRequest, pullRequestKey } from '../models/pull-request.model'
 import { GeneralSettings } from '../models/settings.model'
 import { FilterEvaluator, PullRequestFilter } from '../models/ui-filter.model'
 
 export class NotificationService {
   private static instance: NotificationService
   private lastNotificationTime: Date = new Date()
+  private readonly notified = new Set<string>()
   private settings: GeneralSettings | null = null
   private filters: PullRequestFilter[] = []
 
@@ -21,16 +22,14 @@ export class NotificationService {
 
   public setSettings(settings: GeneralSettings, profiles: PrProfile[]): void {
     this.settings = settings
-    this.filters = profiles
-      .filter(x => x.notifyOnNewPrs && x.filter)
-      .map(x => x.filter!)
+    this.filters = profiles.filter((x) => x.notifyOnNewPrs && x.filter).map((x) => x.filter!)
   }
 
   /**
    * Notify about new pull requests.
    * This method checks PR creation dates against the last notification time
    * to determine which PRs are new and should trigger notifications.
-   * 
+   *
    * @param pullRequests - Array of pull requests to potentially notify about
    */
   public notifyNewPullRequests(pullRequests: PullRequest[]): void {
@@ -46,19 +45,20 @@ export class NotificationService {
       if (!pr.creationDate) {
         return false
       }
-      return pr.creationDate > this.lastNotificationTime
-        && FilterEvaluator.evaluateProfiles(pr, this.filters)
+      return (
+        pr.creationDate > this.lastNotificationTime &&
+        !this.notified.has(pullRequestKey(pr)) &&
+        FilterEvaluator.evaluateProfiles(pr, this.filters)
+      )
     })
 
     if (newPRs.length === 0) {
       return
     }
 
-    // Update the last notification time to now
-    this.lastNotificationTime = new Date()
-
-    // Create notification
+    // Independent integration refreshes can discover PRs created before the previous notification.
     this.showNotification(newPRs)
+    for (const pr of newPRs) this.notified.add(pullRequestKey(pr))
   }
 
   private showNotification(pullRequests: PullRequest[]): void {
@@ -84,7 +84,7 @@ export class NotificationService {
           shell.openExternal(pr.urls.web)
         }
       }
-    });
+    })
 
     notification.show()
   }
@@ -95,9 +95,7 @@ export class NotificationService {
     }
 
     // Check if any PR matches any of the notify filters
-    return pullRequests.some(f =>
-      FilterEvaluator.evaluateProfiles(f, this.filters)
-    )
+    return pullRequests.some((f) => FilterEvaluator.evaluateProfiles(f, this.filters))
   }
 
   private updateTrayIcon(pullRequests: PullRequest[]): void {
@@ -112,6 +110,7 @@ export class NotificationService {
     // Reset the notification time when data is manually refreshed
     // Set to current time to prevent notifications for existing PRs
     this.lastNotificationTime = new Date()
+    this.notified.clear()
   }
 
   /**
@@ -120,15 +119,14 @@ export class NotificationService {
    * notification time and prevent notifications for existing PRs.
    */
   public initialize(pullRequests: PullRequest[]): void {
+    this.notified.clear()
     // Set the last notification time to the most recent PR creation date
     // or current time if no PRs exist, to prevent initial notifications
     const mostRecentCreationDate = pullRequests
-      .filter(pr => pr.creationDate)
-      .map(pr => pr.creationDate!)
-      .reduce((latest, current) => current > latest ? current : latest, new Date(0))
+      .filter((pr) => pr.creationDate)
+      .map((pr) => pr.creationDate!)
+      .reduce((latest, current) => (current > latest ? current : latest), new Date(0))
 
-    this.lastNotificationTime = mostRecentCreationDate > new Date(0)
-      ? mostRecentCreationDate
-      : new Date()
+    this.lastNotificationTime = mostRecentCreationDate > new Date(0) ? mostRecentCreationDate : new Date()
   }
 }

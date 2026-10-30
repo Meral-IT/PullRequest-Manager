@@ -37,6 +37,7 @@ const { output } = await build({
         id === entry
           ? `
       export { AzureDevOpsService } from '../lib/azure-devops/azure-devops.service'
+      export { AzureDevOpsIntegrationsService } from '../lib/azure-devops/azure-devops-integrations.service'
       export { FilterEvaluator } from '../lib/models/ui-filter.model'
       export { defaultProfiles } from '../lib/models/pr-profile'
       export * from '../lib/models/azure-devops-access'
@@ -73,7 +74,7 @@ runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
   compiled,
   compiled.exports
 )
-const { AzureDevOpsService, FilterEvaluator, defaultProfiles } = compiled.exports
+const { AzureDevOpsService, AzureDevOpsIntegrationsService, FilterEvaluator, defaultProfiles } = compiled.exports
 
 const settings = {
   organizationUrl: 'https://dev.azure.com/example',
@@ -135,6 +136,130 @@ function apiFixture({ memberships = [team1.descriptor, team2.descriptor], prs = 
     getPolicyApi: async () => ({ getPolicyEvaluations: async () => [] }),
   }
 }
+
+test('API duplicates are consolidated and organization/project metadata is preserved', async () => {
+  const pr = pullRequest(1, me.id)
+  pr.repository.project.name = 'Platform'
+  const api = apiFixture({ prs: [pr, structuredClone(pr)] })
+  api.connect = async () => ({ authenticatedUser: me, instanceId: 'org-1' })
+  const data = await AzureDevOpsService.loadPullRequestData(api, settings)
+  assert.equal(data.items.length, 1)
+  assert.equal(data.items[0].details.organization, 'example')
+  assert.equal(data.items[0].details.organizationId, 'org-1')
+  assert.equal(data.items[0].details.project, 'Platform')
+})
+
+test('integrations consolidate overlapping PRs, preserve cross-organization IDs, and route votes once', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  const integrations = ['first', 'overlap', 'other-org'].map((id) => ({
+    ...settings,
+    id,
+    name: id,
+    updateInterval: 180,
+    intelligentApproval: false,
+    organizationUrl: `https://dev.azure.com/${id === 'other-org' ? 'other' : 'example'}`,
+  }))
+  manager.setConfiguration(integrations)
+  const apis = integrations.map((integration, index) => {
+    const pr = pullRequest(7, me.id)
+    const api = apiFixture({ prs: [pr] })
+    api.connect = async () => ({ authenticatedUser: me, instanceId: index === 2 ? 'org-2' : 'org-1' })
+    manager.services.get(integration.id).service.initializeApi = () => api
+    manager.services.get(integration.id).service.reInitializeApi()
+    return api
+  })
+  await manager.updateDataImmediately()
+  const data = manager.getPullRequests()
+  assert.equal(data.items.length, 2)
+  assert.deepEqual(
+    data.items.map((pr) => pr.integrationId),
+    ['first', 'other-org']
+  )
+  assert.equal(data.integrations.length, 3)
+  await manager.approvePullRequests([...data.items, ...data.items])
+  assert.deepEqual(
+    apis.map((api) => api.approved),
+    [[7], [], [7]]
+  )
+  await manager.resetPullRequestFeedback(data.items[1])
+  assert.deepEqual(
+    apis.map((api) => api.approved),
+    [[7], [], [7, 7]]
+  )
+  assert.equal(manager.getPullRequests().items[0].reviewers[0].vote, 10)
+  manager.setConfiguration(integrations.slice(1))
+  assert.deepEqual(
+    manager.getPullRequests().items.map((pr) => pr.integrationId),
+    ['overlap', 'other-org']
+  )
+})
+
+test('one failing integration leaves other results available and reports its own access status', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration(['healthy', 'expired'].map((id) => ({ ...settings, id, name: id, updateInterval: 180 })))
+  for (const [id, { service }] of manager.services) {
+    const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    if (id === 'expired')
+      api.connect = async () => {
+        throw Object.assign(new Error('Expired'), { statusCode: 401 })
+      }
+    service.initializeApi = () => api
+    service.reInitializeApi()
+  }
+  await manager.updateDataImmediately()
+  const data = manager.getPullRequests()
+  assert.equal(data.error, null)
+  assert.equal(data.items.length, 1)
+  assert.equal(data.integrations[0].error, null)
+  assert.equal(data.integrations[1].error.type, 'Authentication')
+  const access = data.integrations[0].access
+  assert.equal(
+    manager.canAcknowledgeAccess(access.requirementsFingerprint, access.connectionRevision, 'unknown'),
+    false
+  )
+  manager.acknowledgeAccess('healthy')
+  assert.equal(manager.getPullRequests().integrations[0].access.acknowledged, true)
+  assert.equal(manager.getPullRequests().integrations[1].access.acknowledged, false)
+})
+
+test('removing an integration during refresh discards its late results and stops polling', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration([{ ...settings, id: 'removed', name: 'Removed', updateInterval: 180 }])
+  const service = manager.services.get('removed').service
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  let release
+  api.connect = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  service.initializeApi = () => api
+  service.reInitializeApi()
+  manager.start()
+  manager.setConfiguration([])
+  release({ authenticatedUser: me })
+  await service.updateDataImmediately()
+  assert.equal(service.active, false)
+  assert.equal(service.pollTimer, undefined)
+  assert.deepEqual(manager.getPullRequests().items, [])
+  assert.deepEqual(manager.getPullRequests().integrations, [])
+})
+
+test('recreating an integration cannot accept an acknowledgement from its previous connection', () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  const input = [{ ...settings, id: 'recreated', name: 'Connection', updateInterval: 180 }]
+  manager.setConfiguration(input)
+  const access = manager.getPullRequests().integrations[0].access
+  assert.equal(
+    manager.canAcknowledgeAccess(access.requirementsFingerprint, access.connectionRevision, 'recreated'),
+    true
+  )
+  manager.setConfiguration([])
+  manager.setConfiguration([{ ...input[0], pat: 'replacement-token' }])
+  assert.equal(
+    manager.canAcknowledgeAccess(access.requirementsFingerprint, access.connectionRevision, 'recreated'),
+    false
+  )
+})
 
 test('descriptions are mapped, with missing text defaulting to empty', async () => {
   const prs = [pullRequest(1, me.id), pullRequest(2, me.id)]

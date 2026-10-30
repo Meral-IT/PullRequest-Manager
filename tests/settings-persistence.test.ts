@@ -15,7 +15,17 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
   const file = path.join(directory, 'settings.json')
   const original = {
     general: { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
-    azDo: { organizationUrl: '', project: '', pat: '', updateInterval: 180, intelligentApproval: true },
+    azDoIntegrations: [
+      {
+        id: 'integration',
+        name: 'Test',
+        organizationUrl: '',
+        project: '',
+        pat: '',
+        updateInterval: 180,
+        intelligentApproval: true,
+      },
+    ],
     appearance: { theme: 'system', tableSize: 'small' },
     profiles: [{ id: 'all', label: 'All', visible: true, enableAcceptAll: false, notifyOnNewPrs: false }],
   } as SettingsModel
@@ -29,7 +39,11 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
     exports: {} as {
       saveSettings: (settings: SettingsModel) => Promise<SettingsModel>
       loadSettings: () => Promise<SettingsModel>
-      acknowledgeAzureDevOpsRequirements: (fingerprint: string, connection: SettingsModel['azDo']) => Promise<boolean>
+      acknowledgeAzureDevOpsRequirements: (
+        fingerprint: string,
+        connection: SettingsModel['azDoIntegrations'][number],
+        integrationId: string
+      ) => Promise<boolean>
     },
   }
   runInNewContext(compiled, {
@@ -70,38 +84,43 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
     const cached = await settingsModule.exports.loadSettings()
     const before = await readFile(file, 'utf8')
     const invalid = structuredClone(original)
-    invalid.azDo.pat = 'unchanged-secret'
+    invalid.azDoIntegrations[0].pat = 'unchanged-secret'
     invalid.profiles[0].filter = { op: 'AND', filters: [{ isDraft: 'false' }] } as never
     await assert.rejects(settingsModule.exports.saveSettings(invalid), /filter.*isDraft/i)
     assert.equal(await readFile(file, 'utf8'), before)
-    assert.equal(invalid.azDo.pat, 'unchanged-secret')
+    assert.equal(invalid.azDoIntegrations[0].pat, 'unchanged-secret')
     assert.strictEqual(await settingsModule.exports.loadSettings(), cached)
     invalid.profiles[0].filter = { op: 'AND', filters: [] }
     await settingsModule.exports.saveSettings(invalid)
     const saved = JSON.parse(await readFile(file, 'utf8'))
     assert.deepEqual(saved.profiles[0].filter, { op: 'AND', filters: [] })
-    assert.notEqual(saved.azDo.pat, 'unchanged-secret')
-    assert.equal(invalid.azDo.pat, 'unchanged-secret')
+    assert.notEqual(saved.azDoIntegrations[0].pat, 'unchanged-secret')
+    assert.equal(invalid.azDoIntegrations[0].pat, 'unchanged-secret')
     const acknowledged = {
       ...invalid,
-      azDo: { ...invalid.azDo, acknowledgedScopeRequirements: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT },
+      azDoIntegrations: [
+        { ...invalid.azDoIntegrations[0], acknowledgedScopeRequirements: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT },
+      ],
     }
     await settingsModule.exports.saveSettings(acknowledged)
     assert.equal(
-      (await settingsModule.exports.loadSettings()).azDo.acknowledgedScopeRequirements,
+      (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
       AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT
     )
     await settingsModule.exports.saveSettings(invalid)
     assert.equal(
-      (await settingsModule.exports.loadSettings()).azDo.acknowledgedScopeRequirements,
+      (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
       AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
       'Renderer saves preserve acknowledgement'
     )
     for (const field of ['organizationUrl', 'project', 'pat'] as const) {
       const current = await settingsModule.exports.loadSettings()
-      await settingsModule.exports.saveSettings({ ...current, azDo: { ...current.azDo, [field]: `changed-${field}` } })
+      await settingsModule.exports.saveSettings({
+        ...current,
+        azDoIntegrations: [{ ...current.azDoIntegrations[0], [field]: `changed-${field}` }],
+      })
       assert.equal(
-        (await settingsModule.exports.loadSettings()).azDo.acknowledgedScopeRequirements,
+        (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
         undefined,
         `${field} changes clear acknowledgement`
       )
@@ -123,19 +142,29 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
         return waiting
       }
       const acknowledge = () =>
-        settingsModule.exports.acknowledgeAzureDevOpsRequirements(AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT, current.azDo)
+        settingsModule.exports.acknowledgeAzureDevOpsRequirements(
+          AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
+          current.azDoIntegrations[0],
+          current.azDoIntegrations[0].id
+        )
       const saveChangedProject = () =>
         settingsModule.exports.saveSettings({
           ...current,
-          azDo: { ...current.azDo, project: `replacement-${acknowledgementFirst}` },
+          azDoIntegrations: [{ ...current.azDoIntegrations[0], project: `replacement-${acknowledgementFirst}` }],
         })
       const first = acknowledgementFirst ? acknowledge() : saveChangedProject()
       await started
       const second = acknowledgementFirst ? saveChangedProject() : acknowledge()
       releaseWrite()
       const results = await Promise.all([first, second])
-      assert.equal((await settingsModule.exports.loadSettings()).azDo.project, `replacement-${acknowledgementFirst}`)
-      assert.equal(JSON.parse(await readFile(file, 'utf8')).azDo.project, `replacement-${acknowledgementFirst}`)
+      assert.equal(
+        (await settingsModule.exports.loadSettings()).azDoIntegrations[0].project,
+        `replacement-${acknowledgementFirst}`
+      )
+      assert.equal(
+        JSON.parse(await readFile(file, 'utf8')).azDoIntegrations[0].project,
+        `replacement-${acknowledgementFirst}`
+      )
       if (!acknowledgementFirst) assert.equal(results[1], false, 'Stale acknowledgement must not write old settings')
     }
   } finally {

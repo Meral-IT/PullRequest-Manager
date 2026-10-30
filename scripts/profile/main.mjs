@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme, session } from 'electron'
 import fs from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
 import { setInterval as interval, setTimeout as delay } from 'node:timers/promises'
-import { createFixture, summarizeSamples } from './fixtures.mjs'
+import { createFixture, fixtureSettings, summarizeSamples } from './fixtures.mjs'
 import { readProfileConfig } from './config.mjs'
 
 const config = readProfileConfig(process.env.PR_PROFILE_CONFIG)
@@ -171,9 +171,9 @@ async function run() {
     callback({ cancel: true })
   )
   const fixture = createFixture({ count: config.count })
-  const [{ AzureDevOpsService }, { default: createWindow }, { PullRequestUpdateManager }, loading, tray] =
+  const [{ AzureDevOpsIntegrationsService }, { default: createWindow }, { PullRequestUpdateManager }, loading, tray] =
     await Promise.all([
-      import('../../lib/azure-devops/azure-devops.service'),
+      import('../../lib/azure-devops/azure-devops-integrations.service'),
       import('../../lib/main/app'),
       import('../../lib/main/update'),
       import('../../lib/tools/loading.service'),
@@ -181,7 +181,9 @@ async function run() {
     ])
   loader = loading.default
   getTrayManager = tray.getTrayManager
-  service = AzureDevOpsService.getInstance()
+  const integrations = AzureDevOpsIntegrationsService.getInstance()
+  integrations.setConfiguration(fixtureSettings.azDoIntegrations)
+  service = integrations.services.get('fixture').service
   service.initializeApi = () => fixture.api
   let activeRefreshes = 0
   const updateData = service.updateData.bind(service)

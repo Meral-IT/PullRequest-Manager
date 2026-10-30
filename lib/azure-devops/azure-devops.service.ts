@@ -34,6 +34,7 @@ import {
   PullRequestPolicyEvaluationStatus,
   PullRequestPolicyType,
   Reviewer,
+  pullRequestKey,
 } from '../models/pull-request.model'
 import { AzDoSettings } from '../models/settings.model'
 import { FilterEvaluator } from '../models/ui-filter.model'
@@ -46,13 +47,8 @@ type PolicyEvaluation = {
 }
 
 export class AzureDevOpsService {
-  private static instance: AzureDevOpsService
-  public static getInstance(): AzureDevOpsService {
-    if (!this.instance) {
-      this.instance = new AzureDevOpsService()
-    }
-    return this.instance
-  }
+  constructor(private readonly onData?: () => void) {}
+  private static nextConnectionRevision = 0
 
   private settings?: AzDoSettings
   private api?: azdev.WebApi
@@ -192,6 +188,10 @@ export class AzureDevOpsService {
   }
 
   private publishData(): void {
+    if (this.onData) {
+      this.onData()
+      return
+    }
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('pr-data', this.pullRequests)
   }
 
@@ -342,7 +342,7 @@ export class AzureDevOpsService {
     pr: PullRequest,
     reviewer: IdentityRefWithVote
   ) {
-    const pullRequest = data.items.find((x) => x.id === pr.id)
+    const pullRequest = data.items.find((x) => pullRequestKey(x) === pullRequestKey(pr))
     if (!pullRequest) {
       return
     }
@@ -420,7 +420,7 @@ export class AzureDevOpsService {
     this.settings = { ...input }
 
     if (connectionChanged) {
-      this.connectionRevision++
+      this.connectionRevision = ++AzureDevOpsService.nextConnectionRevision
       this.pullRequests = {
         items: [],
         error: null,
@@ -511,15 +511,19 @@ export class AzureDevOpsService {
         throw error
       }
       data.myself = connectionData.authenticatedUser
+      data.organizationId = connectionData.instanceId
       log.debug('Fetching data from Azure DevOps')
       const results = await Promise.allSettled([
         this.checkAccess(access, 'identity', () => this.loadMyTeams(api, settings, data.myself)),
         this.checkAccess(access, 'code', async () => {
           const git = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-          const prs = await git.getPullRequestsByProject(settings.project, {
+          const response = await git.getPullRequestsByProject(settings.project, {
             includeLinks: true,
             status: AzDoPrStatus.Active,
           })
+          const prs = [
+            ...new Map(response.map((pr) => [JSON.stringify([pr.repository?.id, pr.pullRequestId]), pr])).values(),
+          ]
           // List responses truncate descriptions to 400 characters.
           await throttleAll(
             4,
@@ -548,7 +552,7 @@ export class AzureDevOpsService {
       data.teams = teams.value
       const azDoBuilds = prs.value
       data.items = azDoBuilds
-        .map((pr) => AzureDevOpsService.mapPullRequests(pr, data))
+        .map((pr) => AzureDevOpsService.mapPullRequests(pr, data, settings))
         .toSorted((a, b) => {
           if (a.creationDate && b.creationDate) {
             return b.creationDate.getTime() - a.creationDate.getTime()
@@ -579,7 +583,11 @@ export class AzureDevOpsService {
     return data
   }
 
-  private static mapPullRequests(pr: GitPullRequest, data: AzureDevOpsData): PullRequest {
+  private static mapPullRequests(pr: GitPullRequest, data: AzureDevOpsData, settings: AzDoSettings): PullRequest {
+    const url = new URL(settings.organizationUrl)
+    const organization = url.hostname.endsWith('.visualstudio.com')
+      ? url.hostname.slice(0, -'.visualstudio.com'.length)
+      : decodeURIComponent(url.pathname.split('/').findLast(Boolean) ?? url.hostname)
     return {
       id: pr.pullRequestId,
       author: {
@@ -601,6 +609,10 @@ export class AzureDevOpsService {
         repositoryId: pr.repository?.id ?? '',
         repository: pr.repository?.name ?? '',
         projectId: pr.repository?.project?.id ?? '',
+        project: pr.repository?.project?.name ?? settings.project,
+        organization,
+        organizationId: data.organizationId,
+        organizationUrl: settings.organizationUrl,
         branch: pr.sourceRefName,
         targetBranch: pr.targetRefName,
         isDraft: pr.isDraft,
@@ -762,7 +774,7 @@ export class AzureDevOpsService {
         if (newData.access.features.code.reason !== 'authentication')
           newData.access.features.vote = this.pullRequests.access.features.vote
       }
-      this.handleNewPRNotifications(newData.items)
+      if (!this.onData) this.handleNewPRNotifications(newData.items)
       this.pullRequests = { items: newData.items, error: newData.error, access: newData.access }
       this.publishData()
     } finally {
@@ -839,6 +851,7 @@ class AzureDevOpsData implements PullRequestData {
   teams: Identity[] = []
   myself: Identity | undefined = undefined
   access?: AzureDevOpsAccess
+  organizationId?: string
 }
 
 interface AzError extends Error {

@@ -1,5 +1,5 @@
 import { PrProfile } from '@/lib/models/pr-profile'
-import { TableSize } from '@/lib/models/settings.model'
+import { AzDoIntegration, TableSize } from '@/lib/models/settings.model'
 import { createContext } from 'react'
 import type { AzureDevOpsAccess, AzureDevOpsValidationResult } from '@/lib/models/azure-devops-access'
 
@@ -25,11 +25,7 @@ export interface SettingStateProps {
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
   appearanceTableSize: TableSize
-  azDoOrganizationUrl: string
-  azDoProject: string
-  azDoPat: string
-  azDoInterval: number
-  azDoIntelligentApproval: boolean
+  azDoIntegrations: AzDoIntegration[]
   profiles: SettingStatePrProfile[]
 }
 
@@ -38,12 +34,17 @@ export interface SettingPageProps {
   actions: {
     getInitialSettings: () => Promise<SettingStateProps>
     onChangeHandler: any
-    validateAzDo: any
+    validateAzDo: () => Promise<void>
+    addIntegration: () => string
+    deleteIntegration: (id: string) => void
+    selectIntegration: (id: string) => void
+    updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => void
     saveSettings: any
     deleteProfile: (id: string) => void
     addProfile: () => void
     duplicateProfile: (id: string) => void
   }
+  selectedIntegrationId: string
   saving: boolean
   saveError: string
   validatingAzDo: boolean
@@ -61,22 +62,23 @@ export const SettingsContext = createContext<SettingPageProps>({
     appearanceTableSize: TableSize.Small,
     name: '',
     email: '',
-    azDoOrganizationUrl: '',
-    azDoProject: '',
-    azDoPat: '',
-    azDoIntelligentApproval: true,
-    azDoInterval: 60,
+    azDoIntegrations: [],
     profiles: [],
   },
   actions: {
     getInitialSettings: () => Promise.resolve({} as SettingStateProps),
     onChangeHandler: () => {},
-    validateAzDo: () => {},
+    validateAzDo: async () => {},
+    addIntegration: () => '',
+    deleteIntegration: () => {},
+    selectIntegration: () => {},
+    updateIntegration: () => {},
     saveSettings: () => {},
     deleteProfile: () => {},
     addProfile: () => {},
     duplicateProfile: () => {},
   },
+  selectedIntegrationId: '',
   saving: false,
   saveError: '',
   validatingAzDo: false,

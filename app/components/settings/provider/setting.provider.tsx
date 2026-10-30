@@ -1,6 +1,6 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
-import { SettingsModel, TableSize } from '@/lib/models/settings.model'
+import { AzDoIntegration, SettingsModel, TableSize } from '@/lib/models/settings.model'
 import { ChangeEvent, ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
@@ -16,12 +16,6 @@ import { getProfileFilterValidation } from '../validation-helper'
 interface Props {
   children: ReactNode
 }
-
-const connectionFromForm = (form: SettingStateProps) => ({
-  organizationUrl: form.azDoOrganizationUrl,
-  project: form.azDoProject,
-  pat: form.azDoPat,
-})
 
 const convertProfiles = (profile: PrProfile): SettingStatePrProfile => {
   const filter = profile.filter === undefined ? '' : JSON.stringify(profile.filter, null, 2)
@@ -60,11 +54,7 @@ const convertSettings = (settings: SettingsModel): SettingStateProps => {
     appearanceTheme: settings.appearance.theme,
     name: '',
     email: '',
-    azDoOrganizationUrl: settings.azDo.organizationUrl,
-    azDoProject: settings.azDo.project,
-    azDoPat: settings.azDo.pat,
-    azDoInterval: settings.azDo.updateInterval,
-    azDoIntelligentApproval: settings.azDo.intelligentApproval,
+    azDoIntegrations: settings.azDoIntegrations,
     appearanceTableSize: settings.appearance.tableSize,
     profiles: settings.profiles.map(convertProfiles),
   }
@@ -77,7 +67,11 @@ export const SettingProvider = ({ children }: Props) => {
   const [azDoAccess, setAzDoAccess] = useState<AzureDevOpsAccess>()
   const [azDoValidation, setAzDoValidation] = useState<AzureDevOpsValidationResult>()
   const validationRequest = useRef(0)
-  const savedConnection = useRef<SettingsModel['azDo'] | null>(null)
+  const savedConnections = useRef<AzDoIntegration[]>([])
+  const latestData = useRef<PullRequestData | undefined>(undefined)
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState('')
+  const selectedId = useRef(selectedIntegrationId)
+  selectedId.current = selectedIntegrationId
   const [formData, setFormData] = useState<SettingStateProps>({
     openAtLogin: false,
     enableNotifications: true,
@@ -85,11 +79,7 @@ export const SettingProvider = ({ children }: Props) => {
     repositoriesRootDirectory: '',
     name: '',
     email: '',
-    azDoOrganizationUrl: '',
-    azDoProject: '',
-    azDoPat: '',
-    azDoInterval: 60,
-    azDoIntelligentApproval: true,
+    azDoIntegrations: [],
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     profiles: [],
@@ -97,19 +87,36 @@ export const SettingProvider = ({ children }: Props) => {
   const currentForm = useRef(formData)
   currentForm.current = formData
 
-  const receiveSettings = useCallback((settings: SettingsModel) => {
-    const changed =
-      !savedConnection.current || !sameAzureDevOpsConnection(connectionFromForm(currentForm.current), settings.azDo)
-    savedConnection.current = settings.azDo
-    currentForm.current = convertSettings(settings)
-    setFormData(currentForm.current)
-    if (changed) {
-      validationRequest.current++
-      setValidatingAzDo(false)
-      setAzDoValidation(undefined)
-      setAzDoAccess(undefined)
-    }
+  const resetValidation = useCallback(() => {
+    validationRequest.current++
+    setValidatingAzDo(false)
+    setAzDoValidation(undefined)
+    setAzDoAccess(undefined)
   }, [])
+
+  const receiveAccess = useCallback((data: PullRequestData) => {
+    latestData.current = data
+    const current = currentForm.current.azDoIntegrations.find((item) => item.id === selectedId.current)
+    const saved = savedConnections.current.find((item) => item.id === selectedId.current)
+    if (current && saved && sameAzureDevOpsConnection(current, saved))
+      setAzDoAccess(data.integrations?.find((item) => item.id === current.id)?.access)
+  }, [])
+
+  const receiveSettings = useCallback(
+    (settings: SettingsModel) => {
+      const initial = savedConnections.current.length === 0
+      const previous = currentForm.current.azDoIntegrations.find((item) => item.id === selectedId.current)
+      const next = settings.azDoIntegrations.find((item) => item.id === selectedId.current)
+      if (!previous || !next || !sameAzureDevOpsConnection(previous, next)) resetValidation()
+      savedConnections.current = settings.azDoIntegrations
+      currentForm.current = convertSettings(settings)
+      setFormData(currentForm.current)
+      selectedId.current = next?.id ?? settings.azDoIntegrations[0]?.id ?? ''
+      setSelectedIntegrationId(selectedId.current)
+      if (initial && latestData.current) receiveAccess(latestData.current)
+    },
+    [resetValidation, receiveAccess]
+  )
 
   const cancelValidation = useEffectEvent(() => {
     validationRequest.current++
@@ -124,13 +131,8 @@ export const SettingProvider = ({ children }: Props) => {
       receiveSettings(data)
     })
     const unsubscribeAccess = globalThis.api.receive('pr-data', (data: PullRequestData) => {
-      if (
-        savedConnection.current &&
-        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
-      ) {
-        accessReceived = true
-        setAzDoAccess(data.access)
-      }
+      accessReceived = true
+      receiveAccess(data)
     })
 
     async function fetchData() {
@@ -139,14 +141,7 @@ export const SettingProvider = ({ children }: Props) => {
       if (!settingsReceived) receiveSettings(settings)
       const request = validationRequest.current
       const data: PullRequestData = await globalThis.api.invoke('get-pr-data')
-      if (
-        active &&
-        !accessReceived &&
-        request === validationRequest.current &&
-        savedConnection.current &&
-        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
-      )
-        setAzDoAccess(data.access)
+      if (active && !accessReceived && request === validationRequest.current) receiveAccess(data)
     }
 
     fetchData().catch((error) => {
@@ -158,19 +153,12 @@ export const SettingProvider = ({ children }: Props) => {
       unsubscribeSettings()
       unsubscribeAccess()
     }
-  }, [receiveSettings])
+  }, [receiveSettings, receiveAccess])
 
   const value = useMemo<SettingPageProps>(() => {
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
       setSaveError('')
       const { value } = e.target
-      if (['azDoOrganizationUrl', 'azDoProject', 'azDoPat'].includes(e.target.name)) {
-        validationRequest.current++
-        setValidatingAzDo(false)
-        setAzDoValidation(undefined)
-        setAzDoAccess(undefined)
-        currentForm.current = { ...currentForm.current, [e.target.name]: value }
-      }
 
       if ('profileId' in e) {
         const profileId = e.profileId
@@ -209,13 +197,17 @@ export const SettingProvider = ({ children }: Props) => {
     }
 
     const validateAzDo = async () => {
+      const integration = formData.azDoIntegrations.find((item) => item.id === selectedIntegrationId)
+      if (!integration) return
       const request = ++validationRequest.current
       setValidatingAzDo(true)
       try {
-        const response: AzureDevOpsValidationResult = await globalThis.api.invoke(
-          'validate-azure-devops',
-          connectionFromForm(formData)
-        )
+        const response: AzureDevOpsValidationResult = await globalThis.api.invoke('validate-azure-devops', {
+          organizationUrl: integration.organizationUrl,
+          project: integration.project,
+          pat: integration.pat,
+          integrationId: integration.id,
+        })
         if (request !== validationRequest.current) return
         setAzDoValidation(response)
         setAzDoAccess(response.access)
@@ -251,13 +243,7 @@ export const SettingProvider = ({ children }: Props) => {
             notificationSound: formData.notificationSound,
             repositoriesRootDirectory: formData.repositoriesRootDirectory,
           },
-          azDo: {
-            organizationUrl: formData.azDoOrganizationUrl,
-            project: formData.azDoProject,
-            pat: formData.azDoPat,
-            updateInterval: formData.azDoInterval,
-            intelligentApproval: formData.azDoIntelligentApproval,
-          },
+          azDoIntegrations: formData.azDoIntegrations,
           appearance: {
             theme: formData.appearanceTheme,
             tableSize: formData.appearanceTableSize,
@@ -310,6 +296,19 @@ export const SettingProvider = ({ children }: Props) => {
       }))
     }
 
+    const selectIntegration = (id: string) => {
+      resetValidation()
+      selectedId.current = id
+      setSelectedIntegrationId(id)
+      if (latestData.current) receiveAccess(latestData.current)
+    }
+
+    const updateIntegrations = (integrations: AzDoIntegration[]) => {
+      currentForm.current = { ...currentForm.current, azDoIntegrations: integrations }
+      setFormData(currentForm.current)
+      setSaveError('')
+    }
+
     return {
       state: formData,
       actions: {
@@ -318,18 +317,54 @@ export const SettingProvider = ({ children }: Props) => {
         },
         onChangeHandler: handleChange,
         validateAzDo,
+        selectIntegration,
+        addIntegration: () => {
+          const integration: AzDoIntegration = {
+            id: crypto.randomUUID(),
+            name: 'New integration',
+            organizationUrl: '',
+            project: '',
+            pat: '',
+            updateInterval: 180,
+            intelligentApproval: true,
+          }
+          updateIntegrations([...currentForm.current.azDoIntegrations, integration])
+          selectIntegration(integration.id)
+          return integration.id
+        },
+        deleteIntegration: (id: string) => {
+          updateIntegrations(currentForm.current.azDoIntegrations.filter((item) => item.id !== id))
+          if (selectedId.current === id) selectIntegration(currentForm.current.azDoIntegrations[0]?.id ?? '')
+        },
+        updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => {
+          if (['organizationUrl', 'project', 'pat'].some((field) => field in changes)) resetValidation()
+          updateIntegrations(
+            currentForm.current.azDoIntegrations.map((item) => (item.id === id ? { ...item, ...changes } : item))
+          )
+        },
         saveSettings,
         deleteProfile: handleDeleteProfile,
         duplicateProfile: handleDuplicateProfile,
         addProfile: handleAddProfile,
       },
+      selectedIntegrationId,
       saving: saving,
       saveError,
       validatingAzDo: validatingAzDo,
       azDoAccess,
       azDoValidation,
     }
-  }, [formData, saving, saveError, validatingAzDo, azDoAccess, azDoValidation])
+  }, [
+    formData,
+    saving,
+    saveError,
+    validatingAzDo,
+    azDoAccess,
+    azDoValidation,
+    selectedIntegrationId,
+    resetValidation,
+    receiveAccess,
+  ])
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

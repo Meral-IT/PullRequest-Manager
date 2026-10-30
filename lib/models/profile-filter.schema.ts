@@ -21,10 +21,15 @@ export const profileFilterSchema: Schema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   $id: 'https://pullrequest-manager.local/schemas/profile-filter.json',
   title: 'Pull request filter',
-  description: 'Filter pull requests by author, reviewers, draft status, or branch.',
+  description: 'Filter pull requests by author, reviewers, draft status, branch, organization, or project.',
   ...combination({ $ref: '#/definitions/condition' }),
   definitions: {
     condition: object({
+      organization: {
+        ...combination({ $ref: '#/definitions/resource' }),
+        description: 'Match the organization name or ID.',
+      },
+      project: { ...combination({ $ref: '#/definitions/resource' }), description: 'Match the project name or ID.' },
       author: { ...combination({ $ref: '#/definitions/user' }), description: 'Match the pull request author.' },
       reviewers: { ...combination({ $ref: '#/definitions/reviewer' }), description: 'Match pull request reviewers.' },
       isDraft: { type: 'boolean', description: 'Whether the pull request is a draft.' },
@@ -37,9 +42,13 @@ export const profileFilterSchema: Schema = {
         description: 'Match source branches, with or without refs/heads/.',
       },
     }),
+    resource: object({
+      name: { type: 'string', description: 'The organization or project name.' },
+      id: { type: 'string', description: 'The organization or project ID.' },
+    }),
     user: object({
       label: { type: 'string', description: 'The user display name.' },
-      id: { type: 'string', description: 'The Azure DevOps user ID.' },
+      id: { type: 'string', description: 'The user ID.' },
       isBot: { type: 'boolean', description: 'Whether the user is a bot.' },
       isMySelf: { type: 'boolean', description: 'Whether the user is the signed-in user.' },
     }),

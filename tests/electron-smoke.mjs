@@ -1213,6 +1213,28 @@ async function checkPrSearch(window, settings) {
     'Clearing filters applies across profiles without collapsing the line'
   )
 
+  window.webContents.send('pr-data', {
+    items: extended,
+    error: null,
+    integrations: [
+      { id: 'healthy', name: 'Healthy connection', error: null },
+      {
+        id: 'expired',
+        name: 'Expired connection',
+        error: {
+          type: 'Authentication',
+          message: 'PAT expired',
+          details: 'Update this connection.',
+          actionHref: '/settings/azure-devops',
+          actionText: 'Azure DevOps Settings',
+        },
+      },
+    ],
+  })
+  await waitForRenderer(window, "document.body.innerText.includes('Expired connection: PAT expired')")
+  await expectTitles(extendedTitles)
+  await capture(window, 'azdo-partial-failure')
+
   settings.profiles = originalProfiles
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: [], error: null })
@@ -1231,7 +1253,17 @@ async function runSmokeTest() {
         repositoriesRootDirectory: '',
       },
       appearance: { theme: 'light', tableSize: 'small' },
-      azDo: { organizationUrl: '', project: '', pat: '', updateInterval: 180, intelligentApproval: true },
+      azDoIntegrations: [
+        {
+          id: 'smoke',
+          name: 'Smoke integration',
+          organizationUrl: '',
+          project: '',
+          pat: '',
+          updateInterval: 180,
+          intelligentApproval: true,
+        },
+      ],
       profiles: [{ id: 'builtin:all', label: 'All', isDefault: true, visible: true }],
     }
     ipcMain.handle('get-settings', () => settings)
@@ -1262,7 +1294,10 @@ async function runSmokeTest() {
     let prData = { items: [], error: null }
     let pendingValidation
     let deferValidation = false
-    ipcMain.handle('get-pr-data', () => prData)
+    ipcMain.handle('get-pr-data', () => ({
+      ...prData,
+      integrations: [{ id: 'smoke', name: 'Smoke integration', access: prData.access, error: null }],
+    }))
     ipcMain.handle('validate-azure-devops', () =>
       deferValidation
         ? new Promise((resolve) => {
@@ -1479,6 +1514,73 @@ async function runSmokeTest() {
     )
     await waitForRenderer(window, "document.body.innerText.includes('Connected as Scope Test User')")
     await capture(window, 'azdo-access-settings')
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Add Integration').click()"
+    )
+    await waitForRenderer(
+      window,
+      'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 3'
+    )
+    const addedIntegrationId = await window.webContents.executeJavaScript(`(() => {
+      const set = (name, value) => {
+        const input = document.querySelector('input[name="' + name + '"]')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      set('integrationName', 'Second connection')
+      set('azDoOrganizationUrl', 'https://dev.azure.com/second')
+      set('azDoProject', 'Second project')
+      set('azDoPat', 'synthetic-second-token')
+      return location.hash.split('/').at(-1)
+    })()`)
+    await waitForRenderer(window, 'document.querySelector(\'input[name="azDoProject"]\').value === "Second project"')
+    await window.webContents.executeJavaScript(`(() => {
+      Array.from(document.querySelectorAll('[role="tablist"][aria-label="Integrations"] [role="tab"]'))
+        .find(tab => tab.innerText === 'Smoke integration').click()
+    })()`)
+    await waitForRenderer(window, 'document.querySelector(\'input[name="azDoProject"]\').value === ""')
+    assert.equal(
+      await window.webContents.executeJavaScript('document.querySelector(\'input[name="azDoPat"]\').value'),
+      ''
+    )
+    await window.webContents.executeJavaScript(`(() => {
+      Array.from(document.querySelectorAll('[role="tablist"][aria-label="Integrations"] [role="tab"]'))
+        .find(tab => tab.innerText === 'Second connection').click()
+    })()`)
+    await waitForRenderer(window, 'document.querySelector(\'input[name="azDoProject"]\').value === "Second project"')
+    assert.equal(
+      await window.webContents.executeJavaScript('document.querySelector(\'input[name="azDoPat"]\').value'),
+      'synthetic-second-token'
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript('location.hash'),
+      `#/settings/integrations/${addedIntegrationId}`
+    )
+    await window.webContents.executeJavaScript('history.back()')
+    await waitForRenderer(window, 'document.querySelector(\'input[name="azDoProject"]\').value === ""')
+    await window.webContents.executeJavaScript('history.forward()')
+    await waitForRenderer(window, 'document.querySelector(\'input[name="azDoProject"]\').value === "Second project"')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        'document.querySelector(\'[role="tablist"][aria-label="Integrations"] [aria-selected="true"]\').innerText'
+      ),
+      'Second connection'
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        '!!document.querySelector(\'select[aria-label="Azure DevOps integration"]\')'
+      ),
+      false
+    )
+    await settleLayout(window)
+    await capture(window, 'azdo-multiple-integrations')
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration').click()"
+    )
+    await waitForRenderer(
+      window,
+      'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 2'
+    )
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
     )

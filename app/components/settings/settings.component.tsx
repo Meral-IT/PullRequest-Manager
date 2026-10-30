@@ -76,9 +76,15 @@ export default function SettingsComponent() {
     return useContext(SettingsContext)
   }
 
-  const { actions, saving, saveError, state } = useSettings()
+  const { actions, saving, saveError, state, selectedIntegrationId } = useSettings()
 
   const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
+    if (data.value === '/settings/integrations/new') {
+      nav(`/settings/integrations/${actions.addIntegration()}`)
+      return
+    }
+    const integration = state.azDoIntegrations.find((item) => `/settings/integrations/${item.id}` === data.value)
+    if (integration && integration.id !== selectedIntegrationId) actions.selectIntegration(integration.id)
     if (data.value) {
       nav(data.value)
     }
@@ -90,6 +96,9 @@ export default function SettingsComponent() {
   let pathName = loc.pathname
   if (loc.pathname === '/settings') {
     pathName = '/settings/general'
+  }
+  if (['/settings/azure-devops', '/settings/integrations'].includes(loc.pathname)) {
+    pathName = `/settings/integrations/${selectedIntegrationId}`
   }
 
   let buttonContent: string
@@ -187,8 +196,23 @@ export default function SettingsComponent() {
               <Tab icon={<PaintBrushFilled />} value="/settings/appearance">
                 Appearance
               </Tab>
-              <Tab icon={<KeyFilled />} value="/settings/azure-devops">
-                Azure DevOps
+            </TabList>
+            <Divider />
+            <Body1Strong>Integrations</Body1Strong>
+            <TabList
+              vertical
+              appearance="subtle"
+              aria-label="Integrations"
+              selectedValue={pathName}
+              onTabSelect={onTabSelect}
+            >
+              {state.azDoIntegrations.map((integration) => (
+                <Tab icon={<KeyFilled />} value={`/settings/integrations/${integration.id}`} key={integration.id}>
+                  {integration.name || integration.project || 'Unnamed integration'}
+                </Tab>
+              ))}
+              <Tab icon={<AddFilled />} value="/settings/integrations/new">
+                Add Integration
               </Tab>
             </TabList>
             <Divider></Divider>

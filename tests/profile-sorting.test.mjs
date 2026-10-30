@@ -39,6 +39,8 @@ async function component(entry) {
   let context
   let settings
   let dark = false
+  let pathname = '/settings/general'
+  let params = { profileId: 'test' }
   const api = {
     invoke: async (name, ...args) => {
       calls.push([name, ...args])
@@ -148,7 +150,12 @@ async function component(entry) {
     (name) => {
       if (name === 'react') return hooks
       if (name.startsWith('@fluentui/')) return fluent
-      if (name === 'react-router-dom') return { useParams: () => ({ profileId: 'test' }) }
+      if (name === 'react-router-dom')
+        return {
+          useParams: () => params,
+          useLocation: () => ({ pathname }),
+          useNavigate: () => (path) => calls.push(['navigate', path]),
+        }
       return load(name)
     },
     result,
@@ -169,6 +176,12 @@ async function component(entry) {
     },
     setSettings: (value) => {
       settings = value
+    },
+    setPathname: (value) => {
+      pathname = value
+    },
+    setParams: (value) => {
+      params = value
     },
     render(props = {}, name = 'default') {
       cursor = 0
@@ -211,7 +224,17 @@ const profile = {
 }
 const settings = {
   general: {},
-  azDo: {},
+  azDoIntegrations: [
+    {
+      id: 'integration',
+      name: 'Test',
+      organizationUrl: '',
+      project: '',
+      pat: '',
+      updateInterval: 180,
+      intelligentApproval: true,
+    },
+  ],
   appearance: { tableSize: 'small', theme: 'system' },
   profiles: [profile],
 }
@@ -248,7 +271,7 @@ test('AzDo validation leaves editable settings unchanged and discards results af
     await provider.flush()
     let value = provider.render({}, 'SettingProvider').props.value
     if (replaceSavedSettings === 'restore') {
-      value.actions.onChangeHandler({ target: { name: 'azDoPat', value: 'unsaved-token' } })
+      value.actions.updateIntegration('integration', { pat: 'unsaved-token' })
       value = provider.render({}, 'SettingProvider').props.value
     }
     const before = structuredClone(value.state)
@@ -259,8 +282,12 @@ test('AzDo validation leaves editable settings unchanged and discards results af
       })
     const pending = value.actions.validateAzDo()
     if (replaceSavedSettings === 'restore') provider.listeners.get('settings')(settings)
-    else if (replaceSavedSettings) provider.listeners.get('settings')({ ...settings, azDo: { project: 'replacement' } })
-    else value.actions.onChangeHandler({ target: { name: 'azDoPat', value: 'replacement' } })
+    else if (replaceSavedSettings)
+      provider.listeners.get('settings')({
+        ...settings,
+        azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'replacement' }],
+      })
+    else value.actions.updateIntegration('integration', { pat: 'replacement' })
     release({ userDisplayName: 'Old credentials', error: null, access: { features: {} } })
     await pending
     value = provider.render({}, 'SettingProvider').props.value
@@ -289,16 +316,145 @@ test('settings context retains its value across unchanged renders and updates af
   await provider.flush()
   const initial = provider.render({}, 'SettingProvider').props.value
   assert.strictEqual(provider.render({}, 'SettingProvider').props.value, initial)
-  initial.actions.onChangeHandler({ target: { name: 'azDoProject', value: 'updated-project' } })
+  initial.actions.updateIntegration('integration', { project: 'updated-project' })
   const updated = provider.render({}, 'SettingProvider').props.value
   assert.notStrictEqual(updated, initial)
-  assert.equal(updated.state.azDoProject, 'updated-project')
+  assert.equal(updated.state.azDoIntegrations[0].project, 'updated-project')
   assert.strictEqual(provider.render({}, 'SettingProvider').props.value, updated)
+})
+
+test('settings sidebar lists integrations and creates or opens their editors like profiles', async () => {
+  const view = await component('app/components/settings/settings.component.tsx')
+  const selected = []
+  let added = 0
+  const state = {
+    ...settings,
+    azDoIntegrations: [
+      ...settings.azDoIntegrations,
+      { ...settings.azDoIntegrations[0], id: 'second', name: 'Second connection' },
+    ],
+  }
+  const context = {
+    state,
+    selectedIntegrationId: 'integration',
+    actions: {
+      selectIntegration: (id) => selected.push(id),
+      addIntegration: () => {
+        added++
+        return 'created'
+      },
+    },
+  }
+  view.setContext(context)
+  view.setPathname('/settings/integrations/integration')
+  const sidebar = () => elements(view.render(), (element) => element.props.sidebarContent)[0].props.sidebarContent
+  const group = () =>
+    elements(sidebar(), (element) => element.type === 'TabList' && element.props['aria-label'] === 'Integrations')[0]
+  assert.deepEqual(
+    elements(group(), (element) => element.type === 'Tab').map((tab) => tab.props.children),
+    ['Test', 'Second connection', 'Add Integration']
+  )
+  assert.equal(group().props.selectedValue, '/settings/integrations/integration')
+  group().props.onTabSelect(null, { value: '/settings/integrations/second' })
+  assert.deepEqual(selected, ['second'])
+  assert.deepEqual(view.calls.at(-1), ['navigate', '/settings/integrations/second'])
+  group().props.onTabSelect(null, { value: '/settings/integrations/new' })
+  assert.equal(added, 1)
+  assert.deepEqual(view.calls.at(-1), ['navigate', '/settings/integrations/created'])
+  assert.equal(
+    elements(sidebar(), (element) => element.type === 'Tab' && element.props.children === 'Azure DevOps').length,
+    0
+  )
+  context.state = { ...state, azDoIntegrations: [] }
+  view.setContext(context)
+  assert.deepEqual(
+    elements(group(), (element) => element.type === 'Tab').map((tab) => tab.props.children),
+    ['Add Integration']
+  )
+})
+
+test('integration editor uses its route to select a connection and has no connection picker', async () => {
+  const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
+  const selected = []
+  view.setParams({ integrationId: 'second' })
+  view.setContext({
+    state: {
+      ...settings,
+      azDoIntegrations: [...settings.azDoIntegrations, { ...settings.azDoIntegrations[0], id: 'second' }],
+    },
+    selectedIntegrationId: 'integration',
+    actions: { selectIntegration: (id) => selected.push(id) },
+  })
+  view.render()
+  await view.flush()
+  assert.deepEqual(selected, ['second'])
+  const tree = view.render()
+  assert.equal(elements(tree, (element) => element.type === 'Select').length, 0)
+  assert.equal(
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Add Integration').length,
+    0
+  )
+})
+
+test('integration edits stay independent through selection, save, and removal', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  const value = () => provider.render({}, 'SettingProvider').props.value
+  value()
+  await provider.flush()
+  value().actions.updateIntegration('integration', { project: 'First project' })
+  const secondId = value().actions.addIntegration()
+  assert.equal(value().selectedIntegrationId, secondId)
+  assert.notEqual(secondId, 'integration')
+  value().actions.updateIntegration(secondId, {
+    name: 'Second connection',
+    project: 'Second project',
+    pat: 'second-token',
+  })
+  value().actions.selectIntegration('integration')
+  assert.equal(value().state.azDoIntegrations[0].project, 'First project')
+  value().actions.selectIntegration(secondId)
+  await value().actions.saveSettings()
+  const saved = provider.calls.find(([channel]) => channel === 'save-settings')[1]
+  assert.equal(saved.azDoIntegrations.length, 2)
+  assert.equal(saved.azDoIntegrations[0].project, 'First project')
+  assert.equal(saved.azDoIntegrations[1].pat, 'second-token')
+  value().actions.deleteIntegration(secondId)
+  assert.equal(value().selectedIntegrationId, 'integration')
+  assert.equal(value().state.azDoIntegrations.length, 1)
+  value().actions.deleteIntegration('integration')
+  assert.equal(value().selectedIntegrationId, '')
+  assert.deepEqual(value().state.azDoIntegrations, [])
+})
+
+test('switching integrations cancels validation and restores only the selected connection access', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({
+    ...settings,
+    azDoIntegrations: [...settings.azDoIntegrations, { ...settings.azDoIntegrations[0], id: 'second' }],
+  })
+  const value = () => provider.render({}, 'SettingProvider').props.value
+  value()
+  await provider.flush()
+  const access = { features: {} }
+  provider.listeners.get('pr-data')({ items: [], error: null, integrations: [{ id: 'second', access }] })
+  let release
+  provider.api.invoke = async () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  const pending = value().actions.validateAzDo()
+  value().actions.selectIntegration('second')
+  release({ userDisplayName: 'First connection', error: null, access: { features: {} } })
+  await pending
+  assert.equal(value().azDoValidation, undefined)
+  assert.equal(value().azDoAccess, access)
+  assert.equal(value().validatingAzDo, false)
 })
 
 test('AzDo connection status uses native output and retains validate, recheck, and loading labels', async () => {
   const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
-  const context = { state: { azDoOrganizationUrl: '' }, actions: {}, validatingAzDo: false }
+  const context = { state: settings, selectedIntegrationId: 'integration', actions: {}, validatingAzDo: false }
   view.setContext(context)
   let tree = view.render()
   assert.ok(
@@ -603,10 +759,13 @@ test('settings startup cannot overwrite settings received while its request was 
       : Promise.resolve({ error: null, items: [] })
   provider.render({}, 'SettingProvider')
   await provider.flush()
-  provider.listeners.get('settings')({ ...settings, azDo: { project: 'new-project' } })
-  release({ ...settings, azDo: { project: 'old-project' } })
+  provider.listeners.get('settings')({
+    ...settings,
+    azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'new-project' }],
+  })
+  release({ ...settings, azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'old-project' }] })
   await provider.flush()
-  assert.equal(provider.render({}, 'SettingProvider').props.value.state.azDoProject, 'new-project')
+  assert.equal(provider.render({}, 'SettingProvider').props.value.state.azDoIntegrations[0].project, 'new-project')
 })
 
 test('grid startup cannot overwrite live table settings and removes listeners on unmount', async () => {
@@ -904,11 +1063,16 @@ test('settings startup retains access diagnostics when PR events precede connect
     const access = { features: { code: { status: 'denied', message: 'Access denied' } } }
     provider.api.invoke = async (channel) => {
       if (channel === 'get-settings') return initialSettings.promise
-      if (channel === 'get-pr-data') return { items: [], error: null, access }
+      if (channel === 'get-pr-data')
+        return { items: [], error: null, integrations: [{ id: 'integration', name: 'Test', error: null, access }] }
     }
     provider.render({}, 'SettingProvider')
     await provider.flush()
-    provider.listeners.get('pr-data')({ items: [], error: null, access })
+    provider.listeners.get('pr-data')({
+      items: [],
+      error: null,
+      integrations: [{ id: 'integration', name: 'Test', error: null, access }],
+    })
     if (liveSettings) provider.listeners.get('settings')(settings)
     initialSettings.resolve(settings)
     await provider.flush()

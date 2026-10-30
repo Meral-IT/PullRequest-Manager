@@ -16,7 +16,17 @@ import type { SettingsModel } from '../lib/models/settings.model'
 
 const original: SettingsModel = {
   general: { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
-  azDo: { organizationUrl: '', project: 'original', pat: '', updateInterval: 180, intelligentApproval: true },
+  azDoIntegrations: [
+    {
+      id: 'integration',
+      name: 'Test',
+      organizationUrl: '',
+      project: 'original',
+      pat: '',
+      updateInterval: 180,
+      intelligentApproval: true,
+    },
+  ],
   appearance: { theme: 'system', tableSize: 'small' } as SettingsModel['appearance'],
   profiles: [{ id: 'all', label: 'All', visible: true, enableAcceptAll: false, notifyOnNewPrs: false }],
 }
@@ -59,6 +69,107 @@ function settingsModule(directory: string, overrides: Partial<typeof fs> = {}, p
   })
   return { ...result.exports, effects: () => effects }
 }
+
+test('legacy Azure DevOps settings migrate automatically with encrypted PAT and stable identity', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-migration-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const file = path.join(directory, 'settings.json')
+  const legacy = {
+    ...original,
+    azDoIntegrations: undefined,
+    azDo: {
+      organizationUrl: 'https://dev.azure.com/example',
+      project: 'Platform',
+      pat: Buffer.from('encrypted:secret').toString('base64url'),
+      updateInterval: 42,
+      intelligentApproval: false,
+      acknowledgedScopeRequirements: 'reviewed',
+    },
+  }
+  await fs.writeFile(file, JSON.stringify(legacy))
+  const settings = await settingsModule(directory).loadSettings()
+  const integration = settings.azDoIntegrations[0]
+  assert.ok(integration.id)
+  assert.equal(integration.pat, 'secret')
+  assert.equal(integration.updateInterval, 42)
+  assert.equal(integration.intelligentApproval, false)
+  assert.equal(integration.acknowledgedScopeRequirements, 'reviewed')
+  const disk = JSON.parse(await fs.readFile(file, 'utf8'))
+  assert.equal(disk.azDo, undefined)
+  assert.notEqual(disk.azDoIntegrations[0].pat, 'secret')
+  assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].id, integration.id)
+})
+
+test('migration accepts refresh intervals saved as strings by the previous settings form', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-migration-interval-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  for (const [interval, expected] of [
+    ['60', 60],
+    ['', 180],
+    ['invalid', 180],
+    ['0', 180],
+    ['3001', 180],
+  ] as const) {
+    const legacy = {
+      ...original,
+      azDoIntegrations: undefined,
+      azDo: { ...original.azDoIntegrations[0], updateInterval: interval },
+    }
+    await fs.writeFile(path.join(directory, 'settings.json'), JSON.stringify(legacy))
+    const loaded = await settingsModule(directory).loadSettings()
+    assert.equal(loaded.azDoIntegrations[0].updateInterval, expected)
+  }
+})
+
+test('multiple integrations round-trip encrypted tokens and deleting all does not resurrect legacy config', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-integrations-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const store = settingsModule(directory)
+  const input = {
+    ...original,
+    azDoIntegrations: ['first', 'second'].map((id) => ({ ...original.azDoIntegrations[0], id, pat: `${id}-secret` })),
+  }
+  await store.saveSettings(input)
+  const bytes = await fs.readFile(path.join(directory, 'settings.json'), 'utf8')
+  assert.equal(bytes.includes('first-secret'), false)
+  assert.equal(bytes.includes('second-secret'), false)
+  const loaded = await settingsModule(directory).loadSettings()
+  assert.equal(loaded.azDoIntegrations[0].pat, 'first-secret')
+  assert.equal(loaded.azDoIntegrations[1].pat, 'second-secret')
+  assert.equal(input.azDoIntegrations[0].pat, 'first-secret')
+  await assert.rejects(
+    store.saveSettings({ ...input, azDoIntegrations: [input.azDoIntegrations[0], input.azDoIntegrations[0]] }),
+    /unique IDs/
+  )
+  assert.equal(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'), bytes)
+  await store.saveSettings({ ...input, azDoIntegrations: [] })
+  assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations.length, 0)
+})
+
+test('migration preserves invalid profile filters for repair and leaves legacy bytes intact on write failure', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-migration-failure-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const file = path.join(directory, 'settings.json')
+  const legacy = {
+    ...original,
+    azDoIntegrations: undefined,
+    azDo: { project: 'Legacy' },
+    profiles: [{ ...original.profiles[0], filter: { op: 'INVALID' } }],
+  }
+  const bytes = JSON.stringify(legacy)
+  await fs.writeFile(file, bytes)
+  const failing = settingsModule(directory, {
+    rename: async () => {
+      throw new Error('Migration rename failed')
+    },
+  })
+  await assert.rejects(failing.loadSettings(), /Migration rename failed/)
+  assert.equal(await fs.readFile(file, 'utf8'), bytes)
+  const loaded = await settingsModule(directory).loadSettings()
+  assert.equal(loaded.azDoIntegrations[0].project, 'Legacy')
+  assert.equal(loaded.azDoIntegrations[0].pat, '')
+  assert.deepEqual(JSON.parse(JSON.stringify(loaded.profiles[0].filter)), { op: 'INVALID' })
+})
 
 for (const failure of ['partial write', 'file flush', 'rename', 'directory flush']) {
   test(
@@ -117,15 +228,18 @@ for (const failure of ['partial write', 'file flush', 'rename', 'directory flush
       )
       const cached = await store.loadSettings()
       await assert.rejects(
-        store.saveSettings({ ...original, azDo: { ...original.azDo, project: 'failed' } }),
+        store.saveSettings({ ...original, azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'failed' }] }),
         (error) => error === expected
       )
       assert.equal(await fs.readFile(file, 'utf8'), before)
       assert.strictEqual(await store.loadSettings(), cached)
       assert.equal(store.effects(), 0)
       assert.deepEqual(await fs.readdir(directory), ['settings.json'])
-      await store.saveSettings({ ...original, azDo: { ...original.azDo, project: 'recovered' } })
-      assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDo.project, 'recovered')
+      await store.saveSettings({
+        ...original,
+        azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'recovered' }],
+      })
+      assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project, 'recovered')
     }
   )
 }
@@ -172,14 +286,14 @@ test(
       'darwin'
     )
     await store.loadSettings()
-    const input = { ...original, azDo: { ...original.azDo, pat: 'test-secret' } }
+    const input = { ...original, azDoIntegrations: [{ ...original.azDoIntegrations[0], pat: 'test-secret' }] }
     await store.saveSettings(input)
     assert.deepEqual(operations, ['write+flush', 'replace', 'directory flush'])
     const saved = await fs.readFile(file, 'utf8')
     assert.ok(!saved.includes('test-secret'))
-    assert.equal(input.azDo.pat, 'test-secret')
+    assert.equal(input.azDoIntegrations[0].pat, 'test-secret')
     if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
-    assert.equal((await settingsModule(directory).loadSettings()).azDo.pat, 'test-secret')
+    assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].pat, 'test-secret')
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   }
 )
@@ -193,7 +307,7 @@ test('initial reads share the save queue and remove an orphan stage without chan
   const store = settingsModule(directory)
   const reads = await Promise.all([store.loadSettings(), store.loadSettings(), store.loadSettings()])
   assert.ok(reads.every((value) => value === reads[0]))
-  assert.equal(reads[0].azDo.project, 'original')
+  assert.equal(reads[0].azDoIntegrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   assert.equal(store.effects(), 0)
 })
@@ -231,7 +345,7 @@ test(
     await assert.rejects(store.saveSettings(original), /directory flush failed/)
     assert.deepEqual(await fs.readdir(directory), [])
     await store.saveSettings(original)
-    assert.equal((await store.loadSettings()).azDo.project, 'original')
+    assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
   }
 )
 
@@ -249,7 +363,7 @@ test('Windows flushes staged files without attempting an unsupported directory h
     'win32'
   )
   await store.saveSettings(original)
-  assert.equal((await store.loadSettings()).azDo.project, 'original')
+  assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
 })
 
@@ -281,8 +395,11 @@ for (const phase of ['before', 'after']) {
     child.kill('SIGKILL')
     await exited
     const restarted = await settingsModule(directory).loadSettings()
-    assert.equal(restarted.azDo.project, phase === 'before' ? 'original' : 'replacement')
-    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDo.project, restarted.azDo.project)
+    assert.equal(restarted.azDoIntegrations[0].project, phase === 'before' ? 'original' : 'replacement')
+    assert.equal(
+      JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project,
+      restarted.azDoIntegrations[0].project
+    )
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   })
 }
@@ -322,7 +439,10 @@ test(
     )
     await store.loadSettings()
     await assert.rejects(
-      store.saveSettings({ ...original, azDo: { ...original.azDo, project: 'replacement' } }),
+      store.saveSettings({
+        ...original,
+        azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'replacement' }],
+      }),
       (error: unknown) => {
         const failure = error as AggregateError
         assert.match(failure.message, /Settings rollback failed/)
@@ -335,9 +455,9 @@ test(
     )
     assert.equal(await fs.readFile(`${file}.rollback`, 'utf8'), before)
     assert.equal((await fs.stat(`${file}.rollback`)).mode & 0o777, 0o600)
-    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDo.project, 'replacement')
-    assert.equal((await store.loadSettings()).azDo.project, 'original')
-    assert.equal((await settingsModule(directory).loadSettings()).azDo.project, 'original')
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project, 'replacement')
+    assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
+    assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].project, 'original')
     assert.equal(await fs.readFile(file, 'utf8'), before)
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   }
@@ -374,7 +494,10 @@ test('an incomplete recovery file is preserved without overwriting complete sett
 
 for (const recovery of [
   {},
-  { ...original, azDo: { ...original.azDo, pat: Buffer.from('corrupt').toString('base64url') } },
+  {
+    ...original,
+    azDoIntegrations: [{ ...original.azDoIntegrations[0], pat: Buffer.from('corrupt').toString('base64url') }],
+  },
 ]) {
   test('unusable recovery settings never replace a complete settings file', async (t) => {
     const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-atomic-unusable-'))
@@ -394,7 +517,10 @@ test('recovery is flushed before replacing settings and never reports success on
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-atomic-reflush-'))
   t.after(() => fs.rm(directory, { recursive: true, force: true }))
   const file = path.join(directory, 'settings.json')
-  const originalBytes = JSON.stringify({ ...original, azDo: { ...original.azDo, project: 'new' } })
+  const originalBytes = JSON.stringify({
+    ...original,
+    azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'new' }],
+  })
   await fs.writeFile(file, originalBytes)
   await fs.writeFile(`${file}.rollback`, JSON.stringify(original), { mode: 0o600 })
   let flushed = false
@@ -425,6 +551,6 @@ test('recovery is flushed before replacing settings and never reports success on
   })
   await assert.rejects(store.loadSettings(), /Recovery flush failed/)
   assert.equal(await fs.readFile(file, 'utf8'), originalBytes)
-  assert.equal((await store.loadSettings()).azDo.project, 'original')
+  assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
 })

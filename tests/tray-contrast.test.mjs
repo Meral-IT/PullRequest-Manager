@@ -69,7 +69,8 @@ function loadTray(platform) {
       if (specifier === '../tools/loading.service') return { default: loader }
       if (specifier === './settings') return { loadSettings: async () => ({ profiles: [] }) }
       if (specifier === './app') return { default: () => mainWindow, showWindow: () => mainWindow }
-      if (specifier === '../azure-devops/azure-devops.service') return { AzureDevOpsService: {} }
+      if (specifier === '../azure-devops/azure-devops-integrations.service')
+        return { AzureDevOpsIntegrationsService: {} }
       return load(path.resolve(path.dirname(filename), `${specifier}.ts`))
     }
     const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {

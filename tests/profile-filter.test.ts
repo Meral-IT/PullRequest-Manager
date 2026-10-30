@@ -140,3 +140,38 @@ test('empty conditions retain their existing evaluation semantics', () => {
   assert.deepEqual(FilterEvaluator.evaluate([pullRequest], { op: 'OR', filters: [] }), [])
   assert.deepEqual(FilterEvaluator.evaluate([pullRequest], { op: 'AND', filters: [{}] }), [pullRequest])
 })
+
+test('organization and project filters match names or IDs with AND/OR combinations', () => {
+  const pr = {
+    details: { organization: 'Example', organizationId: 'org-1', project: 'Platform', projectId: 'project-1' },
+  } as unknown as PullRequest
+  for (const field of ['organization', 'project']) {
+    const name = field === 'organization' ? 'Example' : 'Platform'
+    const id = field === 'organization' ? 'org-1' : 'project-1'
+    for (const match of [{ name }, { id }, { name, id }]) {
+      const filter = { op: 'AND', filters: [{ [field]: { op: 'OR', filters: [match] } }] }
+      assert.equal(validateProfileFilter(JSON.stringify(filter)), true)
+      assert.deepEqual(FilterEvaluator.evaluate([pr], JSON.stringify(filter)), [pr])
+    }
+    assert.deepEqual(
+      FilterEvaluator.evaluate(
+        [pr],
+        JSON.stringify({ op: 'AND', filters: [{ [field]: { op: 'OR', filters: [{ name: 'other' }] } }] })
+      ),
+      []
+    )
+    assert.deepEqual(
+      FilterEvaluator.evaluate(
+        [pr],
+        JSON.stringify({ op: 'AND', filters: [{ [field]: { op: 'AND', filters: [{ id }, { name: 'other' }] } }] })
+      ),
+      []
+    )
+    assert.equal(
+      validateProfileFilter(
+        JSON.stringify({ op: 'AND', filters: [{ [field]: { op: 'OR', filters: [{ id: 123 }] } }] })
+      ),
+      false
+    )
+  }
+})

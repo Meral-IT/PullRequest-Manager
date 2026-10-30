@@ -1,13 +1,17 @@
 // Fixed synthetic data only: no PAT, personal data, avatar URLs or Azure traffic.
 export const fixtureSettings = {
   general: { openAtLogin: false, enableNotifications: false, notificationSound: false, repositoriesRootDirectory: '' },
-  azDo: {
-    organizationUrl: 'https://profile.invalid',
-    project: 'fixture',
-    pat: '',
-    updateInterval: 0.05,
-    intelligentApproval: true,
-  },
+  azDoIntegrations: [
+    {
+      id: 'fixture',
+      name: 'Fixture',
+      organizationUrl: 'https://profile.invalid',
+      project: 'fixture',
+      pat: '',
+      updateInterval: 0.05,
+      intelligentApproval: true,
+    },
+  ],
   appearance: { theme: 'light', tableSize: 'small' },
   profiles: [
     {

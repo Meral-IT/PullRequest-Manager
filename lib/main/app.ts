@@ -3,7 +3,7 @@ import appIcon from '@/resources/icon.png?asset'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
 import { join } from 'node:path'
-import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
+import { AzureDevOpsIntegrationsService } from '../azure-devops/azure-devops-integrations.service'
 import { NotificationService } from './notification.service'
 import { loadSettings } from './settings'
 import createTrayIcon from './tray'
@@ -15,8 +15,8 @@ async function initializeAzureDevOps(): Promise<void> {
   const settings = await loadSettings()
 
   NotificationService.getInstance().setSettings(settings.general, settings.profiles)
-  AzureDevOpsService.getInstance().setConfiguration(settings.azDo)
-  AzureDevOpsService.getInstance().start()
+  AzureDevOpsIntegrationsService.getInstance().setConfiguration(settings.azDoIntegrations)
+  AzureDevOpsIntegrationsService.getInstance().start()
 }
 
 export function exitApp(): void {
