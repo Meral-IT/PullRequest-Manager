@@ -500,7 +500,15 @@ export class AzureDevOpsService {
         this.checkAccess(access, 'identity', () => this.loadMyTeams(api, settings, data.myself)),
         this.checkAccess(access, 'code', async () => {
           const git = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-          return git.getPullRequestsByProject(settings.project, { includeLinks: true, status: AzDoPrStatus.Active })
+          const prs = await git.getPullRequestsByProject(settings.project, { includeLinks: true, status: AzDoPrStatus.Active })
+          // List responses truncate descriptions to 400 characters.
+          await throttleAll(4, prs
+            .filter((pr) => (pr.description?.length ?? 0) >= 400)
+            .map((pr) => async () => {
+              const full = await git.getPullRequest(pr.repository!.id!, pr.pullRequestId!, settings.project)
+              pr.description = full.description
+            }))
+          return prs
         }),
       ])
       const [teams, prs] = results
@@ -566,6 +574,7 @@ export class AzureDevOpsService {
       isDraft: pr.isDraft,
       details: {
         label: pr.title,
+        description: pr.description ?? '',
         number: pr.pullRequestId,
         repositoryId: pr.repository?.id ?? '',
         repository: pr.repository?.name ?? '',

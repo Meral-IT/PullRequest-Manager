@@ -32,6 +32,14 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
 - 🔔 **Desktop Notifications** – Get notified when new pull requests arrive, with optional sound alerts.
 
+Use the filter icon beside the profile tabs to toggle the filter line. Text search matches repository,
+author, PR title, or full description, ignoring case. Combine it with **Created by** and **Target branch**
+to narrow each profile. Filter values and the line's visibility stay shared when switching tabs.
+**Ctrl+F** (**Cmd+F** on macOS) reveals the line and focuses search;
+Each control's **×** resets its value. The **×** at the end clears all filters and hides the line;
+**Escape** resets all filters without hiding it. Toggling the filter icon keeps filters active,
+as indicated by the highlighted icon. The profile's **Approve all** action includes only matching PRs.
+
 ## Profile Filters
 
 Open a profile in Settings to edit its filter with JSON completion, hover help, formatting, and inline errors. Filters are checked against the supported fields and values, including nested author and reviewer conditions. Unknown properties and invalid filters block saving until repaired.
