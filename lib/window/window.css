@@ -16,8 +16,8 @@
 
 .window-titlebar {
   display: grid;
-  grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr) auto;
-  grid-template-areas: 'icon title menu . controls';
+  grid-template-columns: auto minmax(0, max-content) auto minmax(max-content, 1fr) auto;
+  grid-template-areas: 'icon title menu update controls';
   grid-template-rows: 40px;
   align-items: center;
   column-gap: 8px;
@@ -83,12 +83,19 @@
   -webkit-app-region: no-drag;
 }
 
+.window-titlebar-update {
+  grid-area: update;
+  justify-self: end;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
 @media (width < 640px) {
   .window-titlebar {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
-      'icon title controls'
-      'menu menu menu';
+      'icon title update controls'
+      'menu menu menu menu';
     grid-template-rows: 40px auto;
     padding-right: 0;
   }

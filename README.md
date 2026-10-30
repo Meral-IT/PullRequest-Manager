@@ -7,6 +7,7 @@
 
 - [Overview](#overview)
 - [Features](#features)
+- [App updates](#app-updates)
 - [Profile Filters](#profile-filters)
 - [Screenshots](#screenshots)
 - [Technologies Used](#technologies-used)
@@ -52,6 +53,16 @@ edits, or removals. Existing Azure DevOps settings migrate automatically on firs
 PRs from all connections appear together. Overlapping connections produce one row per PR; votes use the first
 connection that supplied that row. Matching PR numbers in different organizations remain separate. A failed connection
 shows its own error while PRs from healthy connections remain available.
+
+## App updates
+
+When an update is available, choose **Download update** or review its release notes. The update panel shows
+download progress, transfer speed, and an estimated time remaining when available. You can keep working during
+the download; the app waits for **Restart & update** before installing. If downloading or installation fails,
+use the panel's retry action. A downloaded update remains available if you reload or hide the window.
+Dismiss the available-update panel with its **×** button. The blue **Update available** button in the title bar
+stays visible; select it to bring back the panel and start downloading.
+Choose **View → Release notes** to open the complete release history in your browser, even when no update is available.
 
 ## Profile Filters
 

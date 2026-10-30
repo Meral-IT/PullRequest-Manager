@@ -104,6 +104,14 @@ export const menuItems: TitlebarMenu[] = [
     name: 'View',
     items: [
       {
+        name: 'Release notes',
+        action: 'web-open-url',
+        actionParams: ['https://github.com/Meral-IT/PullRequest-Manager/releases'],
+      },
+      {
+        name: '---',
+      },
+      {
         name: 'Reload',
         action: 'web-reload',
         shortcut: 'Ctrl+R',

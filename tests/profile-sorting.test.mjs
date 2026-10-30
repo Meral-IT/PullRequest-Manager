@@ -47,6 +47,7 @@ async function component(entry) {
       if (name === 'get-theme') return 'system'
       if (name === 'get-settings') return settings
       if (name === 'get-pr-data') return { error: null, items: [] }
+      if (name === 'update:get-state') return { status: 'idle' }
       return false
     },
     receive: (name, callback) => {
@@ -108,8 +109,17 @@ async function component(entry) {
         if (name === 'useToastController')
           return () => ({
             dispatchToast: (content, options) => toasts.push({ content, options }),
-            dismissToast: () => undefined,
-            updateToast: () => undefined,
+            dismissToast: (toastId) => {
+              const toast = toasts.find(({ options }) => options.toastId === toastId)
+              if (toast) toast.dismissed = true
+            },
+            updateToast: ({ content, ...options }) => {
+              const toast = toasts.find((toast) => toast.options.toastId === options.toastId)
+              if (toast) {
+                toast.content = content
+                toast.options = options
+              }
+            },
           })
         if (name === 'makeStyles') return () => () => ({})
         if (name === 'makeResetStyles') return () => () => ''
@@ -826,19 +836,158 @@ test('clipboard failures are displayed without losing the edited filter', async 
   }
 })
 
-test('failed update installation replaces progress with an error toast', async () => {
+test('failed update download stays visible with a retry action and closes release notes', async () => {
   const view = await component('app/components/update-notification/update-notification.component.tsx')
-  view.api.invoke = async () => {
-    throw new Error('Download unavailable')
-  }
-  const tree = view.render()
-  const install = elements(
-    tree,
-    (element) => element.type === 'Button' && element.props.children === 'Restart & Update'
-  )[0]
-  await install.props.onClick()
+  view.render()
   await view.flush()
-  assert.ok(view.toasts.some(({ options }) => options.intent === 'error'))
+  view.listeners.get('update:state-changed')({ status: 'available', info: { version: '2.0.0' } })
+  view.render()
+  await view.flush()
+  const invoke = view.api.invoke
+  view.api.invoke = async (channel) => {
+    if (channel === 'update:download-update') throw new Error('Download unavailable')
+    return invoke(channel)
+  }
+  const download = elements(
+    view.toasts.at(-1).content,
+    (element) => element.type === 'Button' && element.props.children === 'Download update'
+  )[0]
+  await download.props.onClick()
+  view.render()
+  await view.flush()
+  assert.equal(view.toasts.length, 1)
+  assert.equal(view.toasts[0].options.intent, 'error')
+  assert.ok(elements(view.toasts[0].content, (element) => element.props?.children === 'Retry download').length)
+  assert.equal(elements(view.render(), (element) => element.type === 'Dialog')[0].props.open, false)
+})
+
+test('update startup snapshot cannot replace a newer ready event and subscriptions are cleaned up', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  let finishSnapshot
+  view.api.invoke = () =>
+    new Promise((resolve) => {
+      finishSnapshot = resolve
+    })
+  view.render()
+  await view.flush()
+  view.listeners.get('update:state-changed')({ status: 'ready', info: { version: '2.0.0' } })
+  finishSnapshot({ status: 'available', info: { version: '1.0.0' } })
+  await view.flush()
+  view.render()
+  await view.flush()
+  assert.ok(elements(view.toasts.at(-1).content, (element) => element.props?.children === 'Restart & update').length)
+  view.unmount()
+  assert.equal(view.listenerCount('update:state-changed'), 0)
+  assert.equal(view.listenerCount('update:show-releaseNotes'), 0)
+})
+
+test('update reload restores a downloaded release and rapid activation only installs once', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  let finishInstall
+  view.api.invoke = (channel) => {
+    if (channel === 'update:get-state') return Promise.resolve({ status: 'ready', info: { version: '2.0.0' } })
+    assert.equal(channel, 'update:install-update')
+    view.calls.push([channel])
+    return new Promise((resolve) => {
+      finishInstall = resolve
+    })
+  }
+  view.render()
+  await view.flush()
+  view.render()
+  await view.flush()
+  const install = elements(view.toasts[0].content, (element) => element.props?.children === 'Restart & update')[0]
+  const first = install.props.onClick()
+  await install.props.onClick()
+  assert.equal(view.calls.length, 1)
+  finishInstall()
+  await first
+})
+
+test('persistent update stages intercept framework dismissal keys while available updates track dismissal', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  view.render()
+  await view.flush()
+  const info = { version: '2.0.0' }
+  for (const status of ['downloading', 'ready', 'installing', 'error']) {
+    view.listeners.get('update:state-changed')({ status, info, operation: 'download' })
+    const toaster = elements(view.render(), (element) => element.type === 'Toaster')[0]
+    for (const key of ['Escape', 'Delete']) {
+      let prevented = false
+      let stopped = false
+      toaster.props.onKeyDownCapture({
+        key,
+        preventDefault() {
+          prevented = true
+        },
+        stopPropagation() {
+          stopped = true
+        },
+      })
+      assert.equal(prevented && stopped, true)
+    }
+    await view.flush()
+  }
+  view.listeners.get('update:state-changed')({ status: 'available', info })
+  view.render()
+  await view.flush()
+  view.toasts[0].options.onStatusChange(null, { status: 'dismissed' })
+  view.render()
+  await view.flush()
+  view.listeners.get('update:state-changed')({ status: 'ready', info })
+  view.render()
+  await view.flush()
+  assert.equal(view.toasts.length, 2, 'A dismissed toast must be recreated for the next update stage')
+  assert.notEqual(
+    view.toasts[0].options.toastId,
+    view.toasts[1].options.toastId,
+    'A departing toast must not block a new stage during its exit animation'
+  )
+})
+
+test('titlebar update button restores availability from startup and starts a download', async () => {
+  const view = await component('lib/window/components/Titlebar.tsx')
+  view.setContext({ titlebar: { title: 'PullRequest-Manager' }, window: { platform: 'darwin' } })
+  const invoke = view.api.invoke
+  view.api.invoke = (channel) =>
+    channel === 'update:get-state'
+      ? Promise.resolve({ status: 'available', info: { version: '2.0.0' } })
+      : invoke(channel)
+  const updateButtons = () =>
+    elements(
+      view.render({}, 'Titlebar'),
+      (element) => element.type === 'Button' && element.props.children === 'Update available'
+    )
+  assert.equal(updateButtons().length, 0)
+  await view.flush()
+  assert.equal(updateButtons().length, 1)
+  assert.equal(updateButtons()[0].props.appearance, 'primary')
+  await updateButtons()[0].props.onClick()
+  assert.equal(view.calls.filter(([channel]) => channel === 'update:download-update').length, 1)
+  view.listeners.get('update:state-changed')({ status: 'downloading', info: { version: '2.0.0' } })
+  assert.equal(updateButtons().length, 0)
+  view.unmount()
+  assert.equal(view.listenerCount('update:state-changed'), 0)
+  assert.equal(view.listenerCount('loading'), 0)
+})
+
+test('titlebar update availability ignores a stale snapshot after a newer download event', async () => {
+  const view = await component('lib/window/components/Titlebar.tsx')
+  view.setContext({ titlebar: { title: 'PullRequest-Manager' }, window: { platform: 'win32' } })
+  let finishSnapshot
+  view.api.invoke = () =>
+    new Promise((resolve) => {
+      finishSnapshot = resolve
+    })
+  view.render({}, 'Titlebar')
+  await view.flush()
+  view.listeners.get('update:state-changed')({ status: 'downloading', info: { version: '2.0.0' } })
+  finishSnapshot({ status: 'available', info: { version: '2.0.0' } })
+  await view.flush()
+  assert.equal(
+    elements(view.render({}, 'Titlebar'), (element) => element.props?.children === 'Update available').length,
+    0
+  )
 })
 
 test('window startup ignores completions from an earlier mount', async () => {

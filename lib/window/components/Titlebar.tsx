@@ -16,6 +16,7 @@ import {
 import { DismissFilled, LineHorizontal1Filled, MaximizeFilled } from '@fluentui/react-icons'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { UpdateState } from '../../models/update-state'
 import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
 import { useWindowContext } from './WindowContext'
 
@@ -29,12 +30,32 @@ export const Titlebar = () => {
   const styles = useStyles()
   const { title, icon } = useWindowContext().titlebar
   const [loaderVisible, setLoaderVisible] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
   const wcontext = useWindowContext().window
 
   useEffect(() => {
     return globalThis.api.receive('loading', (event) => {
       setLoaderVisible(event.isLoading)
     })
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    let receivedState = false
+    const unsubscribe = globalThis.api.receive('update:state-changed', (state: UpdateState) => {
+      receivedState = true
+      setUpdateAvailable(state.status === 'available')
+    })
+    globalThis.api
+      .invoke('update:get-state')
+      .then((state: UpdateState) => {
+        if (active && !receivedState) setUpdateAvailable(state.status === 'available')
+      })
+      .catch((error) => console.error('Unable to load update availability', error))
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [])
 
   const titleSpinner = loaderVisible ? (
@@ -58,6 +79,21 @@ export const Titlebar = () => {
         {titleSpinner}
       </div>
       <TitlebarMenu />
+      {updateAvailable && (
+        <Button
+          className="window-titlebar-update"
+          appearance="primary"
+          size="small"
+          title="Download update"
+          onClick={() =>
+            globalThis.api
+              .invoke('update:download-update')
+              .catch((error) => console.error('Unable to download update', error))
+          }
+        >
+          Update available
+        </Button>
+      )}
       {wcontext?.platform === 'win32' && <TitlebarControls />}
     </div>
   )
