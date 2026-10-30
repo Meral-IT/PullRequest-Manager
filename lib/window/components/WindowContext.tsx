@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { TitlebarMenu } from '../titlebarMenus'
 import { Titlebar } from './Titlebar'
-import { TitlebarContextProvider } from './TitlebarContext'
 
 interface WindowContextProps {
   titlebar: TitlebarProps
@@ -58,9 +57,7 @@ export const WindowContextProvider = ({ children, titlebar }: WindowContextProvi
 
   return (
     <WindowContext.Provider value={providerValue}>
-      <TitlebarContextProvider>
-        <Titlebar />
-      </TitlebarContextProvider>
+      <Titlebar />
       <WindowContent>{children}</WindowContent>
     </WindowContext.Provider>
   )

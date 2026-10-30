@@ -27,15 +27,21 @@ const timeout = setTimeout(() => {
   app.exit(1)
 }, 35_000)
 
-function waitForRenderer(window, condition) {
-  pendingStep = condition
+function waitForRenderer(window, condition, description = condition) {
+  pendingStep = description
   return window.webContents.executeJavaScript(`new Promise((resolve) => {
     const ready = () => (${condition})
     if (ready()) return resolve()
-    const observer = new MutationObserver(() => {
-      if (ready()) { observer.disconnect(); resolve() }
-    })
+    const check = () => {
+      if (ready()) {
+        observer.disconnect()
+        document.removeEventListener('focusin', check)
+        resolve()
+      }
+    }
+    const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
+    document.addEventListener('focusin', check)
   })`)
 }
 
@@ -143,6 +149,136 @@ async function capture(window, name) {
     resolve(process.env.PR_MANAGER_SMOKE_SCREENSHOTS, `${name}.png`),
     (await window.webContents.capturePage()).toPNG()
   )
+}
+
+async function checkTitlebarLayout(window, platform, width) {
+  window.setContentSize(width, 670)
+  await settleLayout(window)
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll(
+      '.window-titlebar [aria-haspopup="menu"]')).map(button => button.innerText)`),
+    ['File', 'Edit', 'View', 'Window', 'Credits'],
+    'all application menus are visible without pressing Alt'
+  )
+  const layout = await window.webContents.executeJavaScript(`(() => {
+    const rect = element => {
+      const { left, right, top, bottom, height } = element.getBoundingClientRect()
+      return { left, right, top, bottom, height }
+    }
+    const bar = document.querySelector('.window-titlebar')
+    const title = bar.querySelector('.window-titlebar-title')
+    const menu = bar.querySelector('nav')
+    const controls = bar.querySelector('.window-titlebar-controls')
+    return {
+      bar: rect(bar), title: rect(title), menu: rect(menu),
+      controls: controls && rect(controls),
+      buttons: Array.from(bar.querySelectorAll('button')).map(rect),
+      draggable: getComputedStyle(bar).webkitAppRegion,
+      menuDraggable: getComputedStyle(menu).webkitAppRegion,
+      controlsDraggable: controls && getComputedStyle(controls).webkitAppRegion,
+      overflow: bar.scrollWidth > bar.clientWidth,
+      titleIsButton: !!title.querySelector('button'),
+      spinner: title.querySelector('.fui-Spinner') && rect(title.querySelector('.fui-Spinner')),
+    }
+  })()`)
+  const detail = JSON.stringify({ platform, width, ...layout })
+  assert.equal(layout.bar.height, width < 640 ? 72 : 40, detail)
+  assert.equal(layout.overflow, false, detail)
+  assert.equal(layout.titleIsButton, false)
+  assert.equal(layout.draggable, 'drag')
+  assert.equal(layout.menuDraggable, 'no-drag')
+  if (platform === 'darwin') assert.ok(layout.title.left >= 96, detail)
+  if (platform === 'win32') {
+    assert.equal(layout.controlsDraggable, 'no-drag')
+    assert.ok(layout.title.right <= layout.controls.left, detail)
+  }
+  for (const button of layout.buttons) {
+    assert.ok(button.height > 0 && button.left >= 0 && button.right <= width, detail)
+    assert.ok(button.top >= 0 && button.bottom <= layout.bar.bottom, detail)
+  }
+  if (width < 640) assert.ok(layout.menu.top >= layout.title.bottom, detail)
+  else {
+    assert.ok(layout.title.right <= layout.menu.left, detail)
+    if (layout.controls) assert.ok(layout.menu.right <= layout.controls.left, detail)
+  }
+  if (layout.spinner) assert.ok(layout.spinner.right <= layout.title.right, detail)
+}
+
+async function clickElement(window, selector, text) {
+  const { x, y } = await window.webContents.executeJavaScript(`(() => {
+    const element = Array.from(document.querySelectorAll(${JSON.stringify(selector)}))
+      .find(element => element.textContent.trim().startsWith(${JSON.stringify(text)}))
+    const { x, y, width, height } = element.getBoundingClientRect()
+    return { x: Math.round(x + width / 2), y: Math.round(y + height / 2) }
+  })()`)
+  window.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+}
+
+function pressKey(window, keyCode) {
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+  // Native buttons activate Enter on keypress, which Electron sends as a separate char event.
+  if (keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+}
+
+async function focusWindow(window) {
+  app.focus({ steal: true })
+  window.focus()
+  pendingStep = 'smoke test window focus'
+  await window.webContents.executeJavaScript(`new Promise(resolve => {
+    if (document.hasFocus()) return resolve()
+    window.addEventListener('focus', () => resolve(), { once: true })
+  })`)
+}
+
+async function checkTitlebarMenus(window) {
+  await focusWindow(window)
+  await clickElement(window, '.window-titlebar button', 'File')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'File menu opens by mouse')
+  pressKey(window, 'Escape')
+  await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+  await waitForRenderer(window, 'document.activeElement.innerText === "File"', 'Escape returns focus to File')
+  assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'File')
+
+  pressKey(window, 'Tab')
+  await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Tab moves focus to Edit')
+  assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'Edit')
+  pressKey(window, 'Enter')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu opens by Enter')
+  pressKey(window, 'Escape')
+  await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+  await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Escape returns focus to Edit')
+  pressKey(window, 'Space')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu reopens by Space')
+  await clickElement(window, '.window-content', '')
+  await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
+  pressKey(window, 'Alt')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      'document.querySelectorAll(\'.window-titlebar [aria-haspopup="menu"]\').length'
+    ),
+    5
+  )
+
+  await clickElement(window, '.window-titlebar button', 'File')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
+  await clickElement(window, '[role="menuitem"]', 'Preferences')
+  await waitForRenderer(
+    window,
+    'Array.from(document.querySelectorAll(\'[role="menuitem"]\')).some(item => item.textContent === "General")'
+  )
+  await clickElement(window, '[role="menuitem"]', 'General')
+  await waitForRenderer(window, 'location.hash === "#/settings/general" && !document.querySelector(\'[role="menu"]\')')
+  await clickElement(window, '.window-titlebar button', 'File')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
+  await clickElement(window, '[role="menuitem"]', 'Pull-Requests')
+  await waitForRenderer(window, 'location.hash === "#/" && !document.querySelector(\'[role="menu"]\')')
+
+  await clickElement(window, '.window-titlebar button', 'View')
+  await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')')
+  await clickElement(window, '[role="menuitem"]', 'Actual Size')
+  await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
 }
 
 async function checkPrSearch(window, settings) {
@@ -498,19 +634,33 @@ app.whenReady().then(async () => {
       return true
     })
     ipcMain.handle('check-vscode-installed', () => false)
-    ipcMain.handle('init-window', () => ({
-      width: 900,
-      height: 670,
-      maximizable: false,
-      minimizable: true,
-      platform: process.platform,
-    }))
+    let windowPlatform = process.platform
+    let finishWindowInit
+    const windowInitReady = new Promise((resolve) => {
+      finishWindowInit = resolve
+    })
+    ipcMain.handle('init-window', async () => {
+      await windowInitReady
+      return {
+        width: 900,
+        height: 670,
+        maximizable: false,
+        minimizable: true,
+        platform: windowPlatform,
+      }
+    })
     ipcMain.handle('smoke:echo', (_event, value) => value)
+    const menuActions = []
+    ipcMain.handle('web-actual-size', () => {
+      menuActions.push('web-actual-size')
+    })
 
     const window = new BrowserWindow({
       width: 900,
       height: 670,
       frame: false,
+      titleBarStyle: 'hiddenInset',
+      maximizable: false,
       // Hidden windows can stop producing animation frames on Windows.
       show: true,
       webPreferences: {
@@ -531,6 +681,7 @@ app.whenReady().then(async () => {
     )
     await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
     await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+    await focusWindow(window)
     assert.equal(window.webContents.getLastWebPreferences().sandbox, true)
     assert.deepEqual(
       await window.webContents.executeJavaScript(`
@@ -542,6 +693,50 @@ app.whenReady().then(async () => {
     `),
       { require: 'undefined', process: 'undefined', result: 'sandboxed IPC works' }
     )
+
+    await checkTitlebarLayout(window, 'darwin', 900)
+    finishWindowInit()
+    async function checkPlatform(platform) {
+      windowPlatform = platform
+      await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
+      await waitForRenderer(
+        window,
+        `document.querySelector('.window-titlebar').dataset.platform === ${JSON.stringify(platform)}`
+      )
+      await checkTitlebarLayout(window, platform, 900)
+      await checkTitlebarLayout(window, platform, 640)
+      await checkTitlebarLayout(window, platform, 480)
+      await capture(window, `title-menu-${platform}-narrow`)
+      window.webContents.send('loading', { isLoading: true })
+      await waitForRenderer(window, '!!document.querySelector(".window-titlebar .fui-Spinner")')
+      await window.webContents.executeJavaScript(
+        `document.querySelector('.window-titlebar-title-text').textContent = 'A long application title '.repeat(20); void 0`
+      )
+      await checkTitlebarLayout(window, platform, 640)
+      assert.equal(
+        await window.webContents.executeJavaScript(`(() => {
+        const title = document.querySelector('.window-titlebar-title-text')
+        return title.scrollWidth > title.clientWidth && getComputedStyle(title).textOverflow === 'ellipsis'
+      })()`),
+        true,
+        'long titles truncate without covering the menus or loading indicator'
+      )
+      await window.webContents.executeJavaScript(`(() => {
+        const title = document.querySelector('.window-titlebar-title-text')
+        title.textContent = title.title
+      })()`)
+      await checkTitlebarLayout(window, platform, 900)
+      await capture(window, `title-menu-${platform}`)
+      window.webContents.send('loading', { isLoading: false })
+      await waitForRenderer(window, '!document.querySelector(".window-titlebar .fui-Spinner")')
+    }
+    await checkPlatform('darwin')
+    await checkPlatform('win32')
+    await checkPlatform(process.platform)
+    await checkTitlebarLayout(window, windowPlatform, 480)
+    await checkTitlebarMenus(window)
+    assert.deepEqual(menuActions, ['web-actual-size'])
+    await checkTitlebarLayout(window, windowPlatform, 900)
 
     await checkPrSearch(window, settings)
     const access = {
@@ -776,6 +971,7 @@ app.whenReady().then(async () => {
       `getComputedStyle(document.querySelector('.fui-FluentProvider')).backgroundColor !== ${JSON.stringify(lightBackground)}`
     )
     await checkProfileLayout(window)
+    await checkTitlebarLayout(window, windowPlatform, 900)
     await capture(window, 'profile-dark-long-name')
 
     window.webContents.setZoomFactor(2)
@@ -871,7 +1067,7 @@ app.whenReady().then(async () => {
     assert.deepEqual(errors, [])
     window.destroy()
     console.log(
-      'Electron smoke test passed: PR search, approval scope, renderer, sandboxed IPC, profile layout, themes, zoom, creation, and filter validation'
+      'Electron smoke test passed: PR search, approval scope, renderer, title menus, sandboxed IPC, profile layout, themes, zoom, creation, and filter validation'
     )
   } catch (error) {
     console.error('Smoke test step:', pendingStep, error, errors)
