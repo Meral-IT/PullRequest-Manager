@@ -1,6 +1,7 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { TableSize } from '@/lib/models/settings.model'
 import { createContext } from 'react'
+import type { AzureDevOpsAccess, AzureDevOpsValidationResult } from '@/lib/models/azure-devops-access'
 
 export interface SettingStatePrProfile {
   id: string
@@ -29,8 +30,6 @@ export interface SettingStateProps {
   azDoPat: string
   azDoInterval: number
   azDoIntelligentApproval: boolean
-  azDoValidationMessage: string
-  azDoValidationState: 'none' | 'error' | 'success' | 'warning' | undefined
   profiles: SettingStatePrProfile[]
 }
 
@@ -48,6 +47,8 @@ export interface SettingPageProps {
   saving: boolean
   saveError: string
   validatingAzDo: boolean
+  azDoAccess?: AzureDevOpsAccess
+  azDoValidation?: AzureDevOpsValidationResult
 }
 
 export const SettingsContext = createContext<SettingPageProps>({
@@ -65,8 +66,6 @@ export const SettingsContext = createContext<SettingPageProps>({
     azDoPat: '',
     azDoIntelligentApproval: true,
     azDoInterval: 60,
-    azDoValidationMessage: '',
-    azDoValidationState: 'none',
     profiles: [],
   },
   actions: {

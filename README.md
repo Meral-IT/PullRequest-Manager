@@ -32,6 +32,17 @@ PullRequestManager is a powerful desktop application designed to simplify the ma
 - 🌐 **Git Integration** – Easily manage branches and streamline the development workflow.
 - 🔔 **Desktop Notifications** – Get notified when new pull requests arrive, with optional sound alerts.
 
+The title bar always shows File, Edit, View, Window, and Credits; no Alt key is required. On narrow windows,
+the menus move below the title. macOS window buttons have their own space to the left of the title.
+
+Use the filter icon beside the profile tabs to toggle the filter line. Text search matches repository,
+author, PR title, or full description, ignoring case. Combine it with **Created by** and **Target branch**
+to narrow each profile. Filter values and the line's visibility stay shared when switching tabs.
+**Ctrl+F** (**Cmd+F** on macOS) reveals the line and focuses search;
+Each control's **×** resets its value. The **×** at the end clears all filters and hides the line;
+**Escape** resets all filters without hiding it. Toggling the filter icon keeps filters active,
+as indicated by the highlighted icon. The profile's **Approve all** action includes only matching PRs.
+
 ## Profile Filters
 
 Open a profile in Settings to edit its filter with JSON completion, hover help, formatting, and inline errors. Filters are checked against the supported fields and values, including nested author and reviewer conditions. Unknown properties and invalid filters block saving until repaired.
@@ -62,6 +73,14 @@ Edit a profile's JSON filter in Settings. To find PRs you have not approved, inc
 `isApproved: true` matches both Approved and Approved with suggestions; `false` matches No vote, Waiting for author, and Rejected. Existing numeric `vote` filters still match one exact vote, and can be combined with `isApproved`.
 
 Each reviewer filter must match at least one reviewer. The example checks your review, so another reviewer's approval does not hide a PR you still need to review; PRs without a matching reviewer are excluded. Without the `user` condition, it matches any reviewer who has not approved. `reviewers.op` combines these existence checks with `AND` or `OR`; it does not require all reviewers to have the same approval state.
+
+## Azure DevOps connection access
+
+In Settings → Azure DevOps, enter your organization URL, project, and personal access token (PAT), then select **Validate connection**. Required scopes are **Code (Read)** for PRs and policy status, and **Identity (Read)** for team membership and reviewer matching. **Code (Read & write)** is optional for approving PRs and resetting votes. Build access is not required.
+
+The feature list shows **Verified**, **Access denied**, or **Not verified**. Azure DevOps does not expose the full PAT scope list through PAT-only authentication, so these results describe observed feature access rather than token metadata. Validation makes read-only requests; approval access is verified only when you approve a PR or reset a vote. Policy access remains unverified until a PR is available to check. Access can also depend on your project and repository permissions.
+
+The main view shows a banner when access is denied or requirements need review, including after an update changes the scope requirements. You can acknowledge unverified requirements; denied access remains visible. Changing the organization, project, or PAT clears the acknowledgement. Use the token-settings link to review your PAT scopes and **Recheck access** after making changes.
 
 ## Screenshots
 

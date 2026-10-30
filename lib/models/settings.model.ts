@@ -6,6 +6,7 @@ export interface AzDoSettings {
   pat: string
   updateInterval: number
   intelligentApproval: boolean
+  acknowledgedScopeRequirements?: string
 }
 
 export interface AppearanceSettings {
