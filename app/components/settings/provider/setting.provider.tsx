@@ -1,7 +1,15 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
-import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  AzureDevOpsAccess,
+  AzureDevOpsValidationResult,
+  createAzureDevOpsAccess,
+  getAzureDevOpsAccessFailure,
+  sameAzureDevOpsConnection,
+} from '@/lib/models/azure-devops-access'
+import type { PullRequestData } from '@/lib/models/pr-data'
 import { SettingPageProps, SettingsContext, SettingStateProps, SettingStatePrProfile } from '../context'
 import { getProfileFilterValidation } from '../validation-helper'
 
@@ -9,10 +17,67 @@ interface Props {
   children: ReactNode
 }
 
+const connectionFromForm = (form: SettingStateProps) => ({
+  organizationUrl: form.azDoOrganizationUrl,
+  project: form.azDoProject,
+  pat: form.azDoPat,
+})
+
+const convertProfiles = (profile: PrProfile): SettingStatePrProfile => {
+  const filter = profile.filter === undefined ? '' : JSON.stringify(profile.filter, null, 2)
+  return {
+    id: profile.id,
+    label: profile.label,
+    isDefault: profile.isDefault,
+    enableAcceptAll: profile.enableAcceptAll,
+    visible: profile.visible,
+    sorting: profile.sorting,
+    filter,
+    notifyOnNewPrs: profile.notifyOnNewPrs,
+    ...getProfileFilterValidation(filter),
+  }
+}
+
+const convertProfilesToModel = (profile: SettingStatePrProfile): PrProfile => {
+  return {
+    id: profile.id,
+    label: profile.label,
+    isDefault: profile.isDefault,
+    enableAcceptAll: profile.enableAcceptAll,
+    visible: profile.visible,
+    sorting: profile.sorting,
+    notifyOnNewPrs: profile.notifyOnNewPrs,
+    filter: parseProfileFilter(profile.filter ?? ''),
+  }
+}
+
+const convertSettings = (settings: SettingsModel): SettingStateProps => {
+  return {
+    openAtLogin: settings.general.openAtLogin,
+    enableNotifications: settings.general.enableNotifications,
+    notificationSound: settings.general.notificationSound,
+    repositoriesRootDirectory: settings.general.repositoriesRootDirectory,
+    appearanceTheme: settings.appearance.theme,
+    name: '',
+    email: '',
+    azDoOrganizationUrl: settings.azDo.organizationUrl,
+    azDoProject: settings.azDo.project,
+    azDoPat: settings.azDo.pat,
+    azDoInterval: settings.azDo.updateInterval,
+    azDoIntelligentApproval: settings.azDo.intelligentApproval,
+    appearanceTableSize: settings.appearance.tableSize,
+    profiles: settings.profiles.map(convertProfiles),
+  }
+}
+
 export const SettingProvider = ({ children }: Props) => {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [validatingAzDo, setValidatingAzDo] = useState(false)
+  const [azDoAccess, setAzDoAccess] = useState<AzureDevOpsAccess>()
+  const [azDoValidation, setAzDoValidation] = useState<AzureDevOpsValidationResult>()
+  const validationRequest = useRef(0)
+  const savedConnection = useRef<SettingsModel['azDo'] | null>(null)
   const [formData, setFormData] = useState<SettingStateProps>({
     openAtLogin: false,
     enableNotifications: true,
@@ -24,82 +89,75 @@ export const SettingProvider = ({ children }: Props) => {
     azDoProject: '',
     azDoPat: '',
     azDoInterval: 60,
-    azDoValidationMessage: '',
-    azDoValidationState: 'none',
     azDoIntelligentApproval: true,
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     profiles: [],
   })
+  const currentForm = useRef(formData)
+  currentForm.current = formData
 
-  const convertProfiles = (profile: PrProfile): SettingStatePrProfile => {
-    const filter = profile.filter === undefined ? '' : JSON.stringify(profile.filter, null, 2)
-    return {
-      id: profile.id,
-      label: profile.label,
-      isDefault: profile.isDefault,
-      enableAcceptAll: profile.enableAcceptAll,
-      visible: profile.visible,
-      sorting: profile.sorting,
-      filter,
-      notifyOnNewPrs: profile.notifyOnNewPrs,
-      ...getProfileFilterValidation(filter),
+  const receiveSettings = useCallback((settings: SettingsModel) => {
+    const changed =
+      !savedConnection.current || !sameAzureDevOpsConnection(connectionFromForm(currentForm.current), settings.azDo)
+    savedConnection.current = settings.azDo
+    currentForm.current = convertSettings(settings)
+    setFormData(currentForm.current)
+    if (changed) {
+      validationRequest.current++
+      setValidatingAzDo(false)
+      setAzDoValidation(undefined)
+      setAzDoAccess(undefined)
     }
-  }
-
-  const convertProfilesToModel = (profile: SettingStatePrProfile): PrProfile => {
-    return {
-      id: profile.id,
-      label: profile.label,
-      isDefault: profile.isDefault,
-      enableAcceptAll: profile.enableAcceptAll,
-      visible: profile.visible,
-      sorting: profile.sorting,
-      notifyOnNewPrs: profile.notifyOnNewPrs,
-      filter: parseProfileFilter(profile.filter ?? ''),
-    }
-  }
-
-  const convertSettings = (settings: SettingsModel): SettingStateProps => {
-    return {
-      openAtLogin: settings.general.openAtLogin,
-      enableNotifications: settings.general.enableNotifications,
-      notificationSound: settings.general.notificationSound,
-      repositoriesRootDirectory: settings.general.repositoriesRootDirectory,
-      appearanceTheme: settings.appearance.theme,
-      name: '',
-      email: '',
-      azDoOrganizationUrl: settings.azDo.organizationUrl,
-      azDoProject: settings.azDo.project,
-      azDoPat: settings.azDo.pat,
-      azDoInterval: settings.azDo.updateInterval,
-      azDoIntelligentApproval: settings.azDo.intelligentApproval,
-      azDoValidationMessage: '',
-      azDoValidationState: 'none',
-      appearanceTableSize: settings.appearance.tableSize,
-      profiles: settings.profiles.map(convertProfiles),
-    }
-  }
+  }, [])
 
   useEffect(() => {
     async function fetchData() {
       await globalThis.api.invoke('get-settings').then((settings: SettingsModel) => {
-        return setFormData(convertSettings(settings))
+        receiveSettings(settings)
       })
+      const request = validationRequest.current
+      const data: PullRequestData = await globalThis.api.invoke('get-pr-data')
+      if (
+        request === validationRequest.current &&
+        savedConnection.current &&
+        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
+      )
+        setAzDoAccess(data.access)
     }
 
     fetchData()
-  }, [])
+  }, [receiveSettings])
 
   useEffect(() => {
     return globalThis.api.receive('settings', (data: SettingsModel) => {
-      setFormData(convertSettings(data))
+      receiveSettings(data)
     })
+  }, [receiveSettings])
+
+  useEffect(() => {
+    const receiveAccess = (data: PullRequestData) => {
+      if (
+        savedConnection.current &&
+        sameAzureDevOpsConnection(savedConnection.current, connectionFromForm(currentForm.current))
+      ) {
+        setAzDoAccess(data.access)
+      }
+    }
+    const unsubscribe = globalThis.api.receive('pr-data', receiveAccess)
+    return unsubscribe
   }, [])
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setSaveError('')
     const { value } = e.target
+    if (['azDoOrganizationUrl', 'azDoProject', 'azDoPat'].includes(e.target.name)) {
+      validationRequest.current++
+      setValidatingAzDo(false)
+      setAzDoValidation(undefined)
+      setAzDoAccess(undefined)
+      currentForm.current = { ...currentForm.current, [e.target.name]: value }
+    }
 
     if ('profileId' in e) {
       const profileId = e.profileId
@@ -138,21 +196,25 @@ export const SettingProvider = ({ children }: Props) => {
   }
 
   const validateAzDo = async () => {
+    const request = ++validationRequest.current
     setValidatingAzDo(true)
     try {
-      const response = await globalThis.api.invoke('validate-azure-devops', {
-        organizationUrl: formData.azDoOrganizationUrl,
-        project: formData.azDoProject,
-        pat: formData.azDoPat,
-      })
-
-      setFormData((prevFormData) => ({
-        ...prevFormData,
-        azDoValidationMessage: response.error ? response.error.toString() : `Connected as ${response.userDisplayName}`,
-        azDoValidationState: response.error ? 'error' : 'success',
-      }))
+      const response: AzureDevOpsValidationResult = await globalThis.api.invoke(
+        'validate-azure-devops',
+        connectionFromForm(formData)
+      )
+      if (request !== validationRequest.current) return
+      setAzDoValidation(response)
+      setAzDoAccess(response.access)
+    } catch (error) {
+      if (request !== validationRequest.current) return
+      const access = createAzureDevOpsAccess()
+      const failure = getAzureDevOpsAccessFailure(error)
+      access.features = { code: failure, identity: failure, vote: failure }
+      setAzDoValidation({ userDisplayName: null, error: failure.message, access })
+      setAzDoAccess(access)
     } finally {
-      setValidatingAzDo(false)
+      if (request === validationRequest.current) setValidatingAzDo(false)
     }
   }
 
@@ -234,26 +296,25 @@ export const SettingProvider = ({ children }: Props) => {
     }))
   }
 
-  const value: SettingPageProps = useMemo(
-    () => ({
-      state: formData,
-      actions: {
-        getInitialSettings: async () => {
-          return convertSettings(await globalThis.api.invoke('get-settings'))
-        },
-        onChangeHandler: handleChange,
-        validateAzDo,
-        saveSettings,
-        deleteProfile: handleDeleteProfile,
-        duplicateProfile: handleDuplicateProfile,
-        addProfile: handleAddProfile,
+  const value: SettingPageProps = {
+    state: formData,
+    actions: {
+      getInitialSettings: async () => {
+        return convertSettings(await globalThis.api.invoke('get-settings'))
       },
-      saving: saving,
-      saveError,
-      validatingAzDo: validatingAzDo,
-    }),
-    [formData, saving, saveError, validatingAzDo]
-  )
+      onChangeHandler: handleChange,
+      validateAzDo,
+      saveSettings,
+      deleteProfile: handleDeleteProfile,
+      duplicateProfile: handleDuplicateProfile,
+      addProfile: handleAddProfile,
+    },
+    saving: saving,
+    saveError,
+    validatingAzDo: validatingAzDo,
+    azDoAccess,
+    azDoValidation,
+  }
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

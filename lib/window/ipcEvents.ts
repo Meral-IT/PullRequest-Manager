@@ -1,4 +1,3 @@
-import * as azdev from 'azure-devops-node-api'
 import { app, type BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { exec } from 'node:child_process'
 import fs from 'node:fs/promises'
@@ -8,9 +7,14 @@ import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { AzureDevOpsService } from '../azure-devops/azure-devops.service'
 import { NotificationService } from '../main/notification.service'
-import { loadSettings, saveSettings } from '../main/settings'
+import { acknowledgeAzureDevOpsRequirements, loadSettings, saveSettings } from '../main/settings'
 import { PullRequestUpdateManager } from '../main/update'
 import { PullRequest } from '../models/pull-request.model'
+import {
+  AzureDevOpsConnection,
+  createAzureDevOpsAccess,
+  getAzureDevOpsAccessFailure,
+} from '../models/azure-devops-access'
 
 const execAsync = promisify(exec)
 
@@ -90,23 +94,30 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     mainWindow.webContents.send('settings', settings)
   })
 
-  handleIPC('validate-azure-devops', async (_e, arg: { organizationUrl: string; project: string; pat: string }) => {
+  handleIPC('validate-azure-devops', async (_e, arg: AzureDevOpsConnection) => {
     try {
-      const authHandler = azdev.getPersonalAccessTokenHandler(arg.pat)
-      const connection = new azdev.WebApi(arg.organizationUrl, authHandler)
-      const connectionData = await connection.connect()
-
-      return {
-        userDisplayName: connectionData.authenticatedUser?.providerDisplayName,
-        error: null,
-      }
+      return await AzureDevOpsService.getInstance().validateConnection(arg)
     } catch (error) {
-      let message = 'Unknown Error'
-      if (error instanceof Error && error.message) message = error.message
-
-      return { userDisplayName: null, error: message }
+      const failure = getAzureDevOpsAccessFailure(error)
+      const access = createAzureDevOpsAccess()
+      access.features = { code: failure, identity: failure, vote: failure }
+      return { userDisplayName: null, error: failure.message, access }
     }
   })
+
+  handleIPC(
+    'acknowledge-azure-devops-requirements',
+    async (_e, arg: { requirementsFingerprint: string; connectionRevision: number }) => {
+      const service = AzureDevOpsService.getInstance()
+      if (!service.canAcknowledgeAccess(arg.requirementsFingerprint, arg.connectionRevision)) return false
+      const settings = await loadSettings()
+      const saved = await acknowledgeAzureDevOpsRequirements(arg.requirementsFingerprint, settings.azDo)
+      if (!saved) return false
+      if (!service.canAcknowledgeAccess(arg.requirementsFingerprint, arg.connectionRevision)) return false
+      service.acknowledgeAccess()
+      return true
+    }
+  )
 
   handleIPC('get-pr-data', async (_e) => {
     return AzureDevOpsService.getInstance().getPullRequests()
@@ -170,7 +181,8 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     try {
       const entries = await fs.readdir(rootResolved, { withFileTypes: true })
       const matchingEntry = entries.find(
-        (entry) => entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'base' }) === 0
+        (entry) =>
+          entry.isDirectory() && entry.name.localeCompare(repositoryName, undefined, { sensitivity: 'base' }) === 0
       )
 
       return matchingEntry ? path.resolve(rootResolved, matchingEntry.name) : null
