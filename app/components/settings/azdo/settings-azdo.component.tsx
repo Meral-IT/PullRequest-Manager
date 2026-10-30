@@ -35,6 +35,12 @@ const useStyles = makeStyles({
   explanation: { marginTop: tokens.spacingVerticalXS, marginBottom: 0, color: tokens.colorNeutralForeground2 },
 })
 
+const accessStatuses = {
+  verified: { label: 'Verified', color: 'success' },
+  denied: { label: 'Access denied', color: 'danger' },
+  unverified: { label: 'Not verified', color: 'warning' },
+} as const
+
 export default function AzureDevOpsSettings() {
   const styles = useStyles()
   const useSettings = () => {
@@ -43,6 +49,9 @@ export default function AzureDevOpsSettings() {
 
   const { state, actions, validatingAzDo, azDoAccess, azDoValidation } = useSettings()
   const access = azDoAccess ?? createAzureDevOpsAccess()
+  let validationLabel = 'Validate connection'
+  if (azDoValidation) validationLabel = 'Recheck access'
+  if (validatingAzDo) validationLabel = 'Validating...'
 
   let validatingIcon: React.ReactNode = undefined
   if (validatingAzDo) {
@@ -85,30 +94,26 @@ export default function AzureDevOpsSettings() {
         validationState={azDoValidation?.error ? 'error' : 'none'}
         validationMessage={
           azDoValidation ? (
-            <span role="status">{azDoValidation.error ?? `Connected as ${azDoValidation.userDisplayName}`}</span>
+            <output>{azDoValidation.error ?? `Connected as ${azDoValidation.userDisplayName}`}</output>
           ) : undefined
         }
       >
         <Button onClick={actions.validateAzDo} disabled={validatingAzDo} icon={validatingIcon}>
-          {validatingAzDo ? 'Validating...' : azDoValidation ? 'Recheck access' : 'Validate connection'}
+          {validationLabel}
         </Button>
       </Field>
       <section aria-label="PAT scope requirements" aria-busy={validatingAzDo}>
         <ul className={styles.requirements}>
           {azureDevOpsRequirements.map((requirement) => {
             const result = access.features[requirement.id]
-            const status =
-              result.status === 'verified' ? 'Verified' : result.status === 'denied' ? 'Access denied' : 'Not verified'
+            const status = accessStatuses[result.status]
             return (
               <li key={requirement.id}>
                 <div className={styles.scopeHeading}>
                   <strong>{requirement.label}</strong>
                   <span>{requirement.required ? 'Required' : 'Optional'}</span>
-                  <Badge
-                    appearance="tint"
-                    color={result.status === 'verified' ? 'success' : result.status === 'denied' ? 'danger' : 'warning'}
-                  >
-                    {status}
+                  <Badge appearance="tint" color={status.color}>
+                    {status.label}
                   </Badge>
                 </div>
                 <p className={styles.explanation}>

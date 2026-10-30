@@ -1,7 +1,7 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { SettingsModel, TableSize } from '@/lib/models/settings.model'
-import { ChangeEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
   AzureDevOpsValidationResult,
@@ -148,173 +148,176 @@ export const SettingProvider = ({ children }: Props) => {
     return unsubscribe
   }, [])
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setSaveError('')
-    const { value } = e.target
-    if (['azDoOrganizationUrl', 'azDoProject', 'azDoPat'].includes(e.target.name)) {
-      validationRequest.current++
-      setValidatingAzDo(false)
-      setAzDoValidation(undefined)
-      setAzDoAccess(undefined)
-      currentForm.current = { ...currentForm.current, [e.target.name]: value }
-    }
-
-    if ('profileId' in e) {
-      const profileId = e.profileId
-      const updatedProfile = formData.profiles.find((profile) => profile.id === profileId)
-      if (!updatedProfile) {
-        return
+  const value = useMemo<SettingPageProps>(() => {
+    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+      setSaveError('')
+      const { value } = e.target
+      if (['azDoOrganizationUrl', 'azDoProject', 'azDoPat'].includes(e.target.name)) {
+        validationRequest.current++
+        setValidatingAzDo(false)
+        setAzDoValidation(undefined)
+        setAzDoAccess(undefined)
+        currentForm.current = { ...currentForm.current, [e.target.name]: value }
       }
 
-      if (updatedProfile.isDefault) {
-        for (const profile of formData.profiles) {
-          if (profile.id !== profileId) {
-            profile.isDefault = false
+      if ('profileId' in e) {
+        const profileId = e.profileId
+        const updatedProfile = formData.profiles.find((profile) => profile.id === profileId)
+        if (!updatedProfile) {
+          return
+        }
+
+        if (updatedProfile.isDefault) {
+          for (const profile of formData.profiles) {
+            if (profile.id !== profileId) {
+              profile.isDefault = false
+            }
           }
         }
+
+        setFormData((prevFormData) => ({
+          ...prevFormData,
+          profiles: prevFormData.profiles.map((profile) =>
+            profile.id === profileId
+              ? {
+                  ...profile,
+                  [e.target.name]: value,
+                  ...(e.target.name === 'filter' ? getProfileFilterValidation(value) : {}),
+                }
+              : profile
+          ),
+        }))
+        return
       }
 
       setFormData((prevFormData) => ({
         ...prevFormData,
-        profiles: prevFormData.profiles.map((profile) =>
-          profile.id === profileId
-            ? {
-                ...profile,
-                [e.target.name]: value,
-                ...(e.target.name === 'filter' ? getProfileFilterValidation(value) : {}),
-              }
-            : profile
-        ),
+        [e.target.name]: value,
       }))
-      return
     }
 
-    setFormData((prevFormData) => ({
-      ...prevFormData,
-      [e.target.name]: value,
-    }))
-  }
-
-  const validateAzDo = async () => {
-    const request = ++validationRequest.current
-    setValidatingAzDo(true)
-    try {
-      const response: AzureDevOpsValidationResult = await globalThis.api.invoke(
-        'validate-azure-devops',
-        connectionFromForm(formData)
-      )
-      if (request !== validationRequest.current) return
-      setAzDoValidation(response)
-      setAzDoAccess(response.access)
-    } catch (error) {
-      if (request !== validationRequest.current) return
-      const access = createAzureDevOpsAccess()
-      const failure = getAzureDevOpsAccessFailure(error)
-      access.features = { code: failure, identity: failure, vote: failure }
-      setAzDoValidation({ userDisplayName: null, error: failure.message, access })
-      setAzDoAccess(access)
-    } finally {
-      if (request === validationRequest.current) setValidatingAzDo(false)
-    }
-  }
-
-  const saveSettings = async () => {
-    setSaving(true)
-    setSaveError('')
-    try {
-      const profiles = formData.profiles.map((profile) => ({
-        ...profile,
-        ...getProfileFilterValidation(profile.filter),
-      }))
-      setFormData((previous) => ({ ...previous, profiles }))
-      const invalid = profiles.find((profile) => !profile.filterValid)
-      if (invalid) throw new Error(`Invalid filter for profile "${invalid.label}": ${invalid.filterValidationMessage}`)
-
-      const model: SettingsModel = {
-        general: {
-          openAtLogin: formData.openAtLogin,
-          enableNotifications: formData.enableNotifications,
-          notificationSound: formData.notificationSound,
-          repositoriesRootDirectory: formData.repositoriesRootDirectory,
-        },
-        azDo: {
-          organizationUrl: formData.azDoOrganizationUrl,
-          project: formData.azDoProject,
-          pat: formData.azDoPat,
-          updateInterval: formData.azDoInterval,
-          intelligentApproval: formData.azDoIntelligentApproval,
-        },
-        appearance: {
-          theme: formData.appearanceTheme,
-          tableSize: formData.appearanceTableSize,
-        },
-        profiles: profiles.map(convertProfilesToModel),
+    const validateAzDo = async () => {
+      const request = ++validationRequest.current
+      setValidatingAzDo(true)
+      try {
+        const response: AzureDevOpsValidationResult = await globalThis.api.invoke(
+          'validate-azure-devops',
+          connectionFromForm(formData)
+        )
+        if (request !== validationRequest.current) return
+        setAzDoValidation(response)
+        setAzDoAccess(response.access)
+      } catch (error) {
+        if (request !== validationRequest.current) return
+        const access = createAzureDevOpsAccess()
+        const failure = getAzureDevOpsAccessFailure(error)
+        access.features = { code: failure, identity: failure, vote: failure }
+        setAzDoValidation({ userDisplayName: null, error: failure.message, access })
+        setAzDoAccess(access)
+      } finally {
+        if (request === validationRequest.current) setValidatingAzDo(false)
       }
-      await globalThis.api.invoke('save-settings', model)
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
 
-  const handleDeleteProfile = (id: string) => {
-    setFormData((prevFormData) => ({
-      ...prevFormData,
-      profiles: prevFormData.profiles.filter((profile) => profile.id !== id),
-    }))
-  }
+    const saveSettings = async () => {
+      setSaving(true)
+      setSaveError('')
+      try {
+        const profiles = formData.profiles.map((profile) => ({
+          ...profile,
+          ...getProfileFilterValidation(profile.filter),
+        }))
+        setFormData((previous) => ({ ...previous, profiles }))
+        const invalid = profiles.find((profile) => !profile.filterValid)
+        if (invalid)
+          throw new Error(`Invalid filter for profile "${invalid.label}": ${invalid.filterValidationMessage}`)
 
-  const handleDuplicateProfile = (profileId: string) => {
-    const profile = formData.profiles.find((p) => p.id === profileId)
-    if (!profile) return
-    const newProfile = {
-      ...profile,
-      id: crypto.randomUUID(),
-      label: `${profile.label} (copy)`,
+        const model: SettingsModel = {
+          general: {
+            openAtLogin: formData.openAtLogin,
+            enableNotifications: formData.enableNotifications,
+            notificationSound: formData.notificationSound,
+            repositoriesRootDirectory: formData.repositoriesRootDirectory,
+          },
+          azDo: {
+            organizationUrl: formData.azDoOrganizationUrl,
+            project: formData.azDoProject,
+            pat: formData.azDoPat,
+            updateInterval: formData.azDoInterval,
+            intelligentApproval: formData.azDoIntelligentApproval,
+          },
+          appearance: {
+            theme: formData.appearanceTheme,
+            tableSize: formData.appearanceTableSize,
+          },
+          profiles: profiles.map(convertProfilesToModel),
+        }
+        await globalThis.api.invoke('save-settings', model)
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
+      } finally {
+        setSaving(false)
+      }
     }
-    setFormData((prevFormData) => ({
-      ...prevFormData,
-      profiles: [...prevFormData.profiles, newProfile],
-    }))
-  }
 
-  const handleAddProfile = () => {
-    const newProfile: SettingStatePrProfile = {
-      id: crypto.randomUUID(),
-      label: 'New profile',
-      visible: true,
-      enableAcceptAll: false,
-      notifyOnNewPrs: false,
-      isDefault: false,
-      filter: '',
-      ...getProfileFilterValidation(''),
+    const handleDeleteProfile = (id: string) => {
+      setFormData((prevFormData) => ({
+        ...prevFormData,
+        profiles: prevFormData.profiles.filter((profile) => profile.id !== id),
+      }))
     }
-    setFormData((prevFormData) => ({
-      ...prevFormData,
-      profiles: [...prevFormData.profiles, newProfile],
-    }))
-  }
 
-  const value: SettingPageProps = {
-    state: formData,
-    actions: {
-      getInitialSettings: async () => {
-        return convertSettings(await globalThis.api.invoke('get-settings'))
+    const handleDuplicateProfile = (profileId: string) => {
+      const profile = formData.profiles.find((p) => p.id === profileId)
+      if (!profile) return
+      const newProfile = {
+        ...profile,
+        id: crypto.randomUUID(),
+        label: `${profile.label} (copy)`,
+      }
+      setFormData((prevFormData) => ({
+        ...prevFormData,
+        profiles: [...prevFormData.profiles, newProfile],
+      }))
+    }
+
+    const handleAddProfile = () => {
+      const newProfile: SettingStatePrProfile = {
+        id: crypto.randomUUID(),
+        label: 'New profile',
+        visible: true,
+        enableAcceptAll: false,
+        notifyOnNewPrs: false,
+        isDefault: false,
+        filter: '',
+        ...getProfileFilterValidation(''),
+      }
+      setFormData((prevFormData) => ({
+        ...prevFormData,
+        profiles: [...prevFormData.profiles, newProfile],
+      }))
+    }
+
+    return {
+      state: formData,
+      actions: {
+        getInitialSettings: async () => {
+          return convertSettings(await globalThis.api.invoke('get-settings'))
+        },
+        onChangeHandler: handleChange,
+        validateAzDo,
+        saveSettings,
+        deleteProfile: handleDeleteProfile,
+        duplicateProfile: handleDuplicateProfile,
+        addProfile: handleAddProfile,
       },
-      onChangeHandler: handleChange,
-      validateAzDo,
-      saveSettings,
-      deleteProfile: handleDeleteProfile,
-      duplicateProfile: handleDuplicateProfile,
-      addProfile: handleAddProfile,
-    },
-    saving: saving,
-    saveError,
-    validatingAzDo: validatingAzDo,
-    azDoAccess,
-    azDoValidation,
-  }
+      saving: saving,
+      saveError,
+      validatingAzDo: validatingAzDo,
+      azDoAccess,
+      azDoValidation,
+    }
+  }, [formData, saving, saveError, validatingAzDo, azDoAccess, azDoValidation])
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

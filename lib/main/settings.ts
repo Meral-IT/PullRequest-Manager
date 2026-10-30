@@ -69,11 +69,14 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
     if (errors.length) throw new Error(`Invalid filter for profile "${profile.label}": ${errors.join('; ')}`)
   }
 
-  const acknowledgement = cachedSettings
-    ? sameAzureDevOpsConnection(input.azDo, cachedSettings.azDo)
-      ? (input.azDo.acknowledgedScopeRequirements ?? cachedSettings.azDo.acknowledgedScopeRequirements)
-      : undefined
-    : input.azDo.acknowledgedScopeRequirements
+  let acknowledgement = input.azDo.acknowledgedScopeRequirements
+  if (cachedSettings) {
+    if (sameAzureDevOpsConnection(input.azDo, cachedSettings.azDo)) {
+      acknowledgement ??= cachedSettings.azDo.acknowledgedScopeRequirements
+    } else {
+      acknowledgement = undefined
+    }
+  }
   const settings = { ...input, azDo: { ...input.azDo, acknowledgedScopeRequirements: acknowledgement } }
   await fs.writeFile(
     settingFile,

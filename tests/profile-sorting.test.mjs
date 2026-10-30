@@ -66,7 +66,12 @@ async function component(entry) {
         states[index] = dependencies
       }
     },
-    useMemo: (factory) => factory(),
+    useMemo(factory, dependencies) {
+      const index = cursor++
+      if (!states[index] || dependencies.some((value, i) => value !== states[index].dependencies[i]))
+        states[index] = { value: factory(), dependencies }
+      return states[index].value
+    },
     useCallback(callback, dependencies) {
       const index = cursor++
       if (!states[index] || dependencies.some((value, i) => value !== states[index].dependencies[i]))
@@ -224,6 +229,47 @@ test('AzDo validation leaves editable settings unchanged and discards results af
   value = provider.render({}, 'SettingProvider').props.value
   assert.deepEqual(value.state, before)
   assert.equal(value.azDoValidation.userDisplayName, 'Current user')
+})
+
+test('settings context retains its value across unchanged renders and updates after edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const initial = provider.render({}, 'SettingProvider').props.value
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value, initial)
+  initial.actions.onChangeHandler({ target: { name: 'azDoProject', value: 'updated-project' } })
+  const updated = provider.render({}, 'SettingProvider').props.value
+  assert.notStrictEqual(updated, initial)
+  assert.equal(updated.state.azDoProject, 'updated-project')
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value, updated)
+})
+
+test('AzDo connection status uses native output and retains validate, recheck, and loading labels', async () => {
+  const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
+  const context = { state: { azDoOrganizationUrl: '' }, actions: {}, validatingAzDo: false }
+  view.setContext(context)
+  let tree = view.render()
+  assert.ok(
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Validate connection').length
+  )
+  context.azDoValidation = { userDisplayName: 'Test User', error: null }
+  view.setContext(context)
+  tree = view.render()
+  const field = elements(tree, (element) => element.type === 'Field' && element.props.validationMessage)[0]
+  assert.equal(field.props.validationMessage.type, 'output')
+  assert.equal(field.props.validationMessage.props.children, 'Connected as Test User')
+  assert.ok(
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Recheck access').length
+  )
+  context.validatingAzDo = true
+  view.setContext(context)
+  assert.ok(
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props.children === 'Validating...' && element.props.disabled
+    ).length
+  )
 })
 
 test('profile controls default to creation descending and preserve explicit and manual sorting', async () => {
