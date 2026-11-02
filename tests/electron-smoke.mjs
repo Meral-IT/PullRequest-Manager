@@ -2269,7 +2269,7 @@ async function runSmokeTest() {
         { value: 'descending', disabled: false },
       ]
     )
-    for (const value of ['details', 'creationDate', '']) {
+    const checkSortSelection = async (value) => {
       await window.webContents.executeJavaScript(`(() => {
         const select = document.querySelector('select')
         select.value = ${JSON.stringify(value)}
@@ -2278,11 +2278,13 @@ async function runSmokeTest() {
       await waitForRenderer(window, `document.querySelectorAll('select')[1].disabled === ${!value}`)
       await checkProfileLayout(window)
     }
+    await checkSortSelection('details')
+    await checkSortSelection('creationDate')
+    await checkSortSelection('')
     await capture(window, 'profile-general')
     await selectProfileTab(window, 'filter')
     await checkProfileLayout(window)
-    const resizeLayouts = []
-    for (const height of [670, 900, 450, 350, 670]) {
+    const checkFilterPanelHeight = async (height) => {
       window.setContentSize(900, height)
       await settleLayout(window)
       await checkProfileLayout(window, height !== 350)
@@ -2297,8 +2299,7 @@ async function runSmokeTest() {
         })()`)
         assert.equal(reachable, true, 'Short windows can scroll to filter validation while Save stays visible')
       }
-      resizeLayouts.push(
-        await window.webContents.executeJavaScript(`(() => {
+      const layout = await window.webContents.executeJavaScript(`(() => {
         const rect = element => {
           const { top, bottom, height } = element.getBoundingClientRect()
           return { top, bottom, height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }
@@ -2313,9 +2314,16 @@ async function runSmokeTest() {
           save: rect(buttons.find(button => button.innerText === 'Save Settings')),
         }
       })()`)
-      )
       if (height === 350) await capture(window, 'profile-short')
+      return layout
     }
+    const resizeLayouts = [
+      await checkFilterPanelHeight(670),
+      await checkFilterPanelHeight(900),
+      await checkFilterPanelHeight(450),
+      await checkFilterPanelHeight(350),
+      await checkFilterPanelHeight(670),
+    ]
     assert.ok(resizeLayouts[2].editor.height < resizeLayouts[1].editor.height, JSON.stringify(resizeLayouts))
     assert.ok(
       Math.abs(resizeLayouts[4].editor.height - resizeLayouts[0].editor.height) <= 1,
@@ -2382,19 +2390,23 @@ async function runSmokeTest() {
         rel: 'noreferrer',
       }
     )
-    for (const blank of ['', ' \n\t ']) {
+    const checkBlankFilterExample = async (blank) => {
       await pasteFilter(blank)
       await waitForRenderer(window, `!${exampleButton}.disabled`)
       await window.webContents.executeJavaScript(`${exampleButton}.click()`)
       await waitForRenderer(window, `${exampleButton}.disabled && document.body.innerText.includes('Filter is valid.')`)
       assert.deepEqual(JSON.parse(await copyFilter()), { op: 'AND', filters: [{ isDraft: false }] })
     }
-    for (const draft of ['{"op":"AND","filters":[]}', '{unfinished draft']) {
+    await checkBlankFilterExample('')
+    await checkBlankFilterExample(' \n\t ')
+    const checkExistingFilterPreserved = async (draft) => {
       await pasteFilter(draft)
       await waitForRenderer(window, `${exampleButton}.disabled`)
       await window.webContents.executeJavaScript(`${exampleButton}.click()`)
       assert.equal(await copyFilter(), draft, 'Example action preserves nonempty drafts, including invalid JSON')
     }
+    await checkExistingFilterPreserved('{"op":"AND","filters":[]}')
+    await checkExistingFilterPreserved('{unfinished draft')
     await capture(window, 'profile-filter-help')
     await window.webContents.executeJavaScript(
       `(${installMonacoDiagnostic.toString()})(); document.querySelector('.monaco-editor [aria-label="Profile filter JSON editor"]').focus()`
