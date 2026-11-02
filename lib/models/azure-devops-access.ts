@@ -44,7 +44,11 @@ export function sameAzureDevOpsConnection(a: AzureDevOpsConnection, b: AzureDevO
   return a.organizationUrl === b.organizationUrl && a.project === b.project && a.pat === b.pat
 }
 
-export function createAzureDevOpsAccess(acknowledgement?: string, connectionRevision = 0): AzureDevOpsAccess {
+export function createAzureDevOpsAccess(
+  acknowledgement?: string,
+  connectionRevision = 0,
+  verifiedVoteRequirements?: string
+): AzureDevOpsAccess {
   return {
     requirementsFingerprint: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
     connectionRevision,
@@ -52,10 +56,13 @@ export function createAzureDevOpsAccess(acknowledgement?: string, connectionRevi
     features: {
       code: { status: 'unverified', message: 'Validate the connection to check PR read access.' },
       identity: { status: 'unverified', message: 'Validate the connection to check team membership access.' },
-      vote: {
-        status: 'unverified',
-        message: 'Checked only when you approve a PR or reset a vote. Validation never casts votes.',
-      },
+      vote:
+        verifiedVoteRequirements === AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT
+          ? { status: 'verified', message: 'Access verified by a previous successful approval or vote reset.' }
+          : {
+              status: 'unverified',
+              message: 'Checked only when you approve a PR or reset a vote. Validation never casts votes.',
+            },
     },
   }
 }

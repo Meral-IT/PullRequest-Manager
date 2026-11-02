@@ -47,7 +47,10 @@ type PolicyEvaluation = {
 }
 
 export class AzureDevOpsService {
-  constructor(private readonly onData?: () => void) {}
+  constructor(
+    private readonly onData?: () => void,
+    private readonly onVoteVerification?: (connection: AzureDevOpsConnection, verified: boolean) => Promise<unknown>
+  ) {}
   private static nextConnectionRevision = 0
 
   private settings?: AzDoSettings
@@ -170,6 +173,7 @@ export class AzureDevOpsService {
         result.access.features.vote = this.pullRequests.access.features.vote
       this.pullRequests = { ...this.pullRequests, access: result.access }
       this.publishData()
+      await this.persistVoteVerification(revision)
     }
     return result
   }
@@ -195,12 +199,26 @@ export class AzureDevOpsService {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('pr-data', this.pullRequests)
   }
 
-  private publishVoteAccess(result: AzureDevOpsAccessResult, revision: number): void {
+  private async publishVoteAccess(result: AzureDevOpsAccessResult, revision: number): Promise<void> {
     if (revision !== this.connectionRevision) return
     const access = this.pullRequests.access ?? createAzureDevOpsAccess(undefined, revision)
     if (result.status === 'unverified' && access.features.vote.status === 'denied') result = access.features.vote
     this.pullRequests = { ...this.pullRequests, access: { ...access, features: { ...access.features, vote: result } } }
     this.publishData()
+    await this.persistVoteVerification(revision)
+  }
+
+  private async persistVoteVerification(revision: number): Promise<void> {
+    if (revision !== this.connectionRevision || !this.settings || !this.pullRequests.access) return
+    const { organizationUrl, project, pat } = this.settings
+    try {
+      await this.onVoteVerification?.(
+        { organizationUrl, project, pat },
+        this.pullRequests.access.features.vote.status === 'verified'
+      )
+    } catch {
+      log.error('Failed to save Azure DevOps write-access verification')
+    }
   }
 
   public stop(): void {
@@ -238,7 +256,7 @@ export class AzureDevOpsService {
       connectionData = await AzureDevOpsService.connect(api)
       buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
     } catch (error) {
-      this.publishVoteAccess(getAzureDevOpsAccessFailure(error), revision)
+      await this.publishVoteAccess(getAzureDevOpsAccessFailure(error), revision)
       return
     }
     if (revision !== this.connectionRevision) return
@@ -299,7 +317,7 @@ export class AzureDevOpsService {
     await throttleAll<void>(4, tasks)
     if (failures.length) access.features.vote = failures.find((failure) => failure.status === 'denied') ?? failures[0]
 
-    this.publishVoteAccess(access.features.vote, revision)
+    await this.publishVoteAccess(access.features.vote, revision)
   }
 
   public async resetPullRequestFeedback(pr: PullRequest): Promise<void> {
@@ -333,7 +351,7 @@ export class AzureDevOpsService {
       access.features.vote = getAzureDevOpsAccessFailure(error)
       log.error('Failed to reset pull request feedback', access.features.vote.message)
     }
-    this.publishVoteAccess(access.features.vote, revision)
+    await this.publishVoteAccess(access.features.vote, revision)
   }
 
   private static appendReviewer(
@@ -417,6 +435,7 @@ export class AzureDevOpsService {
     const hasChanged = JSON.stringify(this.settings) !== JSON.stringify(input)
     const connectionChanged = !this.settings || !sameAzureDevOpsConnection(this.settings, input)
     const acknowledgement = this.settings && connectionChanged ? undefined : input.acknowledgedScopeRequirements
+    const verifiedVoteRequirements = this.settings && connectionChanged ? undefined : input.verifiedVoteRequirements
     this.settings = { ...input }
 
     if (connectionChanged) {
@@ -425,7 +444,7 @@ export class AzureDevOpsService {
         items: [],
         error: null,
         access: this.isValidSettings(input)
-          ? createAzureDevOpsAccess(acknowledgement, this.connectionRevision)
+          ? createAzureDevOpsAccess(acknowledgement, this.connectionRevision, verifiedVoteRequirements)
           : undefined,
       }
       this.data = new AzureDevOpsData()
@@ -766,17 +785,20 @@ export class AzureDevOpsService {
       const access = structuredClone(
         this.pullRequests.access ?? createAzureDevOpsAccess(settings.acknowledgedScopeRequirements, revision)
       )
+      const previousVote = access.features.vote
       const newData = await AzureDevOpsService.loadPullRequestData(api, settings, access)
       if (revision !== this.connectionRevision) return
       this.data = newData
       if (newData.access && this.pullRequests.access) {
         newData.access.acknowledged = this.pullRequests.access.acknowledged
-        if (newData.access.features.code.reason !== 'authentication')
+        // Keep newer votes unless this refresh itself invalidated write access while connecting.
+        if (newData.access.features.vote === previousVote)
           newData.access.features.vote = this.pullRequests.access.features.vote
       }
       if (!this.onData) this.handleNewPRNotifications(newData.items)
       this.pullRequests = { items: newData.items, error: newData.error, access: newData.access }
       this.publishData()
+      await this.persistVoteVerification(revision)
     } finally {
       loader.stop()
     }
