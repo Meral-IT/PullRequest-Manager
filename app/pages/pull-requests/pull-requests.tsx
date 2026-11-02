@@ -1,5 +1,5 @@
-import ErrorComponent from '@/app/components/error/error.component'
 import AzureDevOpsAccessBanner from '@/app/components/azure-devops-access-banner'
+import ErrorComponent from '@/app/components/error/error.component'
 import PrList from '@/app/components/pr-list/pr-list'
 import ZeroData from '@/app/components/zero-data/zero-data.component'
 import { ZeroDataActionType } from '@/app/components/zero-data/zerodata.props'
@@ -33,17 +33,17 @@ import {
   MenuPopover,
   MenuTrigger,
   MessageBar,
+  MessageBarActions,
   MessageBarBody,
   MessageBarTitle,
-  MessageBarActions,
+  Option,
   Overflow,
   OverflowItem,
-  Option,
   Tab,
   TabList,
   Text,
-  Tooltip,
   tokens,
+  Tooltip,
   useIsOverflowItemVisible,
   useOverflowMenu,
 } from '@fluentui/react-components'
@@ -476,9 +476,7 @@ export default function PullRequestsOverview() {
                 aria-expanded={open && menuScope === active.profile.label}
                 disabled={visible.length === 0}
                 onClick={(event) => onHeaderMenu(event.currentTarget, visible, active.profile.label)}
-              >
-                Approve all matching PRs ({visible.length})
-              </Button>
+              />
             )}
             <Tooltip
               content={filtersVisible ? 'Hide filters' : 'Show filters (Ctrl+F / Cmd+F)'}
