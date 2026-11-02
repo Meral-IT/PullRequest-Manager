@@ -4,7 +4,6 @@ import {
   PullRequest,
   pullRequestKey,
   PullRequestMergeStatus,
-  PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,
   Reviewer,
 } from '@/lib/models/pull-request.model'
@@ -65,6 +64,15 @@ function voteToBadge(vote: PrVote): PresenceBadgeStatus {
       return 'unknown'
   }
 }
+
+const policyOutcomes = {
+  [PullRequestPolicyEvaluationStatus.Queued]: 'pending',
+  [PullRequestPolicyEvaluationStatus.Running]: 'pending',
+  [PullRequestPolicyEvaluationStatus.Approved]: 'approved',
+  [PullRequestPolicyEvaluationStatus.Rejected]: 'failed',
+  [PullRequestPolicyEvaluationStatus.NotApplicable]: 'not applicable',
+  [PullRequestPolicyEvaluationStatus.Broken]: 'failed',
+} as const
 
 const columns: TableColumnDefinition<PullRequest>[] = [
   createTableColumn<PullRequest>({
@@ -146,7 +154,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     renderHeaderCell: () => 'Reviews',
     renderCell: (item) => {
       if (item.reviewers.length === 0) {
-        return <CheckmarkRegular />
+        return <TableCellLayout>No reviewers</TableCellLayout>
       }
 
       return (
@@ -159,58 +167,63 @@ const columns: TableColumnDefinition<PullRequest>[] = [
   createTableColumn<PullRequest>({
     columnId: 'statusChecks',
     compare: (a, b) => {
-      const aFailed = a.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
-      ).length
-      const bFailed = b.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
-      ).length
+      const aFailed = a.evaluations.filter((status) => policyOutcomes[status.status] === 'failed').length
+      const bFailed = b.evaluations.filter((status) => policyOutcomes[status.status] === 'failed').length
       return aFailed - bFailed
     },
     renderHeaderCell: () => 'Status Checks',
     renderCell: (item) => {
-      const { failedChecks, pendingChecks } = item.evaluations.reduce(
-        (acc, status) => {
-          if (status.status === PullRequestPolicyEvaluationStatus.Rejected) {
-            acc.failedChecks.push(status)
-          } else if (status.status === PullRequestPolicyEvaluationStatus.Queued) {
-            acc.pendingChecks.push(status)
-          }
-          return acc
-        },
-        { failedChecks: [], pendingChecks: [] } as {
-          failedChecks: PullRequestPolicyEvaluationRecord[]
-          pendingChecks: PullRequestPolicyEvaluationRecord[]
-        }
-      )
-
-      if (failedChecks.length === 0 && pendingChecks.length === 0) {
-        return <CheckmarkRegular />
+      if (item.evaluations.length === 0) {
+        return <TableCellLayout>No checks</TableCellLayout>
       }
+
+      const counts = { failed: 0, pending: 0, approved: 0, 'not applicable': 0 }
+      for (const evaluation of item.evaluations) {
+        counts[policyOutcomes[evaluation.status]]++
+      }
+      const summary = Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .map(([outcome, count]) => `${count} ${outcome}`)
+        .join(', ')
 
       return (
         <Tooltip
           content={
             <>
-              {failedChecks.length > 0 &&
-                failedChecks.map((status) => <div key={status.id}>{status.displayName} failed.</div>)}
-              {pendingChecks.length > 0 &&
-                pendingChecks.map((status) => <div key={status.id}>{status.displayName} pending.</div>)}
+              {item.evaluations.map((evaluation) => (
+                <div key={evaluation.id}>
+                  {evaluation.displayName}:{' '}
+                  {evaluation.status === PullRequestPolicyEvaluationStatus.NotApplicable
+                    ? 'Not applicable'
+                    : PullRequestPolicyEvaluationStatus[evaluation.status]}
+                  .
+                </div>
+              ))}
             </>
           }
-          relationship="label"
+          relationship="description"
           withArrow
         >
-          <TableCellLayout>
-            {failedChecks.length > 0 && (
+          <TableCellLayout role="img" aria-label={summary} tabIndex={0}>
+            {counts.failed > 0 && (
               <Badge appearance="outline" color="danger" style={{ marginRight: '4px' }}>
-                {failedChecks.length} failed
+                {counts.failed} failed
               </Badge>
             )}
-            {pendingChecks.length > 0 && (
-              <Badge appearance="outline" color="brand">
-                {pendingChecks.length} pending
+            {counts.pending > 0 && (
+              <Badge appearance="outline" color="brand" style={{ marginRight: '4px' }}>
+                {counts.pending} pending
               </Badge>
+            )}
+            {counts.failed === 0 && counts.pending === 0 && (
+              <>
+                {counts.approved > 0 && <CheckmarkRegular />}
+                {counts['not applicable'] > 0 && (
+                  <Badge appearance="outline" color="subtle">
+                    {counts['not applicable']} N/A
+                  </Badge>
+                )}
+              </>
             )}
           </TableCellLayout>
         </Tooltip>

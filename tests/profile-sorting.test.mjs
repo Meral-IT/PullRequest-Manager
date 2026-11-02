@@ -544,6 +544,48 @@ test('grid applies both sort directions to each supported column and prevents ma
   assert.equal(grid(null).props.sortable, true)
 })
 
+test('policy cells distinguish all six states, empty checks, and mixed tooltips', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const grid = elements(view.render({ data: [{ id: 1 }] }), (element) => element.type === 'DataGrid')[0]
+  const checks = grid.props.columns.find((column) => column.columnId === 'statusChecks')
+  const reviewers = grid.props.columns.find((column) => column.columnId === 'reviewers')
+  const text = (node) => {
+    if (Array.isArray(node)) return node.map(text).join('')
+    if (node && typeof node === 'object') return text(node.props?.children)
+    return typeof node === 'string' || typeof node === 'number' ? String(node) : ''
+  }
+  const evaluation = (status) => ({
+    id: String(status),
+    status,
+    displayName: `Policy ${status}`,
+    config: { type: { id: 'build', displayName: 'Build', url: '' } },
+  })
+  for (const [status, summary] of [
+    [0, '1 pending'],
+    [1, '1 pending'],
+    [2, '1 approved'],
+    [3, '1 failed'],
+    [4, '1 not applicable'],
+    [5, '1 failed'],
+  ]) {
+    const cell = checks.renderCell({ evaluations: [evaluation(status)] })
+    assert.ok(elements(cell, (element) => element.props?.['aria-label'] === summary).length, summary)
+    assert.ok(text(cell.props.content).includes(`Policy ${status}`))
+  }
+  assert.equal(text(checks.renderCell({ evaluations: [] })), 'No checks')
+  assert.equal(text(reviewers.renderCell({ reviewers: [] })), 'No reviewers')
+  const mixed = checks.renderCell({ evaluations: [0, 1, 2, 3, 4, 5].map(evaluation) })
+  assert.equal(mixed.props.relationship, 'description')
+  assert.ok(
+    elements(mixed, (element) => element.props?.['aria-label'] === '2 failed, 2 pending, 1 approved, 1 not applicable')
+      .length
+  )
+  for (const state of ['Queued', 'Running', 'Approved', 'Rejected', 'Not applicable', 'Broken']) {
+    assert.ok(text(mixed.props.content).includes(state), state)
+  }
+  assert.equal(checks.compare({ evaluations: [evaluation(5)] }, { evaluations: [evaluation(2)] }), 1)
+})
+
 test('active profile receives saved sorting without switching tabs', async () => {
   const overview = await component('app/pages/pull-requests/pull-requests.tsx')
   overview.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
