@@ -2111,10 +2111,7 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    for (const [name, remaining] of [
-      ['Second connection', 2],
-      ['Smoke integration', 1],
-    ]) {
+    const checkIntegrationRemoval = async (name, remaining) => {
       const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
         pat: document.querySelector('input[name="azDoPat"]').value,
         project: document.querySelector('input[name="azDoProject"]').value })`)
@@ -2171,6 +2168,8 @@ async function runSmokeTest() {
         remaining === 2 ? 'Smoke integration' : null
       )
     }
+    await checkIntegrationRemoval('Second connection', 2)
+    await checkIntegrationRemoval('Smoke integration', 1)
     assert.equal(
       await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
       true
