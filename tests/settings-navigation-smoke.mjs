@@ -21,8 +21,37 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
       window,
       `Array.from(document.querySelectorAll('[role=status]')).some(node => node.textContent === ${JSON.stringify(text)})`
     )
-  const dialog = () => waitForRenderer(window, '!!document.querySelector(\'[role="dialog"]\')')
-  const home = () => waitForRenderer(window, "!!document.querySelector('.zerodata')")
+  const dialog = (phase) =>
+    waitForRenderer(window, '!!document.querySelector(\'[role="dialog"]\')', `Settings navigation: ${phase}: dialog`)
+  const entry = () => run('({ hash: location.hash, key: history.state?.key })')
+  const stay = async (phase, expected) => {
+    expected ??= await entry()
+    await click('Stay')
+    await waitForRenderer(
+      window,
+      `!document.querySelector('[role="dialog"]') && location.hash === ${JSON.stringify(expected.hash)} &&
+        history.state?.key === ${JSON.stringify(expected.key)}`,
+      `Settings navigation: ${phase}: settings restored`
+    )
+  }
+  const home = async (phase, hash = '#/') => {
+    console.log(
+      '[settings-navigation]',
+      phase,
+      await run(`({
+      hash: location.hash, historyKey: history.state?.key, historyIndex: history.state?.idx,
+      dialog: !!document.querySelector('[role="dialog"]'),
+      overview: !!document.querySelector('.pr-list-header'), empty: !!document.querySelector('.zerodata'),
+      spinners: document.querySelectorAll('.fui-Spinner').length
+    })`)
+    )
+    await waitForRenderer(
+      window,
+      `location.hash === ${JSON.stringify(hash)} && !document.querySelector('[role="dialog"]') &&
+        !!document.querySelector('.zerodata')`,
+      `Settings navigation: ${phase}: empty overview at ${hash}`
+    )
+  }
   const enter = async () => {
     window.webContents.send('navigate', { path: '/settings/integrations/smoke' })
     await integration()
@@ -67,15 +96,15 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
       true,
       'File > Pull-Requests must ask before discarding a settings draft'
     )
-    await click('Stay')
+    await stay('File Stay')
     assert.equal(await name(), 'Unsaved name')
     await click('Home')
-    await dialog()
-    await click('Stay')
+    await dialog('Home Stay')
+    await stay('Home Stay')
     window.webContents.send('navigate', { path: '/?source=ipc' })
-    await dialog()
+    await dialog('IPC Leave')
     await click('Leave')
-    await home()
+    await home('IPC Leave', '#/?source=ipc')
     assert.equal(
       await run('location.hash'),
       '#/?source=ipc',
@@ -84,14 +113,15 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await enter()
     assert.equal(await name(), original.azDoIntegrations[0].name, 'Leave discards without saving')
     await edit('Back draft')
+    const beforeBack = await entry()
     await run('history.back()')
-    await dialog()
-    await click('Stay')
+    await dialog('browser Back Stay')
+    await stay('browser Back Stay', beforeBack)
     assert.equal(await name(), 'Back draft', 'Browser Back Stay preserves the draft')
     await run('history.back()')
-    await dialog()
+    await dialog('browser Back Leave')
     await click('Leave')
-    await home()
+    await home('browser Back Leave', '#/?source=ipc')
     await enter()
     await edit('Failed draft')
     saveMode = 'failure'
@@ -102,8 +132,8 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     )
     await status('Unable to save settings. Unsaved changes.')
     await click('Home')
-    await dialog()
-    await click('Stay')
+    await dialog('failed save Stay')
+    await stay('failed save Stay')
     assert.equal(await name(), 'Failed draft', 'Failed save remains guarded')
     saveMode = 'normal'
     await click('Save Settings')
@@ -113,7 +143,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     )
     await status('Saved')
     await click('Home')
-    await home()
+    await home('saved settings Home')
     await enter()
     assert.equal(await name(), 'Failed draft', 'Successful save becomes the clean snapshot')
     await edit('Submitted draft')
@@ -130,8 +160,8 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await status('Unsaved changes')
     await edit('synthetic-unsaved-PAT', 'azDoPat')
     await click('Home')
-    await dialog()
-    await click('Stay')
+    await dialog('pending edits Stay')
+    await stay('pending edits Stay')
     assert.equal(await run("JSON.stringify([localStorage, sessionStorage]).includes('synthetic-unsaved-PAT')"), false)
     const stayed = new Promise((resolve) => window.webContents.once('will-prevent-unload', resolve))
     window.webContents.reload()
@@ -153,7 +183,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     assert.equal(await run('document.querySelector(\'input[name="azDoPat"]\').value'), '')
     assert.equal(saveCount, 3, 'Navigation, hide, and reload never save credentials automatically')
     await click('Home')
-    await home()
+    await home('reloaded settings Home')
   } finally {
     electron.ipcMain.removeHandler('save-settings')
     window.webContents.removeAllListeners('will-prevent-unload')
