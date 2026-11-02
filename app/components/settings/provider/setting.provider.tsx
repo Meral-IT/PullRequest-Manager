@@ -87,6 +87,9 @@ export const SettingProvider = ({ children }: Props) => {
   const currentForm = useRef(formData)
   currentForm.current = formData
 
+  const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(formData))
+  const pendingSave = useRef<string | undefined>(undefined)
+
   const resetValidation = useCallback(() => {
     validationRequest.current++
     setValidatingAzDo(false)
@@ -109,8 +112,14 @@ export const SettingProvider = ({ children }: Props) => {
       const next = settings.azDoIntegrations.find((item) => item.id === selectedId.current)
       if (!previous || !next || !sameAzureDevOpsConnection(previous, next)) resetValidation()
       savedConnections.current = settings.azDoIntegrations
-      currentForm.current = convertSettings(settings)
-      setFormData(currentForm.current)
+      const currentSnapshot = JSON.stringify(currentForm.current)
+      const replaceDraft = pendingSave.current === undefined || currentSnapshot === pendingSave.current
+      const saved = convertSettings(settings)
+      setSavedSnapshot(JSON.stringify(saved))
+      if (replaceDraft) {
+        currentForm.current = saved
+        setFormData(saved)
+      }
       selectedId.current = next?.id ?? settings.azDoIntegrations[0]?.id ?? ''
       setSelectedIntegrationId(selectedId.current)
       if (initial && latestData.current) receiveAccess(latestData.current)
@@ -250,10 +259,12 @@ export const SettingProvider = ({ children }: Props) => {
           },
           profiles: profiles.map(convertProfilesToModel),
         }
+        pendingSave.current = JSON.stringify({ ...formData, profiles })
         await globalThis.api.invoke('save-settings', model)
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
       } finally {
+        pendingSave.current = undefined
         setSaving(false)
       }
     }
@@ -312,9 +323,6 @@ export const SettingProvider = ({ children }: Props) => {
     return {
       state: formData,
       actions: {
-        getInitialSettings: async () => {
-          return convertSettings(await globalThis.api.invoke('get-settings'))
-        },
         onChangeHandler: handleChange,
         validateAzDo,
         selectIntegration,
@@ -348,6 +356,7 @@ export const SettingProvider = ({ children }: Props) => {
         addProfile: handleAddProfile,
       },
       selectedIntegrationId,
+      dirty: JSON.stringify(formData) !== savedSnapshot,
       saving: saving,
       saveError,
       validatingAzDo: validatingAzDo,
@@ -356,6 +365,7 @@ export const SettingProvider = ({ children }: Props) => {
     }
   }, [
     formData,
+    savedSnapshot,
     saving,
     saveError,
     validatingAzDo,

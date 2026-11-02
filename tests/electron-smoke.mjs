@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { validateSmokeProfilePath, withSmokeProfile } from './smoke-profile-path.mjs'
+import { checkSettingsNavigation } from './settings-navigation-smoke.mjs'
 
 if (!process.versions.electron) {
   const result = withSmokeProfile((userData) =>
@@ -504,7 +505,7 @@ async function checkZeroDataLayout(window, allowScroll = false) {
   return layout
 }
 
-async function checkSettingsError(window, type) {
+async function checkSettingsError(window, type, keyboard = false) {
   const error = {
     type,
     message: type === 'ConfigurationRequired' ? 'Configuration required' : 'Authentication required',
@@ -518,11 +519,32 @@ async function checkSettingsError(window, type) {
     `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`
   )
   await checkZeroDataLayout(window)
-  await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
-  await waitForRenderer(
-    window,
-    "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+  assert.equal(
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').getAttribute('href')"),
+    error.actionHref,
+    'ZeroData repair actions expose their internal route as a link'
   )
+  const nativeNavigations = []
+  const preventNativeNavigation = (event, url) => {
+    nativeNavigations.push(url)
+    event.preventDefault()
+  }
+  window.webContents.on('will-navigate', preventNativeNavigation)
+  try {
+    if (keyboard) {
+      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
+      pressKey(window, 'Enter')
+    } else {
+      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+    )
+    assert.deepEqual(nativeNavigations, [], 'ZeroData repair actions stay inside the hash router')
+  } finally {
+    window.webContents.off('will-navigate', preventNativeNavigation)
+  }
   await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
   await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
 }
@@ -1470,6 +1492,7 @@ async function runSmokeTest() {
     await checkPlatform(process.platform)
     await checkTitlebarLayout(window, windowPlatform, 480)
     await checkTitlebarMenus(window)
+    await checkSettingsNavigation(window, settings, waitForRenderer, settleLayout)
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
 
@@ -1506,7 +1529,7 @@ async function runSmokeTest() {
     window.setContentSize(900, 670)
 
     await checkSettingsError(window, 'ConfigurationRequired')
-    await checkSettingsError(window, 'Authentication')
+    await checkSettingsError(window, 'Authentication', true)
 
     window.webContents.send('pr-data', {
       items: [],
