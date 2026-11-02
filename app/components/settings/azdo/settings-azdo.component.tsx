@@ -2,6 +2,13 @@ import {
   Button,
   Badge,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogTrigger,
   Field,
   Input,
   Link,
@@ -13,7 +20,7 @@ import {
   tokens,
 } from '@fluentui/react-components'
 import { CheckmarkFilled, DismissFilled } from '@fluentui/react-icons'
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
 import { azureDevOpsRequirements, createAzureDevOpsAccess } from '@/lib/models/azure-devops-access'
@@ -53,6 +60,9 @@ export default function AzureDevOpsSettings() {
   const { state, actions, selectedIntegrationId, validatingAzDo, azDoAccess, azDoValidation } = useSettings()
   const { integrationId } = useParams()
   const navigate = useNavigate()
+  const [confirmRemoval, setConfirmRemoval] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const focusAfterRemoval = useRef(false)
   const integration = state.azDoIntegrations.find((item) => item.id === selectedIntegrationId)
   useEffect(() => {
     if (
@@ -62,6 +72,12 @@ export default function AzureDevOpsSettings() {
     )
       actions.selectIntegration(integrationId)
   }, [integrationId, selectedIntegrationId, state.azDoIntegrations, actions])
+  useEffect(() => {
+    if (!focusAfterRemoval.current) return
+    focusAfterRemoval.current = false
+    const target = contentRef.current?.querySelector<HTMLInputElement>('input[name="integrationName"]')
+    ;(target ?? contentRef.current)?.focus()
+  }, [selectedIntegrationId])
   const stackClassName = useStackClassName()
   const access = azDoAccess ?? createAzureDevOpsAccess()
   let validationLabel = 'Validate connection'
@@ -92,7 +108,7 @@ export default function AzureDevOpsSettings() {
   )
 
   return (
-    <div className={stackClassName}>
+    <div className={stackClassName} ref={contentRef} tabIndex={-1}>
       {!integration && <p>No integrations configured. Use Add Integration to create one.</p>}
       {integration && (
         <>
@@ -192,15 +208,34 @@ export default function AzureDevOpsSettings() {
               max={3000}
             ></SpinButton>
           </Field>
-          <Button
-            onClick={() => {
-              const next = state.azDoIntegrations.find((item) => item.id !== integration.id)
-              actions.deleteIntegration(integration.id)
-              navigate(next ? `/settings/integrations/${next.id}` : '/settings/integrations')
-            }}
-          >
-            Remove integration
-          </Button>
+          <Dialog open={confirmRemoval} onOpenChange={(_, data) => setConfirmRemoval(data.open)}>
+            <DialogTrigger disableButtonEnhancement>
+              <Button onClick={() => setConfirmRemoval(true)}>Remove integration</Button>
+            </DialogTrigger>
+            <DialogSurface>
+              <DialogBody>
+                <DialogTitle>Remove integration?</DialogTitle>
+                <DialogContent>
+                  Remove “{integration.name || integration.project || 'Azure DevOps integration'}”? This change will
+                  take effect when you save settings.
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setConfirmRemoval(false)}>Cancel</Button>
+                  <Button
+                    onClick={() => {
+                      const next = state.azDoIntegrations.find((item) => item.id !== integration.id)
+                      focusAfterRemoval.current = true
+                      setConfirmRemoval(false)
+                      actions.deleteIntegration(integration.id)
+                      navigate(next ? `/settings/integrations/${next.id}` : '/settings/integrations')
+                    }}
+                  >
+                    Yes, remove integration
+                  </Button>
+                </DialogActions>
+              </DialogBody>
+            </DialogSurface>
+          </Dialog>
         </>
       )}
     </div>

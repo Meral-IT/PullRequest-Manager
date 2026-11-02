@@ -1636,15 +1636,76 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    await window.webContents.executeJavaScript(
-      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration').click()"
-    )
-    await waitForRenderer(
-      window,
-      'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 2'
+    for (const [name, remaining] of [
+      ['Second connection', 2],
+      ['Smoke integration', 1],
+    ]) {
+      const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`)
+      const openRemoval = async () => {
+        await window.webContents.executeJavaScript(`(() => {
+          const button = Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration')
+          button.focus()
+          button.click()
+        })()`)
+        await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+        await waitForRenderer(window, 'document.activeElement?.innerText === "Cancel"')
+        assert.equal(
+          await window.webContents.executeJavaScript(
+            `document.querySelector('[role="dialog"]').innerText.includes(${JSON.stringify(name)})`
+          ),
+          true
+        )
+      }
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Cancel').click()`
+      )
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`),
+        original
+      )
+      await openRemoval()
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Yes, remove integration').click()`
+      )
+      await waitForRenderer(
+        window,
+        `document.querySelectorAll('[role="tablist"][aria-label="Integrations"] [role="tab"]').length === ${remaining}`
+      )
+      await waitForRenderer(
+        window,
+        remaining === 2
+          ? 'document.activeElement?.name === "integrationName"'
+          : 'document.activeElement?.innerText.includes("No integrations configured")'
+      )
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[role="tablist"][aria-label="Integrations"] [aria-selected="true"]')?.innerText ?? null`
+        ),
+        remaining === 2 ? 'Smoke integration' : null
+      )
+    }
+    assert.equal(
+      await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
+      true
     )
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
+    )
+    await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+    await window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Leave').click()`
     )
     await waitForRenderer(window, "location.hash === '#/' || location.hash === ''")
     await waitForRenderer(
