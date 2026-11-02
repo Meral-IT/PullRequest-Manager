@@ -1636,15 +1636,75 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    await window.webContents.executeJavaScript(
-      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration').click()"
-    )
-    await waitForRenderer(
-      window,
-      'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 2'
+    const checkIntegrationRemoval = async (name, remaining) => {
+      const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`)
+      const openRemoval = async () => {
+        await window.webContents.executeJavaScript(`(() => {
+          const button = Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration')
+          button.focus()
+          button.click()
+        })()`)
+        await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+        await waitForRenderer(window, 'document.activeElement?.innerText === "Cancel"')
+        assert.equal(
+          await window.webContents.executeJavaScript(
+            `document.querySelector('[role="dialog"]').innerText.includes(${JSON.stringify(name)})`
+          ),
+          true
+        )
+      }
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Cancel').click()`
+      )
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`),
+        original
+      )
+      await openRemoval()
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Yes, remove integration').click()`
+      )
+      await waitForRenderer(
+        window,
+        `document.querySelectorAll('[role="tablist"][aria-label="Integrations"] [role="tab"]').length === ${remaining}`
+      )
+      await waitForRenderer(
+        window,
+        remaining === 2
+          ? 'document.activeElement?.name === "integrationName"'
+          : 'document.activeElement?.innerText.includes("No integrations configured")'
+      )
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[role="tablist"][aria-label="Integrations"] [aria-selected="true"]')?.innerText ?? null`
+        ),
+        remaining === 2 ? 'Smoke integration' : null
+      )
+    }
+    await checkIntegrationRemoval('Second connection', 2)
+    await checkIntegrationRemoval('Smoke integration', 1)
+    assert.equal(
+      await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
+      true
     )
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
+    )
+    await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+    await window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Leave').click()`
     )
     await waitForRenderer(window, "location.hash === '#/' || location.hash === ''")
     await waitForRenderer(
@@ -1733,7 +1793,7 @@ async function runSmokeTest() {
         { value: 'descending', disabled: false },
       ]
     )
-    for (const value of ['details', 'creationDate', '']) {
+    const checkSortSelection = async (value) => {
       await window.webContents.executeJavaScript(`(() => {
         const select = document.querySelector('select')
         select.value = ${JSON.stringify(value)}
@@ -1742,11 +1802,14 @@ async function runSmokeTest() {
       await waitForRenderer(window, `document.querySelectorAll('select')[1].disabled === ${!value}`)
       await checkProfileLayout(window)
     }
+    await checkSortSelection('details')
+    await checkSortSelection('creationDate')
+    await checkSortSelection('')
     await capture(window, 'profile-general')
     await selectProfileTab(window, 'filter')
     await checkProfileLayout(window)
     const resizeLayouts = []
-    for (const height of [670, 900, 450, 350, 670]) {
+    const checkFilterPanelHeight = async (height) => {
       window.setContentSize(900, height)
       await settleLayout(window)
       await checkProfileLayout(window)
@@ -1769,6 +1832,11 @@ async function runSmokeTest() {
       )
       if (height === 350) await capture(window, 'profile-short')
     }
+    await checkFilterPanelHeight(670)
+    await checkFilterPanelHeight(900)
+    await checkFilterPanelHeight(450)
+    await checkFilterPanelHeight(350)
+    await checkFilterPanelHeight(670)
     assert.ok(resizeLayouts[2].editor.height < resizeLayouts[1].editor.height, JSON.stringify(resizeLayouts))
     assert.ok(
       Math.abs(resizeLayouts[4].editor.height - resizeLayouts[0].editor.height) <= 1,

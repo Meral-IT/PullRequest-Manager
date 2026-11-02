@@ -1369,3 +1369,57 @@ test('settings status follows successful snapshots through deferred saves, failu
   edit('Next edit')
   assert.equal(status(), 'Unsaved changes')
 })
+
+test('integration removal requires confirmation, preserves canceled credentials, and saves only on request', async () => {
+  for (const multiple of [false, true]) {
+    const integrations = [{ ...settings.azDoIntegrations[0], name: 'Named connection', pat: 'synthetic-token' }]
+    if (multiple) integrations.push({ ...integrations[0], id: 'remaining', name: 'Remaining' })
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings({ ...settings, azDoIntegrations: integrations })
+    const value = () => provider.render({}, 'SettingProvider').props.value
+    value()
+    await provider.flush()
+    value().actions.updateIntegration('integration', { project: 'Unsaved project' })
+    const before = structuredClone(value().state)
+    const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
+    view.setParams({ integrationId: 'integration' })
+    const tree = () => {
+      view.setContext(value())
+      return view.render()
+    }
+    const button = (label) => elements(tree(), (node) => node.type === 'Button' && node.props.children === label)[0]
+    button('Remove integration').props.onClick?.()
+    assert.deepEqual(value().state, before, 'Opening confirmation must leave the entire draft intact')
+    const dialog = () => elements(tree(), (node) => node.type === 'Dialog')[0]
+    assert.equal(dialog().props.open, true)
+    assert.ok(elements(tree(), (node) => node.type === 'DialogContent')[0].props.children.includes('Named connection'))
+    button('Cancel').props.onClick()
+    assert.equal(dialog().props.open, false)
+    assert.deepEqual(value().state, before, 'Cancel retains the draft including credentials')
+    assert.equal(view.calls.length, 0)
+    button('Remove integration').props.onClick()
+    dialog().props.onOpenChange(null, { open: false })
+    assert.deepEqual(value().state, before, 'Escape/dismiss retains the draft too')
+    button('Remove integration').props.onClick()
+    button('Yes, remove integration').props.onClick()
+    assert.deepEqual(
+      value().state.azDoIntegrations.map((item) => item.id),
+      multiple ? ['remaining'] : []
+    )
+    assert.equal(value().selectedIntegrationId, multiple ? 'remaining' : '')
+    assert.deepEqual(view.calls.at(-1), [
+      'navigate',
+      multiple ? '/settings/integrations/remaining' : '/settings/integrations',
+    ])
+    assert.equal(value().dirty, true)
+    assert.equal(
+      provider.calls.some(([channel]) => channel === 'save-settings'),
+      false
+    )
+    await value().actions.saveSettings()
+    assert.deepEqual(
+      provider.calls.find(([channel]) => channel === 'save-settings')[1].azDoIntegrations.map((item) => item.id),
+      multiple ? ['remaining'] : []
+    )
+  }
+})
