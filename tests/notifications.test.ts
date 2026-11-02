@@ -115,4 +115,22 @@ test('blank notification filters match all while preserving de-duplication and o
   service.notifyNewPullRequests([pr('invalid-filter', now - 1000)])
   assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
   assert.equal(trayStates.at(-1), false)
+
+  service.setSettings(
+    { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
+    [
+      {
+        id: 'null-filter',
+        label: 'Null filter',
+        visible: true,
+        enableAcceptAll: false,
+        notifyOnNewPrs: true,
+        filter: null as unknown as PullRequestFilter,
+      } as PrProfile,
+    ]
+  )
+  service.initialize([pr('baseline', now - 10000)])
+  service.notifyNewPullRequests([pr('null-filter', now - 1000)])
+  assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
+  assert.equal(trayStates.at(-1), false)
 })

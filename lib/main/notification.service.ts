@@ -24,7 +24,7 @@ export class NotificationService {
     this.settings = settings
     this.filters = profiles
       .filter((x) => x.notifyOnNewPrs)
-      .map((x) => x.filter ?? { op: 'AND', filters: [] })
+      .map((x) => (x.filter === undefined ? { op: 'AND', filters: [] } : x.filter))
   }
 
   /**
