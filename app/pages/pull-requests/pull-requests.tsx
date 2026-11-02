@@ -2,6 +2,7 @@ import ErrorComponent from '@/app/components/error/error.component'
 import AzureDevOpsAccessBanner from '@/app/components/azure-devops-access-banner'
 import PrList from '@/app/components/pr-list/pr-list'
 import ZeroData from '@/app/components/zero-data/zero-data.component'
+import { ZeroDataActionType } from '@/app/components/zero-data/zerodata.props'
 import { ErrorDetail, ErrorType } from '@/lib/models/error-detail'
 import { PullRequestData } from '@/lib/models/pr-data'
 import { PrProfile } from '@/lib/models/pr-profile'
@@ -207,7 +208,7 @@ export default function PullRequestsOverview() {
     setOpen(data.open)
     if (!data.open && data.type === 'menuPopoverKeyDown') bulkTriggerRef.current?.focus()
   }
-  const [selectedValue, setSelectedValue] = useState<TabValue>('builtin:all')
+  const [selectedValue, setSelectedValue] = useState<TabValue>()
   const [pullRequests, setPullRequests] = useState<PullRequestData>({
     error: null,
     items: [],
@@ -302,9 +303,13 @@ export default function PullRequestsOverview() {
     let settingsReceived = false
     const receiveSettings = (settings: SettingsModel) => {
       setProfiles(settings.profiles)
-      if (!settingsReceived) {
-        setSelectedValue(settings.profiles.find((profile) => profile.isDefault)?.id ?? 'builtin:all')
-      }
+      const visibleProfiles = settings.profiles.filter((profile) => profile.visible)
+      setSelectedValue(
+        (current) =>
+          visibleProfiles.find((profile) => profile.id === current)?.id ??
+          visibleProfiles.find((profile) => profile.isDefault)?.id ??
+          visibleProfiles[0]?.id
+      )
       settingsReceived = true
     }
     const unsubscribe = globalThis.api.receive('settings', receiveSettings)
@@ -344,6 +349,22 @@ export default function PullRequestsOverview() {
       <div className="container">
         <IntegrationNotices data={pullRequests} />
         {PullRequestErrors(pullRequests.error)}
+      </div>
+    )
+  }
+
+  if (profileData.length === 0) {
+    return (
+      <div className="container">
+        <IntegrationNotices data={pullRequests} />
+        <ZeroData
+          primaryText="No visible profiles"
+          secondaryText="Show a profile or create one to view pull requests."
+          imagePath={emptyImage}
+          actionText="Manage profiles"
+          actionType={ZeroDataActionType.button}
+          actionHref={`/settings/profiles/${profiles[0]?.id ?? 'new'}`}
+        />
       </div>
     )
   }

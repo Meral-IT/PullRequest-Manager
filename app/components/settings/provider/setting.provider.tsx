@@ -1,7 +1,7 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { AzDoIntegration, SettingsModel, TableSize } from '@/lib/models/settings.model'
-import { ChangeEvent, ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
   AzureDevOpsValidationResult,
@@ -165,7 +165,7 @@ export const SettingProvider = ({ children }: Props) => {
   }, [receiveSettings, receiveAccess])
 
   const value = useMemo<SettingPageProps>(() => {
-    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const handleChange = (e: { profileId?: string; target: { name: string; value: unknown } }) => {
       setSaveError('')
       const { value } = e.target
 
@@ -176,25 +176,21 @@ export const SettingProvider = ({ children }: Props) => {
           return
         }
 
-        if (updatedProfile.isDefault) {
-          for (const profile of formData.profiles) {
-            if (profile.id !== profileId) {
-              profile.isDefault = false
-            }
-          }
-        }
-
         setFormData((prevFormData) => ({
           ...prevFormData,
-          profiles: prevFormData.profiles.map((profile) =>
-            profile.id === profileId
-              ? {
-                  ...profile,
-                  [e.target.name]: value,
-                  ...(e.target.name === 'filter' ? getProfileFilterValidation(value) : {}),
-                }
-              : profile
-          ),
+          profiles: prevFormData.profiles.map((profile) => {
+            if (profile.id === profileId) {
+              return {
+                ...profile,
+                [e.target.name]: value,
+                ...(e.target.name === 'filter' && typeof value === 'string' ? getProfileFilterValidation(value) : {}),
+              }
+            }
+            if (e.target.name === 'isDefault' && value === true) {
+              return { ...profile, isDefault: false }
+            }
+            return profile
+          }),
         }))
         return
       }
@@ -283,6 +279,7 @@ export const SettingProvider = ({ children }: Props) => {
         ...profile,
         id: crypto.randomUUID(),
         label: `${profile.label} (copy)`,
+        isDefault: false,
       }
       setFormData((prevFormData) => ({
         ...prevFormData,

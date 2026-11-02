@@ -16,6 +16,17 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
   })()`)
   const name = () => run('document.querySelector(\'input[name="integrationName"]\').value')
   const dialog = () => waitForRenderer(window, '!!document.querySelector(\'[role="dialog"]\')')
+  const entry = () => run('({ hash: location.hash, key: history.state?.key })')
+  const stay = async (expected) => {
+    expected ??= await entry()
+    await click('Stay')
+    await waitForRenderer(
+      window,
+      `!document.querySelector('[role="dialog"]') && location.hash === ${JSON.stringify(expected.hash)} &&
+        history.state?.key === ${JSON.stringify(expected.key)}`,
+      'Settings dialog dismissed and history restored after Stay'
+    )
+  }
   const home = () => waitForRenderer(window, "!!document.querySelector('.zerodata')")
   const enter = async () => {
     window.webContents.send('navigate', { path: '/settings/integrations/smoke' })
@@ -60,11 +71,11 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
       true,
       'File > Pull-Requests must ask before discarding a settings draft'
     )
-    await click('Stay')
+    await stay()
     assert.equal(await name(), 'Unsaved name')
     await click('Home')
     await dialog()
-    await click('Stay')
+    await stay()
     window.webContents.send('navigate', { path: '/?source=ipc' })
     await dialog()
     await click('Leave')
@@ -77,9 +88,15 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await enter()
     assert.equal(await name(), original.azDoIntegrations[0].name, 'Leave discards without saving')
     await edit('Back draft')
+    // Exercise history restoration that finishes after the dialog closes on slower runners.
+    await run(`(() => {
+      const go = history.go.bind(history)
+      history.go = (delta) => setTimeout(() => go(delta), 100)
+    })()`)
+    const beforeBack = await entry()
     await run('history.back()')
     await dialog()
-    await click('Stay')
+    await stay(beforeBack)
     assert.equal(await name(), 'Back draft', 'Browser Back Stay preserves the draft')
     await run('history.back()')
     await dialog()
@@ -95,7 +112,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     )
     await click('Home')
     await dialog()
-    await click('Stay')
+    await stay()
     assert.equal(await name(), 'Failed draft', 'Failed save remains guarded')
     saveMode = 'normal'
     await click('Save Settings')
@@ -118,7 +135,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await edit('synthetic-unsaved-PAT', 'azDoPat')
     await click('Home')
     await dialog()
-    await click('Stay')
+    await stay()
     assert.equal(await run("JSON.stringify([localStorage, sessionStorage]).includes('synthetic-unsaved-PAT')"), false)
     const stayed = new Promise((resolve) => window.webContents.once('will-prevent-unload', resolve))
     window.webContents.reload()

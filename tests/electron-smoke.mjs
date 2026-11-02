@@ -40,12 +40,14 @@ function waitForRenderer(window, condition, description = condition) {
       if (ready()) {
         observer.disconnect()
         document.removeEventListener('focusin', check)
+        globalThis.removeEventListener('popstate', check)
         resolve()
       }
     }
     const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
     document.addEventListener('focusin', check)
+    globalThis.addEventListener('popstate', check)
   })`)
 }
 
@@ -1612,6 +1614,44 @@ async function runSmokeTest() {
     await checkSettingsNavigation(window, settings, waitForRenderer, settleLayout)
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
+
+    const hiddenDefault = { ...settings.profiles[0], visible: false }
+    const reviewProfile = { ...hiddenDefault, id: 'review', label: 'Review', isDefault: false, visible: true }
+    window.webContents.send('settings', { ...settings, profiles: [hiddenDefault, reviewProfile] })
+    await waitForRenderer(
+      window,
+      `document.querySelector('[role="tab"][aria-selected="true"]')?.innerText.includes('Review')`
+    )
+    window.webContents.send('settings', { ...settings, profiles: [hiddenDefault] })
+    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
+    async function checkNoVisibleProfilesTheme(theme, width, height) {
+      window.webContents.send('theme-changed', theme)
+      window.setContentSize(width, height)
+      await checkZeroDataLayout(window)
+      await capture(window, `no-visible-profiles-${theme}`)
+    }
+    await checkNoVisibleProfilesTheme('light', 900, 670)
+    await checkNoVisibleProfilesTheme('dark', 360, 450)
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/builtin:all' && !!document.getElementById('profile-general-tab')"
+    )
+    await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+    window.webContents.send('settings', { ...settings, profiles: [] })
+    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/new' && document.body.innerText.includes('New empty profile')"
+    )
+    window.webContents.send('theme-changed', 'light')
+    window.webContents.send('settings', settings)
+    await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
 
     const emptyLayouts = []
     for (const [width, height] of [
