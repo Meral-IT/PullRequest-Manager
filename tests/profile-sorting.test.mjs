@@ -1700,9 +1700,14 @@ test('visible row actions share approval and reset handlers and restore trigger 
       return {}
     },
   }
-  const button = elements(actions.renderCell(data[1]), (element) => element.type === 'Button')[0]
+  const cell = actions.renderCell(data[1])
+  const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+  assert.equal(tooltip.props.content, 'More options')
+  assert.equal(tooltip.props.relationship, 'description')
+  const button = elements(cell, (element) => element.type === 'Button')[0]
   assert.equal(button.props['aria-label'], 'Actions for PR 2: Second')
-  assert.equal(button.props.children, 'Actions')
+  assert.equal(button.props.children, undefined)
+  assert.equal(button.props.icon.type.render.displayName, 'MoreVerticalRegular')
   assert.equal(button.props['aria-haspopup'], 'menu')
   await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
   let tree = view.render({ data })

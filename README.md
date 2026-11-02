@@ -47,7 +47,7 @@ as indicated by the highlighted icon. When a profile allows bulk approval, **App
 shows the current match count and opens the approval menu. Right-clicking or middle-clicking the profile tab
 opens the same menu. **Escape** closes an action menu and restores focus without resetting filters.
 
-Open a PR using its title link, or use the row's **Actions** button for approval, feedback reset, and available
+Open a PR using its title link, or use the row's three-dot **More options** button for approval, feedback reset, and available
 IDE shortcuts. Right-clicking a row opens the same actions. Approval and feedback reset show successful,
 skipped, and failed counts; partial failures leave the remaining PRs available. Vote controls are disabled while
 an action is pending to prevent repeated votes. Tray approvals report the same outcomes in a native notification. Keyboard users can navigate the grid with arrow

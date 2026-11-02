@@ -22,6 +22,7 @@ import {
   DataGrid,
   DataGridBody,
   DataGridCell,
+  DataGridCellFocusMode,
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
@@ -51,7 +52,7 @@ import {
   createTableColumn,
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
-import { BotFilled, CheckmarkRegular, MoreHorizontalRegular } from '@fluentui/react-icons'
+import { BotFilled, CheckmarkRegular, MoreVerticalRegular } from '@fluentui/react-icons'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
@@ -261,17 +262,17 @@ const createColumns = (
     columnId: 'actions',
     renderHeaderCell: () => 'Actions',
     renderCell: (item) => (
-      <Button
-        appearance="subtle"
-        size="small"
-        icon={<MoreHorizontalRegular />}
-        aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
-        aria-haspopup="menu"
-        aria-expanded={openPr === item}
-        onClick={(event) => openActions(event, item)}
-      >
-        Actions
-      </Button>
+      <Tooltip content="More options" relationship="description">
+        <Button
+          appearance="subtle"
+          size="small"
+          icon={<MoreVerticalRegular />}
+          aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
+          aria-haspopup="menu"
+          aria-expanded={openPr === item}
+          onClick={(event) => openActions(event, item)}
+        />
+      </Tooltip>
     ),
   }),
 ]
@@ -655,19 +656,15 @@ export default function PrList(props: Readonly<Props>) {
         <DataGridBody<PullRequest>>
           {({ item, rowId }) => (
             <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item, true)}>
-              {({ renderCell, columnId }) => (
-                <DataGridCell
-                  focusMode={
-                    columnId === 'actions'
-                      ? 'none'
-                      : columnId === 'details' || columnId === 'statusChecks'
-                        ? 'group'
-                        : 'cell'
-                  }
-                >
-                  {renderCell(item)}
-                </DataGridCell>
-              )}
+              {({ renderCell, columnId }) => {
+                let focusMode: DataGridCellFocusMode = 'cell'
+                if (columnId === 'actions') {
+                  focusMode = 'none'
+                } else if (columnId === 'details' || columnId === 'statusChecks') {
+                  focusMode = 'group'
+                }
+                return <DataGridCell focusMode={focusMode}>{renderCell(item)}</DataGridCell>
+              }}
             </DataGridRow>
           )}
         </DataGridBody>

@@ -328,7 +328,7 @@ async function checkUpdateNotification(window, settings, updates) {
     `document.activeElement === ${panel}.querySelector('[aria-label="Dismiss update notification"]')`,
     'Update dismiss button receives keyboard focus'
   )
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, `!${panel}`)
   updates.publish({ status: 'available', info })
   await expectState('available')
@@ -341,7 +341,7 @@ async function checkUpdateNotification(window, settings, updates) {
     'Update available'
   )
   await window.webContents.executeJavaScript("document.querySelector('.window-titlebar-update').focus()")
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await expectState('downloading')
   await waitForRenderer(window, "!document.querySelector('.window-titlebar-update')")
   assert.equal(updates.downloads, 1)
@@ -372,7 +372,7 @@ async function checkUpdateNotification(window, settings, updates) {
   await capture(window, 'update-ready-light')
   await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
   const checkReadyKeyboardDismissal = async (key) => {
-    pressKey(window, key)
+    await pressKey(window, key)
     await settleLayout(window)
     assert.equal(
       await window.webContents.executeJavaScript(`!!${panel}`),
@@ -434,7 +434,7 @@ async function checkUpdateNotification(window, settings, updates) {
   updates.publish({ status: 'ready', info })
   await expectState('ready')
   await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await expectState('installing')
   assert.equal(updates.installs, 1, 'Keyboard activation explicitly starts installation')
   assert.equal(
@@ -666,14 +666,23 @@ async function clickElement(window, selector, text) {
   window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
 }
 
-function pressKey(window, keyCode) {
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+async function pressKey(window, keyCode, modifiers = []) {
+  await focusWindow(window)
+  const nativeButton = await window.webContents.executeJavaScript(`(() => {
+    globalThis.smokeKeyUp = new Promise(resolve => window.addEventListener('keyup', () => resolve(), { once: true, capture: true }))
+    return document.activeElement?.tagName === 'BUTTON'
+  })()`)
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
   // Native buttons activate Enter on keypress, which Electron sends as a separate char event.
-  if (keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+  if (keyCode === 'Enter' && nativeButton) window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+  pendingStep = `native ${keyCode} keyup`
+  await window.webContents.executeJavaScript('globalThis.smokeKeyUp')
+  await settleLayout(window)
 }
 
 async function focusWindow(window) {
+  if (window.isFocused() && (await window.webContents.executeJavaScript('document.hasFocus()'))) return
   app.focus({ steal: true })
   window.focus()
   pendingStep = 'smoke test window focus'
@@ -687,24 +696,24 @@ async function checkTitlebarMenus(window) {
   await focusWindow(window)
   await clickElement(window, '.window-titlebar button', 'File')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'File menu opens by mouse')
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
   await waitForRenderer(window, 'document.activeElement.innerText === "File"', 'Escape returns focus to File')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'File')
 
-  pressKey(window, 'Tab')
+  await pressKey(window, 'Tab')
   await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Tab moves focus to Edit')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'Edit')
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu opens by Enter')
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
   await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Escape returns focus to Edit')
-  pressKey(window, 'Space')
+  await pressKey(window, 'Space')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu reopens by Space')
   await clickElement(window, '.window-content', '')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
-  pressKey(window, 'Alt')
+  await pressKey(window, 'Alt')
   assert.equal(
     await window.webContents.executeJavaScript(
       'document.querySelectorAll(\'.window-titlebar [aria-haspopup="menu"]\').length'
@@ -873,8 +882,7 @@ async function checkPrSearch(window, settings) {
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: [modifier] })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers: [modifier] })
+    await pressKey(window, 'F', [modifier])
     await waitForRenderer(window, `${input} && document.activeElement === ${input}`)
   }
   const search = async (query, titles) => {
@@ -894,10 +902,7 @@ async function checkPrSearch(window, settings) {
       `Array.from(document.querySelectorAll('[role="tab"]')).find(tab => tab.textContent.startsWith(${JSON.stringify(label)})).click()`
     )
   const toggleFilters = () => window.webContents.executeJavaScript(`${filterButton}.click()`)
-  const escape = async () => {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-  }
+  const escape = () => pressKey(window, 'Escape')
   const visibleOptions = `Array.from(document.querySelectorAll('[role="listbox"]')).find(list => list.getBoundingClientRect().height > 0)?.querySelectorAll('[role="option"]')`
   const openDropdown = async (label) => {
     await window.webContents.executeJavaScript(`(() => {
@@ -945,8 +950,7 @@ async function checkPrSearch(window, settings) {
   }
   assert.equal(await window.webContents.executeJavaScript('document.hasFocus()'), false)
   await focusWindow(window)
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+  await pressKey(window, 'Tab')
   const policySummary = '[role="img"][aria-label="2 failed, 2 pending, 1 approved, 1 not applicable"]'
   assert.deepEqual(
     await window.webContents.executeJavaScript(`(() => {
@@ -961,11 +965,7 @@ async function checkPrSearch(window, settings) {
     })()`),
     { inCell: true, emptyChecks: true, emptyReviewers: true }
   )
-  const policyKey = async (keyCode) => {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
-    await settleLayout(window)
-  }
+  const policyKey = (keyCode) => pressKey(window, keyCode)
   await policyKey('Right')
   assert.equal(
     await window.webContents.executeJavaScript(
@@ -1116,13 +1116,7 @@ async function checkPrSearch(window, settings) {
   const bulkActions = `document.querySelector('button[aria-label="Approve all matching PRs in All (1)"]')`
   const rowMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent === 'Approve')`
   const bulkMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all'))`
-  const press = async (keyCode) => {
-    const nativeButton = await window.webContents.executeJavaScript(`document.activeElement?.tagName === 'BUTTON'`)
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
-    if (keyCode === 'Enter' && nativeButton) window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
-    await settleLayout(window)
-  }
+  const press = (keyCode) => pressKey(window, keyCode)
   assert.deepEqual(
     await window.webContents.executeJavaScript(`(() => {
       const link = ${titleLink}
@@ -2379,19 +2373,16 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       `(${installMonacoDiagnostic.toString()})(); document.querySelector('.monaco-editor [aria-label="Profile filter JSON editor"]').focus()`
     )
-    const editorKey = (keyCode, modifiers = []) => {
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-    }
-    editorKey('A', [process.platform === 'darwin' ? 'meta' : 'control'])
+    const editorKey = (keyCode, modifiers = []) => pressKey(window, keyCode, modifiers)
+    await editorKey('A', [process.platform === 'darwin' ? 'meta' : 'control'])
     await window.webContents.insertText('{"fi')
-    editorKey('Space', ['control'])
+    await editorKey('Space', ['control'])
     await waitForRenderer(
       window,
       "(globalThis.smokeMonacoDiagnostic.mark('completion-wait'), Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).some(row => row.textContent.includes('filters')))",
       'Monaco JSON schema completion'
     )
-    editorKey('Enter')
+    await editorKey('Enter')
     await waitForRenderer(
       window,
       "(globalThis.smokeMonacoDiagnostic.mark('acceptance-wait'), document.querySelector('.monaco-editor .view-lines').textContent.includes('filters'))",
@@ -2399,7 +2390,7 @@ async function runSmokeTest() {
     )
     await window.webContents.executeJavaScript('globalThis.smokeMonacoDiagnostic.stop()')
     dumpMonacoDiagnostics()
-    editorKey('Escape')
+    await editorKey('Escape')
     await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
     await waitForRenderer(
       window,
