@@ -431,6 +431,8 @@ export default function PullRequestsOverview() {
   if (profileData.length === 0) {
     return (
       <div className="container">
+        <div className="content header pr-list-header">{refreshButton}</div>
+        {refreshStatus}
         <IntegrationNotices data={pullRequests} />
         <ZeroData
           primaryText="No visible profiles"
