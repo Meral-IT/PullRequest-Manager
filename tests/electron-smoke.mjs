@@ -933,6 +933,14 @@ async function checkPrSearch(window, settings) {
   await expectTitles(allTitles)
   await checkPrRefresh(window, prs)
   await settleLayout(window)
+  // Exercise native key delivery after the window loses foreground focus.
+  if (window.isFocused()) {
+    const blurred = new Promise((resolve) => window.once('blur', resolve))
+    window.blur()
+    await blurred
+  }
+  assert.equal(await window.webContents.executeJavaScript('document.hasFocus()'), false)
+  await focusWindow(window)
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
   const policySummary = '[role="img"][aria-label="2 failed, 2 pending, 1 approved, 1 not applicable"]'
@@ -962,7 +970,6 @@ async function checkPrSearch(window, settings) {
     true,
     'Arrow navigation reaches the status gridcell'
   )
-  await focusWindow(window)
   await policyKey('Enter')
   assert.equal(
     await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('${policySummary}')`),
