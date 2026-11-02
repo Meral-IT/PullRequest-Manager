@@ -1912,12 +1912,35 @@ async function runSmokeTest() {
       ['Duplicate', 'All (copy)'],
       ['New empty profile', 'New profile'],
     ]) {
+      await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
+      await waitForRenderer(window, "document.body.innerText.includes('New empty profile')")
       await window.webContents.executeJavaScript(
         `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
       )
-      await waitForRenderer(window, `document.body.innerText.includes(${JSON.stringify(expected)})`)
+      await waitForRenderer(
+        window,
+        `document.querySelector('input[name="label"]')?.value === ${JSON.stringify(expected)}`
+      )
+      assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          "Array.from(document.querySelectorAll('[role=tab][aria-selected=true]')).some(tab => tab.innerText === document.querySelector('input[name=label]').value)"
+        ),
+        true,
+        'Created profile is selected in the settings sidebar'
+      )
     }
+    for (const label of ['Delete profile', 'Yes, delete profile']) {
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
+      )
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/builtin:all' && document.querySelector('input[name=label]')?.value === 'All'"
+    )
     window.webContents.send('settings', { ...settings, profiles: [] })
+    await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
     await waitForRenderer(window, "document.querySelector('select').disabled")
     assert.equal(
       await window.webContents.executeJavaScript(
@@ -1929,12 +1952,22 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'New empty profile').click()"
     )
-    await waitForRenderer(window, "!document.querySelector('select').disabled")
+    await waitForRenderer(window, "document.querySelector('input[name=label]')?.value === 'New profile'")
+    assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+    for (const label of ['Delete profile', 'Yes, delete profile']) {
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
+      )
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/new' && document.querySelector('select')?.disabled"
+    )
     assert.equal(
       await window.webContents.executeJavaScript(
         "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Duplicate').disabled"
       ),
-      false
+      true
     )
 
     window.webContents.send('settings', settings)

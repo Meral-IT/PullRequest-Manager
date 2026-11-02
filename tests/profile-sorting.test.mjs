@@ -1221,3 +1221,83 @@ test('duplicating a default profile preserves its settings but does not create a
     [true, false]
   )
 })
+
+test('profile creation returns IDs and opens the new draft without saving other edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  value.actions.onChangeHandler({ profileId: 'test', target: { name: 'label', value: 'Unsaved source' } })
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setParams({ profileId: 'new' })
+  for (const label of ['New empty profile', 'Duplicate']) {
+    value = provider.render({}, 'SettingProvider').props.value
+    view.setContext(value)
+    const tree = view.render().type()
+    elements(tree, (element) => element.type === 'Button' && element.props.children === label)[0].props.onClick()
+    value = provider.render({}, 'SettingProvider').props.value
+    const created = value.state.profiles.at(-1)
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${created.id}`])
+    assert.equal(created.isDefault, false)
+    assert.equal(value.state.profiles[0].label, 'Unsaved source')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+    if (label === 'Duplicate') assert.equal(created.label, 'Unsaved source (copy)')
+  }
+})
+
+test('profile actions return their created IDs and missing duplicate sources leave the draft unchanged', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  for (const action of [() => value.actions.addProfile(), () => value.actions.duplicateProfile('test')]) {
+    const id = action()
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.equal(typeof id, 'string')
+    assert.equal(id, value.state.profiles.at(-1).id)
+  }
+  const before = value.state
+  assert.equal(value.actions.duplicateProfile('missing'), undefined)
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value.state, before)
+})
+
+test('confirmed profile deletion opens a remaining profile or the explicit new route and keeps the draft', async () => {
+  for (const profiles of [[profile], [profile, { ...profile, id: 'remaining', label: 'Remaining' }]]) {
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings({ ...settings, profiles })
+    provider.render({}, 'SettingProvider')
+    await provider.flush()
+    let value = provider.render({}, 'SettingProvider').props.value
+    value.actions.onChangeHandler({ target: { name: 'repositoriesRootDirectory', value: '/unsaved' } })
+    value = provider.render({}, 'SettingProvider').props.value
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    view.setContext(value)
+    const tree = view.render()
+    const deleteButton = elements(tree, (element) => element.type?.name === 'DeleteProfileButton')[0].type()
+    assert.equal(view.calls.length, 0, 'Opening the confirmation does not navigate or delete')
+    assert.equal(value.state.profiles.length, profiles.length)
+    const confirmation = elements(
+      deleteButton,
+      (element) => element.type?.name === 'DeleteButtonPopOverContent'
+    )[0].type()
+    elements(confirmation, (element) => element.type === 'Button')[0].props.onClick()
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${profiles[1]?.id ?? 'new'}`])
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.deepEqual(
+      value.state.profiles.map((item) => item.id),
+      profiles.slice(1).map((item) => item.id)
+    )
+    assert.equal(value.state.repositoriesRootDirectory, '/unsaved')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+  }
+})

@@ -40,8 +40,8 @@ export interface SettingPageProps {
     updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => void
     saveSettings: any
     deleteProfile: (id: string) => void
-    addProfile: () => void
-    duplicateProfile: (id: string) => void
+    addProfile: () => string
+    duplicateProfile: (id: string) => string | undefined
   }
   selectedIntegrationId: string
   dirty: boolean
@@ -74,8 +74,8 @@ export const SettingsContext = createContext<SettingPageProps>({
     updateIntegration: () => {},
     saveSettings: () => {},
     deleteProfile: () => {},
-    addProfile: () => {},
-    duplicateProfile: () => {},
+    addProfile: () => '',
+    duplicateProfile: () => undefined,
   },
   selectedIntegrationId: '',
   dirty: false,
