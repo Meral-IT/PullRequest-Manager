@@ -18,3 +18,10 @@
   border-bottom: 1px solid var(--colorNeutralStroke2);
   font-variant-numeric: tabular-nums;
 }
+
+.pr-description-match {
+  color: var(--colorNeutralForeground2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

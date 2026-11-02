@@ -711,7 +711,7 @@ test('grid reuses sorted rows until its data or sorting changes', async () => {
   assert.notStrictEqual(rows({ data: [...data], sorting }), first)
 })
 
-test('profile filtering caches badges while search touches only the active profile or menu target', async () => {
+test('profile and search filtering cache matching sets for badges, lists, and menu targets', async () => {
   const view = await component('app/pages/pull-requests/pull-requests.tsx')
   let evaluations = 0
   let searches = [0, 0]
@@ -758,10 +758,10 @@ test('profile filtering caches badges while search touches only the active profi
   elements(tree, (element) => element.type === 'Input')[0].props.onChange(null, { value: 'needle' })
   tree = view.render()
   assert.equal(evaluations, initialEvaluations)
-  assert.deepEqual(searches, [1, 0])
+  assert.deepEqual(searches, [1, 2])
   assert.deepEqual(
     elements(tree, (element) => element.type === 'CounterBadge').map((badge) => badge.props.children),
-    [1, 2]
+    ['1 of 1', '1 of 2']
   )
   assert.deepEqual(
     elements(tree, (element) => element.type?.name === 'PrList')[0].props.data.map((pr) => pr.id),
@@ -1722,4 +1722,74 @@ test('row reset announces a successful reset and safe denied outcome while retai
     ).length
   )
   assert.equal(gridIn(tree).props.items.length, 1)
+})
+
+function textIn(node) {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node !== 'object') return String(node)
+  if (Array.isArray(node)) return node.map(textIn).join('')
+  return textIn(node.props?.children)
+}
+
+test('active filter badges count all matching rows within each profile and reset to totals', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const items = pagedPrs(201).map((pr, index) => ({
+    ...pr,
+    isDraft: index === 200,
+    author: { id: index === 199 ? 'other' : 'author', label: 'Author' },
+    details: { ...pr.details, description: 'Hidden precision context', targetBranch: index === 198 ? 'develop' : 'main' },
+  }))
+  view.setSettings({ ...settings, profiles: [
+    { ...profile, id: 'all', label: 'All', isDefault: true, enableAcceptAll: true },
+    { ...profile, id: 'drafts', label: 'Drafts', filter: { op: 'AND', filters: [{ isDraft: true }] } },
+  ] })
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) => name === 'get-pr-data' ? Promise.resolve({ items, error: null }) : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  const badges = () => elements(view.render(), (element) => element.type === 'CounterBadge').map(textIn)
+  assert.deepEqual(badges(), ['201', '1'])
+  elements(view.render(), (element) => element.props?.['aria-controls'] === 'pr-filter-line')[0].props.onClick()
+  const search = (value) => elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value })
+  search('precision')
+  assert.deepEqual(badges(), ['201 of 201', '1 of 1'])
+  elements(view.render(), (element) => element.props?.['aria-label'] === 'Created by')[0].props.onOptionSelect(null, { optionValue: 'author' })
+  elements(view.render(), (element) => element.props?.['aria-label'] === 'Target branch')[0].props.onOptionSelect(null, { optionValue: 'main' })
+  assert.deepEqual(badges(), ['199 of 201', '1 of 1'])
+  const list = elements(view.render(), (element) => element.props?.data && element.props?.voteAction)[0]
+  assert.equal(list.props.data.length, 199, 'The list receives the complete filtered set before pagination')
+  assert.equal(list.props.searchQuery, 'precision')
+  search('no matches')
+  assert.deepEqual(badges(), ['0 of 201', '0 of 1'])
+  elements(view.render(), (element) => element.props?.['aria-label'] === 'Clear all filters and hide filter bar')[0].props.onClick()
+  assert.deepEqual(badges(), ['201', '1'])
+})
+
+test('description-only search renders bounded literal context and preserves source metadata', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const item = {
+    ...pagedPrs(1)[0],
+    details: {
+      ...pagedPrs(1)[0].details,
+      organization: 'North', project: 'Finance', number: 42, branch: 'feature',
+      description: `${'Long introduction. '.repeat(1000)}\nHidden <img src=x onerror=alert(1)> PRECISION context.\n${'Long ending. '.repeat(1000)}`,
+    },
+  }
+  const cell = (query, pr = item) => gridIn(view.render({ data: [pr], searchQuery: query })).props.columns
+    .find((column) => column.columnId === 'details').renderCell(pr)
+  const layout = elements(cell(' precision '), (element) => element.type === 'TableCellLayout')[0]
+  const text = textIn(layout.props.description)
+  assert.ok(text.includes('Description:'), 'Hidden description matches must explain why the row matched')
+  assert.ok(text.includes('PRECISION'))
+  assert.ok(text.includes('<img src=x onerror=alert(1)>'), 'Markup remains literal text')
+  assert.ok(text.includes('North/Finance · #42'), 'Existing source identity remains present')
+  assert.ok(text.length < 240, 'Long descriptions must remain a compact excerpt')
+  assert.ok(!text.includes('\n'), 'Excerpt whitespace is compact')
+  assert.equal(elements(layout.props.description, (element) => element.props?.dangerouslySetInnerHTML).length, 0)
+  for (const query of ['', '  ', 'repo-1', 'author', 'PR 00001', 'not present']) {
+    const description = elements(cell(query), (element) => element.type === 'TableCellLayout')[0].props.description
+    assert.equal(typeof description, 'string', query)
+  }
+  assert.equal(typeof elements(cell('precision', { ...item, details: { ...item.details, description: undefined } }),
+    (element) => element.type === 'TableCellLayout')[0].props.description, 'string')
 })

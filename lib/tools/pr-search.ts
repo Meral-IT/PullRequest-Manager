@@ -8,3 +8,14 @@ export function matchesPullRequestSearch(pr: PullRequest, query: string, created
     (!text || [pr.details.repository, pr.author.label, pr.details.label, pr.details.description]
       .some((value) => value?.toLowerCase().includes(text)))
 }
+
+export function pullRequestDescriptionContext(pr: PullRequest, query: string): string | undefined {
+  const text = query.trim().toLowerCase()
+  if (!text || matchesPullRequestSearch({ ...pr, details: { ...pr.details, description: undefined } }, text)) return
+  const description = pr.details.description ?? ''
+  const index = description.toLowerCase().indexOf(text)
+  if (index < 0) return
+  const start = Math.max(0, index - 48)
+  const end = Math.min(description.length, start + 160)
+  return `${start ? '…' : ''}${description.slice(start, end).replace(/\s+/g, ' ').trim()}${end < description.length ? '…' : ''}`
+}

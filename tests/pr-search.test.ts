@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PullRequestMergeStatus, type PullRequest } from '../lib/models/pull-request.model'
-import { matchesPullRequestSearch } from '../lib/tools/pr-search'
+import { matchesPullRequestSearch, pullRequestDescriptionContext } from '../lib/tools/pr-search'
 
 const pr = {
   id: 1,
@@ -71,4 +71,27 @@ test('target branch filters normalize refs and combine with text and author usin
   ]) {
     assert.equal(matchesPullRequestSearch(pr, query ?? '', author, branch), false)
   }
+})
+
+test('description context follows literal search semantics and stays bounded at either end', () => {
+  for (const query of ['', '  ', 'invoice', 'Ada', 'Payment', 'not present']) {
+    assert.equal(pullRequestDescriptionContext(pr, query), undefined)
+  }
+  assert.equal(pullRequestDescriptionContext(pr, '  DECIMAL precision '), pr.details.description)
+  const literal = { ...pr, details: { ...pr.details, description: 'Use [precision] .* exactly.\nKeep  spacing.' } }
+  assert.equal(pullRequestDescriptionContext(literal, '.*'), 'Use [precision] .* exactly. Keep spacing.')
+  assert.equal(pullRequestDescriptionContext(literal, 'exactly. keep'), undefined, 'Whitespace matching is unchanged')
+  for (const description of [
+    `precision ${'x'.repeat(100_000)}`,
+    `${'x'.repeat(100_000)} precision`,
+    'precision'.repeat(1000),
+  ]) {
+    const item = { ...pr, details: { ...pr.details, description } }
+    const context = pullRequestDescriptionContext(item, 'precision')
+    assert.ok(context)
+    assert.ok(context.includes('precision'))
+    assert.ok(context.length <= 162)
+  }
+  const withoutDescription = { ...pr, details: { ...pr.details, description: undefined } }
+  assert.equal(pullRequestDescriptionContext(withoutDescription, 'precision'), undefined)
 })
