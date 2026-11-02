@@ -239,7 +239,7 @@ const createColumns = (
   }),
   createTableColumn<PullRequest>({
     columnId: 'actions',
-    renderHeaderCell: () => 'Actions',
+    renderHeaderCell: () => null,
     renderCell: (item) => (
       <Tooltip content="More options" relationship="description">
         <Button
@@ -365,8 +365,8 @@ const columnSizingOptions = {
     idealWidth: 100,
   },
   actions: {
-    idealWidth: 100,
-    minWidth: 100,
+    idealWidth: 24,
+    minWidth: 24,
   },
 }
 
