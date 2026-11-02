@@ -409,9 +409,10 @@ export default function PullRequestsOverview() {
       Refresh
     </Button>
   )
+  const loadingMessage = initialLoading ? 'Loading pull requests…' : 'Refreshing pull requests…'
   const refreshStatus = (busy || refreshMessage || pullRequests.lastSuccessfulRefreshAt !== undefined) && (
     <div className="content pr-refresh-status" role="status" aria-live="polite" aria-atomic="true">
-      {busy ? (initialLoading ? 'Loading pull requests…' : 'Refreshing pull requests…') : refreshMessage}
+      {busy ? loadingMessage : refreshMessage}
       {pullRequests.lastSuccessfulRefreshAt !== undefined && (
         <Text block size={200}>
           Last successful refresh (oldest integration):{' '}
@@ -492,11 +493,8 @@ export default function PullRequestsOverview() {
       </OverflowItem>
     )
 
-    const list: React.ReactNode =
-      selectedValue === profile.id &&
-      (initialLoading ? (
-        <Spinner key={profile.id} label="Loading pull requests…" />
-      ) : hasFilters && visible.length === 0 ? (
+    const loadedList =
+      hasFilters && visible.length === 0 ? (
         <ZeroData
           key={profile.id}
           primaryText="No pull requests match your filters"
@@ -511,7 +509,10 @@ export default function PullRequestsOverview() {
           voteAction={voteAction}
           searchQuery={searchQuery}
         />
-      ))
+      )
+    const list: React.ReactNode =
+      selectedValue === profile.id &&
+      (initialLoading ? <Spinner key={profile.id} label="Loading pull requests…" /> : loadedList)
 
     return {
       profile,

@@ -575,7 +575,7 @@ async function checkSettingsError(window, type, keyboard = false) {
   try {
     if (keyboard) {
       await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
-      pressKey(window, 'Enter')
+      await pressKey(window, 'Enter')
     } else {
       await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
     }
@@ -779,7 +779,7 @@ async function checkPrRefresh(window, items) {
   const start = async () => {
     await focusWindow(window)
     await window.webContents.executeJavaScript(`${button}.focus()`)
-    pressKey(window, 'Enter')
+    await pressKey(window, 'Enter')
     await waitForRenderer(window, `${button}.disabled && ${status}.includes('Refreshing pull requests')`)
     assert.ok(await window.webContents.executeJavaScript(`document.querySelectorAll('.pr-title').length > 0`))
   }
