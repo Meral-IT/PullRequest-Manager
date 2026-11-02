@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { validateSmokeProfilePath, withSmokeProfile } from './smoke-profile-path.mjs'
+import { installMonacoDiagnostic } from './monaco-diagnostic.mjs'
 
 if (!process.versions.electron) {
   const result = withSmokeProfile((userData) =>
@@ -15,9 +16,17 @@ if (!process.versions.electron) {
 
 const { app, BrowserWindow, ipcMain } = electron
 
+const smokeStartedAt = performance.now()
+const monacoDiagnostics = []
+function dumpMonacoDiagnostics() {
+  if (monacoDiagnostics.length) console.log('[monaco-diagnostic-trace]', JSON.stringify(monacoDiagnostics.splice(0)))
+}
 let pendingStep = 'app startup'
 const timeout = setTimeout(() => {
-  console.error(`Electron smoke test timed out: ${pendingStep}`)
+  console.error(
+    `Electron smoke test timed out: ${pendingStep} (elapsed ${Math.round(performance.now() - smokeStartedAt)} ms)`
+  )
+  dumpMonacoDiagnostics()
   app.exit(1)
 }, 35_000)
 
@@ -46,6 +55,23 @@ function waitForRenderer(window, condition, description = condition) {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
     document.addEventListener('focusin', check)
   })`)
+}
+
+async function loadSmokeRenderer(window) {
+  pendingStep = 'Monaco diagnostic renderer bootstrap'
+  // Debugger commands need a live renderer target before the first app navigation.
+  if (!window.webContents.getURL()) await window.loadURL('about:blank')
+  // Expose Monaco's supported diagnostic API before its module initializes; no app changes.
+  window.webContents.debugger.attach('1.3')
+  try {
+    await window.webContents.debugger.sendCommand('Page.enable')
+    await window.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+      source: 'globalThis.MonacoEnvironment = { globalAPI: true }',
+    })
+    await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
+  } finally {
+    if (!window.webContents.isDestroyed()) window.webContents.debugger.detach()
+  }
 }
 
 async function settleLayout(window) {
@@ -1409,12 +1435,20 @@ async function runSmokeTest() {
     window.webContents.on('preload-error', (_event, _preload, error) => errors.push(error.message))
     window.webContents.on('console-message', (details) => {
       if (details.level === 'error') errors.push(details.message)
+      if (details.message.startsWith('[monaco-diagnostic] ')) {
+        monacoDiagnostics.push({
+          elapsedMs: Math.round(performance.now() - smokeStartedAt),
+          windowFocus: window.isFocused(),
+          webContentsFocus: window.webContents.isFocused(),
+          renderer: JSON.parse(details.message.slice('[monaco-diagnostic] '.length)),
+        })
+      }
     })
     window.webContents.session.webRequest.onBeforeRequest(
       { urls: ['http://*/*', 'https://*/*'] },
       (_details, callback) => callback({ cancel: true })
     )
-    await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
+    await loadSmokeRenderer(window)
     await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
     await focusWindow(window)
     assert.equal(window.webContents.getLastWebPreferences().sandbox, true)
@@ -1433,7 +1467,7 @@ async function runSmokeTest() {
     finishWindowInit()
     async function checkPlatform(platform) {
       windowPlatform = platform
-      await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
+      await loadSmokeRenderer(window)
       await waitForRenderer(
         window,
         `document.querySelector('.window-titlebar').dataset.platform === ${JSON.stringify(platform)}`
@@ -1783,7 +1817,7 @@ async function runSmokeTest() {
       Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
     `)
     await window.webContents.executeJavaScript(
-      'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
+      `(${installMonacoDiagnostic.toString()})(); document.querySelector('.monaco-editor [aria-label="Profile filter JSON editor"]').focus()`
     )
     const editorKey = (keyCode, modifiers = []) => {
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
@@ -1794,15 +1828,17 @@ async function runSmokeTest() {
     editorKey('Space', ['control'])
     await waitForRenderer(
       window,
-      "Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).some(row => row.textContent.includes('filters'))",
+      "(globalThis.smokeMonacoDiagnostic.mark('completion-wait'), Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).some(row => row.textContent.includes('filters')))",
       'Monaco JSON schema completion'
     )
     editorKey('Enter')
     await waitForRenderer(
       window,
-      "document.querySelector('.monaco-editor .view-lines').textContent.includes('filters')",
+      "(globalThis.smokeMonacoDiagnostic.mark('acceptance-wait'), document.querySelector('.monaco-editor .view-lines').textContent.includes('filters'))",
       'Monaco inserts the selected schema completion'
     )
+    await window.webContents.executeJavaScript('globalThis.smokeMonacoDiagnostic.stop()')
+    dumpMonacoDiagnostics()
     editorKey('Escape')
     await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
     await waitForRenderer(
@@ -1975,6 +2011,7 @@ async function runSmokeTest() {
     )
   } catch (error) {
     console.error('Smoke test step:', pendingStep, error, errors)
+    dumpMonacoDiagnostics()
     exitCode = 1
   } finally {
     clearTimeout(timeout)
