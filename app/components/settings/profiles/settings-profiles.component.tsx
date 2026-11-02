@@ -278,12 +278,18 @@ export default function ProfileSettings() {
   const profile = state.profiles.find((p) => p.id === profileId)
   if (!profile) return <NewProfile />
   const { sorting = defaultProfileSorting } = profile
-  const previewMessage =
-    previewData === undefined || (previewLoading ?? previewData?.isLoading)
-      ? 'Loading PR preview…'
-      : !previewData || previewData.error || previewData.integrations?.some((item) => item.error)
-        ? 'Preview unavailable: PR data could not be loaded.'
-        : `Matches ${FilterEvaluator.evaluate(previewData.items, profile.filter ?? '').length} currently loaded PRs.`
+  let previewMessage: string
+  if (previewData === undefined || (previewLoading ?? previewData?.isLoading)) {
+    previewMessage = 'Loading PR preview…'
+  } else if (!previewData || previewData.error || previewData.integrations?.some((item) => item.error)) {
+    previewMessage = 'Preview unavailable: PR data could not be loaded.'
+  } else {
+    previewMessage = `Matches ${FilterEvaluator.evaluate(previewData.items, profile.filter ?? '').length} currently loaded PRs.`
+  }
+  const validFilterPrefix = profile.filter?.trim() ? 'Filter is valid. ' : ''
+  const filterValidationMessage = profile.filterValid
+    ? `${validFilterPrefix}${previewMessage}`
+    : profile.filterValidationMessage
 
   return (
     <div className={styles.profileContainer}>
@@ -496,9 +502,7 @@ export default function ProfileSettings() {
           validationState={profile.filterValid ? 'success' : 'error'}
           validationMessage={{
             role: profile.filterValid ? 'status' : 'alert',
-            children: profile.filterValid
-              ? `${profile.filter?.trim() ? 'Filter is valid. ' : ''}${previewMessage}`
-              : profile.filterValidationMessage,
+            children: filterValidationMessage,
           }}
           className={styles.editorField}
         >
