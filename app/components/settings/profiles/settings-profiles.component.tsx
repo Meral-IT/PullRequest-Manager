@@ -247,11 +247,15 @@ export default function ProfileSettings() {
   const styles = useStyles()
   const [selectedTab, setSelectedTab] = useState<'general' | 'filter'>('general')
   const [clipboardError, setClipboardError] = useState('')
-  const [previewData, setPreviewData] = useState<(PullRequestData & { isLoading?: boolean }) | null>()
+  const [previewData, setPreviewData] = useState<PullRequestData | null>()
+  const [previewLoading, setPreviewLoading] = useState<boolean>()
 
   useEffect(() => {
     let active = true
     let dataReceived = false
+    const unsubscribeLoading = globalThis.api.receive('loading', ({ isLoading }: { isLoading: boolean }) => {
+      if (active) setPreviewLoading(isLoading)
+    })
     const unsubscribe = globalThis.api.receive('pr-data', (data: PullRequestData) => {
       dataReceived = true
       if (active) setPreviewData(data ?? null)
@@ -267,6 +271,7 @@ export default function ProfileSettings() {
     return () => {
       active = false
       unsubscribe()
+      unsubscribeLoading()
     }
   }, [])
 
@@ -274,7 +279,7 @@ export default function ProfileSettings() {
   if (!profile) return <NewProfile />
   const { sorting = defaultProfileSorting } = profile
   const previewMessage =
-    previewData === undefined || previewData?.isLoading
+    previewData === undefined || (previewLoading ?? previewData?.isLoading)
       ? 'Loading PR preview…'
       : !previewData || previewData.error || previewData.integrations?.some((item) => item.error)
         ? 'Preview unavailable: PR data could not be loaded.'

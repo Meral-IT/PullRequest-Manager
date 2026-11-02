@@ -2453,3 +2453,123 @@ test('description-only search renders bounded literal context and preserves sour
   assert.equal(typeof elements(cell('precision', { ...item, details: { ...item.details, description: undefined } }),
     (element) => element.type === 'TableCellLayout')[0].props.description, 'string')
 })
+
+test('mounted filter preview settles from actual refresh broadcasts through failure and retry', async () => {
+  const { output } = await build({
+    input: resolve(__dirname, '../lib/azure-devops/azure-devops-integrations.service.ts'),
+    platform: 'node',
+    output: { format: 'cjs' },
+    write: false,
+    external: (id) => isExternal(id) || ['../main/notification.service', '../main/settings'].includes(id),
+  })
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  const events = []
+  const send = (channel, payload) => {
+    events.push([channel, payload.isLoading])
+    view.listeners.get(channel)?.(structuredClone(payload))
+  }
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', output[0].code)(
+    (name) => {
+      if (name === 'electron' || name === 'electron/main')
+        return {
+          BrowserWindow: {
+            getAllWindows: () => [{ webContents: { send, isDestroyed: () => false, isCrashed: () => false } }],
+          },
+        }
+      if (name === 'electron-log/main') return { debug: () => undefined, error: () => undefined }
+      if (name.endsWith('/main/notification.service'))
+        return { NotificationService: { getInstance: () => ({ notifyNewPullRequests: () => undefined }) } }
+      if (name.endsWith('/main/settings')) return { saveAzureDevOpsVoteVerification: () => undefined }
+      return load(name)
+    },
+    module,
+    module.exports
+  )
+  const manager = new module.exports.AzureDevOpsIntegrationsService()
+  manager.setConfiguration([
+    {
+      id: 'one',
+      name: 'One',
+      organizationUrl: 'https://dev.azure.com/example',
+      project: 'test',
+      pat: 'fixture',
+      updateInterval: 180,
+    },
+  ])
+  let release
+  let failure = false
+  manager.services.get('one').service.api = {
+    connect: async () => {
+      await new Promise((resolve) => {
+        release = resolve
+      })
+      if (failure) throw new Error('Offline')
+      return { authenticatedUser: { id: 'me' } }
+    },
+    getLocationsApi: async () => ({
+      getResourceArea: async () => ({ locationUrl: 'https://vssps.dev.azure.com/example/' }),
+    }),
+    rest: { get: async () => ({ result: { value: [{ memberOf: [] }] } }) },
+    getGitApi: async () => ({ getPullRequestsByProject: async () => [] }),
+    getPolicyApi: async () => ({ getPolicyEvaluations: async () => [] }),
+  }
+  view.setContext({ state: { profiles: [{ ...profile, filter: '', filterValid: true }] }, actions: {} })
+  view.api.invoke = async (channel) => {
+    assert.equal(channel, 'get-pr-data')
+    return structuredClone(manager.getPullRequests())
+  }
+  const message = () =>
+    elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0].props
+      .validationMessage.children
+  try {
+    let refresh = manager.updateDataImmediately()
+    view.render()
+    await view.flush()
+    assert.match(message(), /Loading PR preview/)
+    for (const [index, fail] of [false, true, false].entries()) {
+      failure = fail
+      if (index) refresh = manager.updateDataImmediately()
+      assert.match(message(), /Loading PR preview/)
+      events.length = 0
+      release()
+      await refresh
+      assert.deepEqual(
+        events,
+        [
+          ['pr-data', true],
+          ['loading', false],
+        ],
+        'Use production broadcasts, without injecting a settled PR snapshot'
+      )
+      assert.match(message(), fail ? /Preview unavailable/ : /Matches 0 currently loaded PRs/)
+    }
+  } finally {
+    view.unmount()
+    manager.stop()
+  }
+  assert.equal(view.listenerCount('pr-data'), 0)
+  assert.equal(view.listenerCount('loading'), 0)
+})
+
+test('filter preview keeps live loading transitions newer than the initial snapshot', async () => {
+  for (const loading of [false, true]) {
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    view.setContext({ state: { profiles: [{ ...profile, filter: '', filterValid: true }] }, actions: {} })
+    const snapshot = Promise.withResolvers()
+    view.api.invoke = () => snapshot.promise
+    view.render()
+    await view.flush()
+    view.listeners.get('loading')?.({ isLoading: loading })
+    snapshot.resolve({ items: [{ isDraft: false }], error: null, isLoading: !loading })
+    await view.flush()
+    const message = () =>
+      elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0].props
+        .validationMessage.children
+    assert.match(message(), loading ? /Loading PR preview/ : /Matches 1 currently loaded PRs/)
+    view.listeners.get('loading')?.({ isLoading: false })
+    assert.match(message(), /Matches 1 currently loaded PRs/)
+    view.unmount()
+    assert.equal(view.listenerCount('loading'), 0)
+  }
+})
