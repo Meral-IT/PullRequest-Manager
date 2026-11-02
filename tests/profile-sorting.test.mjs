@@ -1174,6 +1174,39 @@ test('settings startup retains access diagnostics when PR events precede connect
   }
 })
 
+test('PR details distinguish identical queues by organization, project, and number with full title tooltips', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const title = 'Fix invoice rounding across multiple currencies and regional payment processing systems'
+  const data = ['North', 'South'].map((organization) => ({
+    id: 12,
+    details: {
+      label: title,
+      number: 42,
+      organization,
+      project: 'Finance',
+      repository: 'Billing',
+      branch: 'refs/heads/feature',
+      targetBranch: 'refs/heads/main',
+    },
+    urls: { web: `https://dev.azure.com/${organization}/Finance/_git/Billing/pullrequest/42` },
+  }))
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const details = grid.props.columns.find((column) => column.columnId === 'details')
+  for (const [index, organization] of ['North', 'South'].entries()) {
+    const cell = details.renderCell(data[index])
+    const layout = elements(cell, (element) => element.type === 'TableCellLayout')[0]
+    assert.equal(layout.props.description, `${organization}/Finance · #42 · Billing · feature → main`)
+    const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+    assert.ok(tooltip.props.content.includes(title), 'Truncated titles remain readable in full')
+    assert.ok(tooltip.props.content.includes(`${organization}/Finance`), 'Source remains available when details truncate')
+    assert.ok(tooltip.props.content.includes('#42'), 'Use the display PR number rather than the internal id')
+    assert.equal(tooltip.props.relationship, 'description')
+  }
+  const legacy = { ...data[0], details: { ...data[0].details, organization: undefined, project: undefined } }
+  const legacyLayout = elements(details.renderCell(legacy), (element) => element.type === 'TableCellLayout')[0]
+  assert.equal(legacyLayout.props.description, '#42 · Billing · feature → main')
+})
+
 test('PR title links open the intended URL and expose launch failures', async () => {
   const view = await component('app/components/pr-list/pr-list.tsx')
   view.setSettings(settings)

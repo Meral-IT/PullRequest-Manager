@@ -124,6 +124,10 @@ const createColumns = (
 
       const sourceBranch = normalizeBranchName(item.details.branch)
       const targetBranch = normalizeBranchName(item.details.targetBranch)
+      const source = [item.details.organization, item.details.project].filter(Boolean).join('/')
+      const description = [source, `#${item.details.number}`, item.details.repository, `${sourceBranch} → ${targetBranch}`]
+        .filter(Boolean)
+        .join(' · ')
 
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
@@ -137,10 +141,10 @@ const createColumns = (
       ) : null
 
       return (
-        <Tooltip content={`Open PR ${item.id}`} relationship="description" withArrow>
+        <Tooltip content={`${item.details.label} — ${description}`} relationship="description" withArrow>
           <TableCellLayout
             className="pr-title"
-            description={`${item.details.repository} · ${sourceBranch} → ${targetBranch}`}
+            description={description}
             appearance="primary"
             truncate
           >
