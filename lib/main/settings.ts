@@ -5,7 +5,11 @@ import { randomUUID } from 'node:crypto'
 import { defaultProfiles } from '../models/pr-profile'
 import { getProfileFilterErrors } from '../models/profile-filter.schema'
 import { SettingsModel, TableSize } from '../models/settings.model'
-import { AzureDevOpsConnection, sameAzureDevOpsConnection } from '../models/azure-devops-access'
+import {
+  AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
+  AzureDevOpsConnection,
+  sameAzureDevOpsConnection,
+} from '../models/azure-devops-access'
 import { updateTrayProfiles } from './tray'
 
 const settingFile = path.join(app.getPath('userData'), 'settings.json')
@@ -145,6 +149,30 @@ export function saveSettings(input: SettingsModel): Promise<SettingsModel> {
   return enqueueSettingsWrite(() => writeSettings(input))
 }
 
+export async function saveAzureDevOpsVoteVerification(
+  integrationId: string,
+  connection: AzureDevOpsConnection,
+  verified: boolean
+): Promise<boolean> {
+  await loadSettings()
+  return enqueueSettingsWrite(async () => {
+    const current = cachedSettings!
+    const integration = current.azDoIntegrations.find((item) => item.id === integrationId)
+    if (!integration || !sameAzureDevOpsConnection(integration, connection)) return false
+    const verifiedVoteRequirements = verified ? AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT : undefined
+    if (integration.verifiedVoteRequirements === verifiedVoteRequirements) return true
+    const settings = {
+      ...current,
+      azDoIntegrations: current.azDoIntegrations.map((item) =>
+        item.id === integrationId ? { ...item, verifiedVoteRequirements } : item
+      ),
+    }
+    await persistSettings(settings)
+    cachedSettings = settings
+    return true
+  })
+}
+
 export async function acknowledgeAzureDevOpsRequirements(
   fingerprint: string,
   connection: AzureDevOpsConnection,
@@ -181,7 +209,10 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
         previous && !sameAzureDevOpsConnection(integration, previous)
           ? undefined
           : (integration.acknowledgedScopeRequirements ?? previous?.acknowledgedScopeRequirements)
-      return { ...integration, acknowledgedScopeRequirements }
+      // Verification belongs to the main process; a stale form must never restore or erase it.
+      const verifiedVoteRequirements =
+        previous && sameAzureDevOpsConnection(integration, previous) ? previous.verifiedVoteRequirements : undefined
+      return { ...integration, acknowledgedScopeRequirements, verifiedVoteRequirements }
     }),
   }
   await persistSettings(settings)

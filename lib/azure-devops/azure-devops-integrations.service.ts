@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { NotificationService } from '../main/notification.service'
+import { saveAzureDevOpsVoteVerification } from '../main/settings'
 import { AzureDevOpsConnection } from '../models/azure-devops-access'
 import { ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
@@ -11,9 +12,17 @@ import { FilterEvaluator } from '../models/ui-filter.model'
 import { AzureDevOpsService } from './azure-devops.service'
 
 export class AzureDevOpsIntegrationsService {
+  constructor(
+    private readonly onVoteVerification?: (
+      integrationId: string,
+      connection: AzureDevOpsConnection,
+      verified: boolean
+    ) => Promise<unknown>
+  ) {}
+
   private static instance: AzureDevOpsIntegrationsService
   public static getInstance(): AzureDevOpsIntegrationsService {
-    this.instance ??= new AzureDevOpsIntegrationsService()
+    this.instance ??= new AzureDevOpsIntegrationsService(saveAzureDevOpsVoteVerification)
     return this.instance
   }
 
@@ -33,7 +42,14 @@ export class AzureDevOpsIntegrationsService {
       for (const settings of integrations) {
         let entry = this.services.get(settings.id)
         if (!entry) {
-          entry = { settings, service: new AzureDevOpsService(() => this.publishData()) }
+          const service = new AzureDevOpsService(
+            () => this.publishData(),
+            async (connection, verified) => {
+              if (this.services.get(settings.id)?.service !== service) return
+              await this.onVoteVerification?.(settings.id, connection, verified)
+            }
+          )
+          entry = { settings, service }
           this.services.set(settings.id, entry)
         }
         entry.settings = { ...settings }
