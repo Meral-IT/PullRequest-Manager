@@ -1000,6 +1000,7 @@ async function checkPrSearch(window, settings) {
     true,
     'Arrow navigation reaches the status gridcell'
   )
+  await focusWindow(window)
   await policyKey('Enter')
   assert.equal(
     await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('${policySummary}')`),
@@ -1139,6 +1140,18 @@ async function checkPrSearch(window, settings) {
   await focusWindow(window)
   const titleLink = `document.querySelector('.pr-title a')`
   const rowActions = `document.querySelector('button[aria-label="Actions for PR 1: Fix invoice rounding"]')`
+  assert.equal(
+    await window.webContents.executeJavaScript(`(() => {
+      const button = ${rowActions}
+      const cell = button.closest('[role=gridcell]')
+      const style = getComputedStyle(cell)
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      return document.querySelector('[role=columnheader]:last-child').textContent === '' &&
+        Math.abs(cell.getBoundingClientRect().width - button.getBoundingClientRect().width - padding) <= 1
+    })()`),
+    true,
+    'The actions column has no header title and fits only its icon button and cell padding'
+  )
   const bulkActions = `document.querySelector('button[aria-label="Approve all matching PRs in All (1)"]')`
   const rowMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent === 'Approve')`
   const bulkMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all'))`

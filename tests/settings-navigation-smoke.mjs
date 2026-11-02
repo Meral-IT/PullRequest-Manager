@@ -113,6 +113,11 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await enter()
     assert.equal(await name(), original.azDoIntegrations[0].name, 'Leave discards without saving')
     await edit('Back draft')
+    // Exercise history restoration that finishes after the dialog closes on slower runners.
+    await run(`(() => {
+      const go = history.go.bind(history)
+      history.go = (delta) => setTimeout(() => go(delta), 100)
+    })()`)
     const beforeBack = await entry()
     await run('history.back()')
     await dialog('browser Back Stay')
