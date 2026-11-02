@@ -62,17 +62,15 @@ async function loadSmokeRenderer(window) {
   pendingStep = 'Monaco diagnostic renderer bootstrap'
   // Debugger commands need a live renderer target before the first app navigation.
   if (!window.webContents.getURL()) await window.loadURL('about:blank')
-  // Expose Monaco's supported diagnostic API before its module initializes; no app changes.
-  window.webContents.debugger.attach('1.3')
-  try {
+  // Keep the bootstrap's debugger session alive across every smoke navigation and reload.
+  if (!window.webContents.debugger.isAttached()) {
+    window.webContents.debugger.attach('1.3')
     await window.webContents.debugger.sendCommand('Page.enable')
     await window.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: 'globalThis.MonacoEnvironment = { globalAPI: true }',
     })
-    await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
-  } finally {
-    if (!window.webContents.isDestroyed()) window.webContents.debugger.detach()
   }
+  await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
 }
 
 async function settleLayout(window) {
@@ -386,6 +384,13 @@ async function checkUpdateNotification(window, settings, updates) {
     window.reload()
   })
   await expectState('ready')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      '!!globalThis.MonacoEnvironment?.globalAPI || typeof globalThis.monaco?.editor.getEditors === "function"'
+    ),
+    true,
+    'Monaco diagnostic bootstrap survives update reload'
+  )
   assert.equal(updates.installs, 0, 'Reload restores readiness without installing')
   const checkUpdateTheme = async (theme, width, zoom) => {
     settings.appearance.theme = theme
@@ -446,7 +451,9 @@ async function checkUpdateNotification(window, settings, updates) {
   updates.publish({ status: 'ready', info: longInfo })
   await expectState('ready')
   await checkLayout()
-  window.webContents.debugger.attach('1.3')
+  const reducedMotion = await window.webContents.executeJavaScript(
+    'matchMedia("(prefers-reduced-motion: reduce)").matches'
+  )
   try {
     await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
@@ -466,8 +473,13 @@ async function checkUpdateNotification(window, settings, updates) {
       'none'
     )
   } finally {
-    window.webContents.debugger.detach()
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] })
   }
+  assert.equal(
+    await window.webContents.executeJavaScript('matchMedia("(prefers-reduced-motion: reduce)").matches'),
+    reducedMotion,
+    'Shared diagnostic debugger restores the original motion preference'
+  )
   updates.publish({ status: 'idle' })
   await waitForRenderer(window, `!${panel}`)
 }
@@ -1667,6 +1679,7 @@ async function checkPrSearch(window, settings) {
 }
 
 async function runSmokeTest() {
+  let window
   let exitCode = 0
   const errors = []
   try {
@@ -1757,7 +1770,7 @@ async function runSmokeTest() {
       menuActions.push('web-actual-size')
     })
 
-    const window = new BrowserWindow({
+    window = new BrowserWindow({
       width: 900,
       height: 670,
       frame: false,
@@ -1859,6 +1872,13 @@ async function runSmokeTest() {
     await checkTitlebarLayout(window, windowPlatform, 480)
     await checkTitlebarMenus(window)
     await checkSettingsNavigation(window, settings, waitForRenderer, settleLayout)
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        '!!globalThis.MonacoEnvironment?.globalAPI || typeof globalThis.monaco?.editor.getEditors === "function"'
+      ),
+      true,
+      'Monaco diagnostic bootstrap survives settings force reload'
+    )
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
 
@@ -2060,10 +2080,7 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    for (const [name, remaining] of [
-      ['Second connection', 2],
-      ['Smoke integration', 1],
-    ]) {
+    const checkIntegrationRemoval = async (name, remaining) => {
       const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
         pat: document.querySelector('input[name="azDoPat"]').value,
         project: document.querySelector('input[name="azDoProject"]').value })`)
@@ -2120,6 +2137,8 @@ async function runSmokeTest() {
         remaining === 2 ? 'Smoke integration' : null
       )
     }
+    await checkIntegrationRemoval('Second connection', 2)
+    await checkIntegrationRemoval('Smoke integration', 1)
     assert.equal(
       await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
       true
@@ -2231,7 +2250,7 @@ async function runSmokeTest() {
     await selectProfileTab(window, 'filter')
     await checkProfileLayout(window)
     const resizeLayouts = []
-    for (const height of [670, 900, 450, 350, 670]) {
+    const checkFilterPanelHeight = async (height) => {
       window.setContentSize(900, height)
       await settleLayout(window)
       await checkProfileLayout(window, height !== 350)
@@ -2265,6 +2284,11 @@ async function runSmokeTest() {
       )
       if (height === 350) await capture(window, 'profile-short')
     }
+    await checkFilterPanelHeight(670)
+    await checkFilterPanelHeight(900)
+    await checkFilterPanelHeight(450)
+    await checkFilterPanelHeight(350)
+    await checkFilterPanelHeight(670)
     assert.ok(resizeLayouts[2].editor.height < resizeLayouts[1].editor.height, JSON.stringify(resizeLayouts))
     assert.ok(
       Math.abs(resizeLayouts[4].editor.height - resizeLayouts[0].editor.height) <= 1,
@@ -2577,6 +2601,9 @@ async function runSmokeTest() {
     exitCode = 1
   } finally {
     clearTimeout(timeout)
+    if (window && !window.isDestroyed() && window.webContents.debugger.isAttached()) {
+      window.webContents.debugger.detach()
+    }
     app.exit(exitCode)
   }
 }
