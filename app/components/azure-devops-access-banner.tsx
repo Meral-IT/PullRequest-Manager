@@ -57,7 +57,12 @@ export default function AzureDevOpsAccessBanner({
         {error && <p role="alert">{error}</p>}
       </MessageBarBody>
       <MessageBarActions>
-        <Button onClick={() => navigate('/settings/azure-devops')}>Azure DevOps settings</Button>
+        <Button
+          aria-label={name ? `${name}: Azure DevOps settings` : undefined}
+          onClick={() => navigate(integrationId ? `/settings/integrations/${integrationId}` : '/settings/azure-devops')}
+        >
+          Azure DevOps settings
+        </Button>
         {canAcknowledge && (
           <Button onClick={acknowledge} disabled={saving}>
             {saving ? 'Saving...' : 'Acknowledge unverified'}

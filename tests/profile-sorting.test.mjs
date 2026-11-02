@@ -374,6 +374,52 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   )
 })
 
+test('integration repair actions open their own settings and keep legacy settings routes', async () => {
+  const banner = await component('app/components/azure-devops-access-banner.tsx')
+  const access = {
+    requirementsFingerprint: 'requirements',
+    connectionRevision: 1,
+    acknowledged: false,
+    features: {
+      code: { status: 'denied' },
+      identity: { status: 'verified' },
+      vote: { status: 'verified' },
+    },
+  }
+  const buttons = (props) => elements(banner.render(props), (element) => element.type === 'Button')
+  buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props.onClick()
+  assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/integrations/second'])
+  assert.equal(buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'], 'Second connection: Azure DevOps settings')
+  buttons({ access })[0].props.onClick()
+  assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/azure-devops'])
+
+  const overview = await component('app/pages/pull-requests/pull-requests.tsx')
+  overview.setSettings(settings)
+  overview.render()
+  await overview.flush()
+  overview.listeners.get('pr-data')({
+    items: [],
+    error: null,
+    integrations: [
+      {
+        id: 'second',
+        name: 'Second connection',
+        access,
+        error: { message: 'Could not load pull requests', details: 'Try again', actionHref: '/settings/azure-devops' },
+      },
+    ],
+  })
+  const tree = overview.render()
+  const integrationNotices = elements(tree, (element) => element.type?.name === 'IntegrationNotices')[0]
+  const integrationSettings = elements(
+    integrationNotices.type(integrationNotices.props),
+    (element) => element.type === 'Button' && element.props['aria-label'] === 'Second connection: Integration settings'
+  )[0]
+  assert.ok(integrationSettings)
+  integrationSettings.props.onClick()
+  assert.deepEqual(overview.calls.at(-1), ['navigate', '/settings/integrations/second'])
+})
+
 test('integration editor uses its route to select a connection and has no connection picker', async () => {
   const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
   const selected = []

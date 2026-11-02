@@ -78,7 +78,12 @@ function IntegrationNotices({ data }: Readonly<{ data: PullRequestData }>) {
           </MessageBarBody>
           {error.actionHref && (
             <MessageBarActions>
-              <Button onClick={() => navigate(error.actionHref!)}>{error.actionText ?? 'Integration settings'}</Button>
+              <Button
+                aria-label={name ? `${name}: ${error.actionText ?? 'Integration settings'}` : undefined}
+                onClick={() => navigate(id ? `/settings/integrations/${id}` : error.actionHref!)}
+              >
+                {error.actionText ?? 'Integration settings'}
+              </Button>
             </MessageBarActions>
           )}
         </MessageBar>
