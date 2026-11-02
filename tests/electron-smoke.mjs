@@ -49,12 +49,16 @@ function waitForRenderer(window, condition, description = condition) {
       if (ready()) {
         observer.disconnect()
         document.removeEventListener('focusin', check)
+        window.removeEventListener('popstate', check)
+        window.removeEventListener('hashchange', check)
         resolve()
       }
     }
     const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
     document.addEventListener('focusin', check)
+    window.addEventListener('popstate', check)
+    window.addEventListener('hashchange', check)
   })`)
 }
 
