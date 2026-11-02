@@ -1,3 +1,5 @@
+import type { PullRequestData } from '@/lib/models/pr-data'
+import { FilterEvaluator } from '@/lib/models/ui-filter.model'
 import { defaultProfileSorting } from '@/lib/models/pr-profile'
 import {
   Body1Stronger,
@@ -20,7 +22,7 @@ import {
   tokens,
 } from '@fluentui/react-components'
 import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
-import { lazy, Suspense, useContext, useState } from 'react'
+import { lazy, Suspense, useContext, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
 
@@ -245,10 +247,44 @@ export default function ProfileSettings() {
   const styles = useStyles()
   const [selectedTab, setSelectedTab] = useState<'general' | 'filter'>('general')
   const [clipboardError, setClipboardError] = useState('')
+  const [previewData, setPreviewData] = useState<(PullRequestData & { isLoading?: boolean }) | null>()
+
+  useEffect(() => {
+    let active = true
+    let dataReceived = false
+    const unsubscribe = globalThis.api.receive('pr-data', (data: PullRequestData) => {
+      dataReceived = true
+      if (active) setPreviewData(data ?? null)
+    })
+    globalThis.api
+      .invoke('get-pr-data')
+      .then((data: PullRequestData | undefined) => {
+        if (active && !dataReceived) setPreviewData(data ?? null)
+      })
+      .catch(() => {
+        if (active && !dataReceived) setPreviewData(null)
+      })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
 
   const profile = state.profiles.find((p) => p.id === profileId)
   if (!profile) return <NewProfile />
   const { sorting = defaultProfileSorting } = profile
+  let previewMessage: string
+  if (previewData === undefined || previewData?.isLoading) {
+    previewMessage = 'Loading PR preview…'
+  } else if (!previewData || previewData.error || previewData.integrations?.some((item) => item.error)) {
+    previewMessage = 'Preview unavailable: PR data could not be loaded.'
+  } else {
+    previewMessage = `Matches ${FilterEvaluator.evaluate(previewData.items, profile.filter ?? '').length} currently loaded PRs.`
+  }
+  const validFilterPrefix = profile.filter?.trim() ? 'Filter is valid. ' : ''
+  const filterValidationMessage = profile.filterValid
+    ? `${validFilterPrefix}${previewMessage}`
+    : profile.filterValidationMessage
 
   return (
     <div className={styles.profileContainer}>
@@ -459,7 +495,10 @@ export default function ProfileSettings() {
         {clipboardError && <span role="alert">{clipboardError}</span>}
         <Field
           validationState={profile.filterValid ? 'success' : 'error'}
-          validationMessage={profile.filterValidationMessage}
+          validationMessage={{
+            role: profile.filterValid ? 'status' : 'alert',
+            children: filterValidationMessage,
+          }}
           className={styles.editorField}
         >
           <Suspense fallback={<Spinner label="Loading filter editor" />}>
