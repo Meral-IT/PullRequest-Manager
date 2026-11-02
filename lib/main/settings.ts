@@ -26,6 +26,7 @@ const defaultSettings: SettingsModel = {
   appearance: {
     theme: 'system',
     tableSize: TableSize.Small,
+    showSourceInformation: true,
   },
   profiles: defaultProfiles,
 }
@@ -303,6 +304,7 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance.theme,
       tableSize: input.appearance.tableSize || defaultSettings.appearance.tableSize,
+      showSourceInformation: input.appearance.showSourceInformation ?? defaultSettings.appearance.showSourceInformation,
     },
     profiles: (input.profiles || defaultSettings.profiles).map((profile) => ({
       ...profile,

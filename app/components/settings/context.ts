@@ -25,6 +25,7 @@ export interface SettingStateProps {
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
   appearanceTableSize: TableSize
+  appearanceShowSourceInformation: boolean
   azDoIntegrations: AzDoIntegration[]
   profiles: SettingStatePrProfile[]
 }
@@ -60,6 +61,7 @@ export const SettingsContext = createContext<SettingPageProps>({
     repositoriesRootDirectory: '',
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
+    appearanceShowSourceInformation: true,
     name: '',
     email: '',
     azDoIntegrations: [],

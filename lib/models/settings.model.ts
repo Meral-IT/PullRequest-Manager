@@ -18,6 +18,7 @@ export interface AzDoIntegration extends AzDoSettings {
 export interface AppearanceSettings {
   theme: 'system' | 'light' | 'dark'
   tableSize: TableSize
+  showSourceInformation: boolean
 }
 
 export enum TableSize {

@@ -81,7 +81,8 @@ const policyOutcomes = {
 const createColumns = (
   reportActionError: (error: unknown) => void,
   openActions: (event: ReactMouseEvent<HTMLElement>, pr: PullRequest) => void,
-  openPr: PullRequest | null
+  openPr: PullRequest | null,
+  showSourceInformation: boolean
 ): TableColumnDefinition<PullRequest>[] => [
   createTableColumn<PullRequest>({
     columnId: 'author',
@@ -124,8 +125,10 @@ const createColumns = (
 
       const sourceBranch = normalizeBranchName(item.details.branch)
       const targetBranch = normalizeBranchName(item.details.targetBranch)
-      const source = [item.details.organization, item.details.project].filter(Boolean).join('/')
-      const description = [source, `#${item.details.number}`, item.details.repository, `${sourceBranch} → ${targetBranch}`]
+      const title = `#${item.details.number} ${item.details.label}`
+      const source =
+        showSourceInformation && [item.details.organization, item.details.project].filter(Boolean).join('/')
+      const description = [source, item.details.repository, `${sourceBranch} → ${targetBranch}`]
         .filter(Boolean)
         .join(' · ')
 
@@ -141,15 +144,10 @@ const createColumns = (
       ) : null
 
       return (
-        <Tooltip content={`${item.details.label} — ${description}`} relationship="description" withArrow>
-          <TableCellLayout
-            className="pr-title"
-            description={description}
-            appearance="primary"
-            truncate
-          >
+        <Tooltip content={`${title} — ${description}`} relationship="description" withArrow>
+          <TableCellLayout className="pr-title" description={description} appearance="primary" truncate>
             <Link href={item.urls.web} onClick={click}>
-              <Text truncate>{item.details.label}</Text>
+              <Text truncate>{title}</Text>
             </Link>
             {draftBadge}
             {conflictBadge}
@@ -390,6 +388,7 @@ export default function PrList(props: Readonly<Props>) {
     sortDirection: 'ascending',
   })
   const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
+  const [showSourceInformation, setShowSourceInformation] = useState(true)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [contextMenuPr, setContextMenuPr] = useState<PullRequest | null>(null)
   const [vscodeInstalled, setVscodeInstalled] = useState(false)
@@ -420,11 +419,15 @@ export default function PrList(props: Readonly<Props>) {
     const unsubscribe = globalThis.api.receive('settings', (data: SettingsModel) => {
       settingsReceived = true
       setTableSize(data.appearance.tableSize)
+      setShowSourceInformation(data.appearance.showSourceInformation ?? true)
     })
     globalThis.api
       .invoke('get-settings')
       .then((settings: SettingsModel) => {
-        if (active && !settingsReceived) setTableSize(settings.appearance.tableSize)
+        if (active && !settingsReceived) {
+          setTableSize(settings.appearance.tableSize)
+          setShowSourceInformation(settings.appearance.showSourceInformation ?? true)
+        }
       })
       .catch((error) => console.error('Unable to load table settings', error))
     return () => {
@@ -486,8 +489,9 @@ export default function PrList(props: Readonly<Props>) {
   )
 
   const columns = useMemo(
-    () => createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null),
-    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr]
+    () =>
+      createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null, showSourceInformation),
+    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr, showSourceInformation]
   )
   const items = useMemo(() => {
     const compare =

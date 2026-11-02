@@ -1,6 +1,6 @@
 import { TableSize } from '@/lib/models/settings.model'
 import { nameof } from '@/lib/tools/nameof'
-import { Field, makeResetStyles, Select, tokens } from '@fluentui/react-components'
+import { Field, makeResetStyles, Select, Switch, tokens } from '@fluentui/react-components'
 import { useContext, useEffect, useState } from 'react'
 import { SettingsContext, SettingStateProps } from '../context'
 
@@ -91,6 +91,16 @@ export default function AppearanceSettings() {
             </option>
           ))}
         </Select>
+      </Field>
+      <Field hint="Display the organization and project alongside each pull request's repository and branches.">
+        <Switch
+          label="Show source information"
+          name={nameof<SettingStateProps>('appearanceShowSourceInformation')}
+          checked={state.appearanceShowSourceInformation}
+          onChange={(_, data) =>
+            actions.onChangeHandler({ target: { name: 'appearanceShowSourceInformation', value: data.checked } })
+          }
+        />
       </Field>
     </div>
   )

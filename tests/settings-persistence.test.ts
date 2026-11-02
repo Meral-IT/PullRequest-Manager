@@ -81,7 +81,19 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
   })
   try {
     await writeFile(file, JSON.stringify(original))
-    const cached = await settingsModule.exports.loadSettings()
+    let cached = await settingsModule.exports.loadSettings()
+    assert.equal(cached.appearance.showSourceInformation, true, 'Legacy settings show source information by default')
+    for (const showSourceInformation of [false, true]) {
+      const updated = structuredClone(cached)
+      Object.assign(updated.appearance, { showSourceInformation })
+      await settingsModule.exports.saveSettings(updated)
+      assert.equal(JSON.parse(await readFile(file, 'utf8')).appearance.showSourceInformation, showSourceInformation)
+      assert.equal(
+        (await settingsModule.exports.loadSettings()).appearance.showSourceInformation,
+        showSourceInformation
+      )
+    }
+    cached = await settingsModule.exports.saveSettings(cached)
     const before = await readFile(file, 'utf8')
     const invalid = structuredClone(original)
     invalid.azDoIntegrations[0].pat = 'unchanged-secret'
