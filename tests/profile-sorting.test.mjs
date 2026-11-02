@@ -149,6 +149,8 @@ async function component(entry) {
   new Function('require', 'module', 'exports', output[0].code)(
     (name) => {
       if (name === 'react') return hooks
+      if (name === 'dompurify') return { __esModule: true, default: { sanitize: (html) => html } }
+      if (name === '@fluentui/react-icons') return load(name)
       if (name.startsWith('@fluentui/')) return fluent
       if (name === 'react-router-dom')
         return {
@@ -376,6 +378,52 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   )
 })
 
+test('integration repair actions open their own settings and keep legacy settings routes', async () => {
+  const banner = await component('app/components/azure-devops-access-banner.tsx')
+  const access = {
+    requirementsFingerprint: 'requirements',
+    connectionRevision: 1,
+    acknowledged: false,
+    features: {
+      code: { status: 'denied' },
+      identity: { status: 'verified' },
+      vote: { status: 'verified' },
+    },
+  }
+  const buttons = (props) => elements(banner.render(props), (element) => element.type === 'Button')
+  buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props.onClick()
+  assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/integrations/second'])
+  assert.equal(buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'], 'Second connection: Azure DevOps settings')
+  buttons({ access })[0].props.onClick()
+  assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/azure-devops'])
+
+  const overview = await component('app/pages/pull-requests/pull-requests.tsx')
+  overview.setSettings(settings)
+  overview.render()
+  await overview.flush()
+  overview.listeners.get('pr-data')({
+    items: [],
+    error: null,
+    integrations: [
+      {
+        id: 'second',
+        name: 'Second connection',
+        access,
+        error: { message: 'Could not load pull requests', details: 'Try again', actionHref: '/settings/azure-devops' },
+      },
+    ],
+  })
+  const tree = overview.render()
+  const integrationNotices = elements(tree, (element) => element.type?.name === 'IntegrationNotices')[0]
+  const integrationSettings = elements(
+    integrationNotices.type(integrationNotices.props),
+    (element) => element.type === 'Button' && element.props['aria-label'] === 'Second connection: Integration settings'
+  )[0]
+  assert.ok(integrationSettings)
+  integrationSettings.props.onClick()
+  assert.deepEqual(overview.calls.at(-1), ['navigate', '/settings/integrations/second'])
+})
+
 test('integration editor uses its route to select a connection and has no connection picker', async () => {
   const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
   const selected = []
@@ -547,6 +595,48 @@ test('grid applies both sort directions to each supported column and prevents ma
   assert.equal(grid(null).props.sortable, true)
 })
 
+test('policy cells distinguish all six states, empty checks, and mixed tooltips', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const grid = elements(view.render({ data: [{ id: 1 }] }), (element) => element.type === 'DataGrid')[0]
+  const checks = grid.props.columns.find((column) => column.columnId === 'statusChecks')
+  const reviewers = grid.props.columns.find((column) => column.columnId === 'reviewers')
+  const text = (node) => {
+    if (Array.isArray(node)) return node.map(text).join('')
+    if (node && typeof node === 'object') return text(node.props?.children)
+    return typeof node === 'string' || typeof node === 'number' ? String(node) : ''
+  }
+  const evaluation = (status) => ({
+    id: String(status),
+    status,
+    displayName: `Policy ${status}`,
+    config: { type: { id: 'build', displayName: 'Build', url: '' } },
+  })
+  for (const [status, summary] of [
+    [0, '1 pending'],
+    [1, '1 pending'],
+    [2, '1 approved'],
+    [3, '1 failed'],
+    [4, '1 not applicable'],
+    [5, '1 failed'],
+  ]) {
+    const cell = checks.renderCell({ evaluations: [evaluation(status)] })
+    assert.ok(elements(cell, (element) => element.props?.['aria-label'] === summary).length, summary)
+    assert.ok(text(cell.props.content).includes(`Policy ${status}`))
+  }
+  assert.equal(text(checks.renderCell({ evaluations: [] })), 'No checks')
+  assert.equal(text(reviewers.renderCell({ reviewers: [] })), 'No reviewers')
+  const mixed = checks.renderCell({ evaluations: [0, 1, 2, 3, 4, 5].map(evaluation) })
+  assert.equal(mixed.props.relationship, 'description')
+  assert.ok(
+    elements(mixed, (element) => element.props?.['aria-label'] === '2 failed, 2 pending, 1 approved, 1 not applicable')
+      .length
+  )
+  for (const state of ['Queued', 'Running', 'Approved', 'Rejected', 'Not applicable', 'Broken']) {
+    assert.ok(text(mixed.props.content).includes(state), state)
+  }
+  assert.equal(checks.compare({ evaluations: [evaluation(5)] }, { evaluations: [evaluation(2)] }), 1)
+})
+
 test('active profile receives saved sorting without switching tabs', async () => {
   const overview = await component('app/pages/pull-requests/pull-requests.tsx')
   overview.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
@@ -677,7 +767,7 @@ test('profile filtering caches badges while search touches only the active profi
     [1]
   )
   const secondTab = elements(tree, (element) => element.type === 'Tab' && element.props.value === 'two')[0]
-  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: {} })
+  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
   tree = view.render()
   elements(tree, (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
   assert.deepEqual(
@@ -862,6 +952,47 @@ test('failed update download stays visible with a retry action and closes releas
   assert.equal(view.toasts[0].options.intent, 'error')
   assert.ok(elements(view.toasts[0].content, (element) => element.props?.children === 'Retry download').length)
   assert.equal(elements(view.render(), (element) => element.type === 'Dialog')[0].props.open, false)
+})
+
+test('release notes date only the current release when its actual release date is available', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  view.render()
+  await view.flush()
+  view.listeners.get('update:state-changed')({
+    status: 'available',
+    info: {
+      version: '2.0.0',
+      releaseDate: '2026-10-30T10:00:00Z',
+      releaseNotes: [
+        { version: '2.0.0', note: 'Current release' },
+        { version: '1.9.0', note: 'Historical release' },
+      ],
+    },
+  })
+  view.listeners.get('update:show-releaseNotes')()
+  const dialog = elements(view.render(), (element) => element.type === 'Dialog')[0]
+  const headings = elements(dialog, (element) => element.type === 'h2')
+  const currentRelease = elements(headings[0], (element) => element.type === 'span')
+  assert.equal(
+    currentRelease[1].props.children.join(''),
+    ` - ${new Date('2026-10-30T10:00:00Z').toLocaleDateString()}`
+  )
+  assert.equal(elements(headings[1], (element) => element.type === 'span').length, 1)
+})
+
+test('release notes omit a date when the release date is missing or invalid', async () => {
+  for (const releaseDate of [undefined, 'not-a-date']) {
+    const view = await component('app/components/update-notification/update-notification.component.tsx')
+    view.render()
+    await view.flush()
+    view.listeners.get('update:state-changed')({
+      status: 'available',
+      info: { version: '2.0.0', releaseDate, releaseNotes: 'Undated release' },
+    })
+    view.listeners.get('update:show-releaseNotes')()
+    const heading = elements(view.render(), (element) => element.type === 'h2')[0]
+    assert.equal(elements(heading, (element) => element.type === 'span').length, 1)
+  }
 })
 
 test('update startup snapshot cannot replace a newer ready event and subscriptions are cleaned up', async () => {
@@ -1220,4 +1351,178 @@ test('duplicating a default profile preserves its settings but does not create a
     provider.calls.find(([name]) => name === 'save-settings')[1].profiles.map((item) => item.isDefault),
     [true, false]
   )
+})
+
+test('PR title links open the intended URL and expose launch failures', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const item = {
+    id: 12,
+    details: { label: 'Fix invoice', repository: 'Billing', branch: 'feature', targetBranch: 'main' },
+    urls: { web: 'https://example.com/pr/12' },
+  }
+  const data = [item]
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const cell = grid.props.columns.find((column) => column.columnId === 'details').renderCell(item)
+  const link = elements(cell, (element) => element.type === 'Link')[0]
+  assert.ok(link, 'The PR title must be a semantic link')
+  assert.equal(link.props.href, 'https://example.com/pr/12')
+  assert.equal(link.props.children.props.children, 'Fix invoice')
+  let prevented = false
+  await link.props.onClick({
+    preventDefault() {
+      prevented = true
+    },
+  })
+  assert.equal(prevented, true)
+  assert.deepEqual(view.calls.at(-1), ['web-open-url', 'https://example.com/pr/12'])
+  await view.flush()
+  view.api.invoke = async () => {
+    throw new Error('Browser launch failed. Try again.')
+  }
+  await link.props.onClick({ preventDefault: () => undefined })
+  await view.flush()
+  const alert = elements(view.render({ data }), (element) => element.props.role === 'alert')[0]
+  assert.ok(elements(alert, (element) => element.props.children === 'Browser launch failed. Try again.').length)
+})
+
+test('visible row actions share approval and reset handlers and restore trigger focus', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const data = [
+    { id: 1, details: { label: 'First', repository: 'One' } },
+    { id: 2, details: { label: 'Second', repository: 'Two' } },
+  ]
+  view.render({ data })
+  await view.flush()
+  const grid = () => elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const actions = grid().props.columns.find((column) => column.columnId === 'actions')
+  assert.ok(actions, 'Each PR needs a visible actions control')
+  let focused = 0
+  const trigger = {
+    focus() {
+      focused++
+    },
+    getBoundingClientRect() {
+      return {}
+    },
+  }
+  const cell = actions.renderCell(data[1])
+  const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+  assert.equal(tooltip.props.content, 'More options')
+  assert.equal(tooltip.props.relationship, 'description')
+  const button = elements(cell, (element) => element.type === 'Button')[0]
+  assert.equal(button.props['aria-label'], 'Actions for PR 2: Second')
+  assert.equal(button.props.children, undefined)
+  assert.equal(button.props.icon.type.render.displayName, 'MoreVerticalRegular')
+  assert.equal(button.props['aria-haspopup'], 'menu')
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  let tree = view.render({ data })
+  let menu = elements(tree, (element) => element.type === 'Menu')[0]
+  assert.equal(menu.props.open, true)
+  elements(menu, (element) => element.type === 'MenuItem' && element.props.children === 'Approve')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [data[1]]]
+  )
+  assert.equal(focused, 1)
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  tree = view.render({ data })
+  menu = elements(tree, (element) => element.type === 'Menu')[0]
+  elements(
+    menu,
+    (element) => element.type === 'MenuItem' && element.props.children === 'Reset feedback'
+  )[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'reset-pr-feedback'),
+    ['reset-pr-feedback', data[1]]
+  )
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, keyboard: true, type: 'menuPopoverKeyDown', event: { key: 'Escape' } })
+  assert.equal(focused, 3)
+  const body = elements(view.render({ data }), (element) => element.type === 'DataGridBody')[0]
+  const row = body.props.children({ item: data[0], rowId: 1 })
+  let contextFocus = 0
+  const origin = { focus: () => contextFocus++ }
+  await row.props.onContextMenu({
+    preventDefault: () => undefined,
+    currentTarget: { focus: () => undefined },
+    target: { closest: () => origin },
+    clientX: 0,
+    clientY: 0,
+  })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, type: 'menuPopoverKeyDown' })
+  assert.equal(contextFocus, 1, 'Context menu Escape returns to the originating link or cell')
+  for (const columnId of ['details', 'actions', 'statusChecks']) {
+    assert.equal(
+      row.props.children({ columnId, renderCell: () => null }).props.focusMode,
+      columnId === 'actions' ? 'none' : 'group'
+    )
+  }
+})
+
+test('visible bulk approval names its matching scope and uses the active profile filters', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const profiles = [
+    {
+      ...profile,
+      id: 'enabled',
+      label: 'Review queue',
+      isDefault: true,
+      enableAcceptAll: true,
+      filter: { op: 'AND', filters: [{ isDraft: false }] },
+    },
+    { ...profile, id: 'disabled', label: 'Read only' },
+  ]
+  const items = [
+    {
+      id: 1,
+      isDraft: false,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice fix', repository: 'Billing', targetBranch: 'main' },
+    },
+    {
+      id: 2,
+      isDraft: false,
+      author: { id: 'grace', label: 'Grace' },
+      details: { label: 'Dashboard fix', repository: 'Portal', targetBranch: 'develop' },
+    },
+    {
+      id: 3,
+      isDraft: true,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice draft', repository: 'Billing', targetBranch: 'main' },
+    },
+  ]
+  view.setSettings({ ...settings, profiles })
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'get-pr-data' ? Promise.resolve({ items, error: null }) : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  const bulk = () =>
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Review queue')
+    )[0]
+  assert.ok(bulk(), 'Bulk approval needs an explicit labeled trigger')
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(2\)/)
+  elements(
+    view.render(),
+    (element) => element.type === 'Button' && element.props['aria-controls'] === 'pr-filter-line'
+  )[0].props.onClick()
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'invoice' })
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(1\)/)
+  bulk().props.onClick({ currentTarget: { focus: () => undefined } })
+  elements(view.render(), (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [items[0]]]
+  )
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'no matches' })
+  assert.equal(bulk().props.disabled, true)
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'disabled' })
+  assert.equal(bulk(), undefined)
 })

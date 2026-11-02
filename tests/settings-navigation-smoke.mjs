@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
 import electron from 'electron'
-import { loadSettingsUnload } from './settings-unload-fixture.mjs'
 
 export async function checkSettingsNavigation(window, settings, waitForRenderer, settleLayout) {
   const original = structuredClone(settings)
   const run = (code) => window.webContents.executeJavaScript(code)
   const click = (text) =>
-    run(`Array.from(document.querySelectorAll('button, [role="menuitem"]'))
-    .find(button => button.innerText.split('\\n')[0] === ${JSON.stringify(text)}).click()`)
+    run(String.raw`Array.from(document.querySelectorAll('button, [role="menuitem"]'))
+    .find(button => button.innerText.split('\n')[0] === ${JSON.stringify(text)}).click()`)
   const integration = () => waitForRenderer(window, '!!document.querySelector(\'input[name="integrationName"]\')')
   const edit = (value, name = 'integrationName') =>
     run(`(() => {
@@ -38,13 +37,14 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
   })
   let unloadResponse = 0
   let unloadPrompts = 0
-  loadSettingsUnload({
-    showMessageBoxSync: () => {
-      unloadPrompts++
-      return unloadResponse
-    },
-  })(window)
+  const { registerSettingsUnloadProtection } = await import('../lib/window/settings-unload.ts')
+  const originalDialog = electron.dialog.showMessageBoxSync
+  electron.dialog.showMessageBoxSync = () => {
+    unloadPrompts++
+    return unloadResponse
+  }
   try {
+    registerSettingsUnloadProtection(window)
     await enter()
     await edit('Unsaved name')
     await click('Appearance')
@@ -142,6 +142,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     await click('Home')
     await home()
   } finally {
+    electron.dialog.showMessageBoxSync = originalDialog
     electron.ipcMain.removeHandler('save-settings')
     window.webContents.removeAllListeners('will-prevent-unload')
     Object.assign(settings, original)

@@ -22,7 +22,9 @@ export class NotificationService {
 
   public setSettings(settings: GeneralSettings, profiles: PrProfile[]): void {
     this.settings = settings
-    this.filters = profiles.filter((x) => x.notifyOnNewPrs && x.filter).map((x) => x.filter!)
+    this.filters = profiles
+      .filter((x) => x.notifyOnNewPrs)
+      .map((x) => (x.filter === undefined ? { op: 'AND', filters: [] } : x.filter))
   }
 
   /**

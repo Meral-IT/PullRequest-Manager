@@ -19,3 +19,8 @@ export async function sourceSha256(root, sourceFiles) {
   for (const [index, file] of sourceFiles.entries()) hash.update(file).update(contents[index])
   return hash.digest('hex')
 }
+
+export function profileProcessTimeoutMs(count) {
+  // Four slow 10k policy passes alone require 250s at the fixture's four-request limit.
+  return count === 10000 ? 600000 : 120000
+}

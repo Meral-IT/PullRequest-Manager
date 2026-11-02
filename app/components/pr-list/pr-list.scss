@@ -1,3 +1,5 @@
-.pr-title:hover {
-  cursor: pointer;
+.pr-title .fui-Link {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
 }

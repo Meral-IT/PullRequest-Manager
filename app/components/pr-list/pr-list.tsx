@@ -4,7 +4,6 @@ import {
   PullRequest,
   pullRequestKey,
   PullRequestMergeStatus,
-  PullRequestPolicyEvaluationRecord,
   PullRequestPolicyEvaluationStatus,
   Reviewer,
 } from '@/lib/models/pull-request.model'
@@ -18,12 +17,15 @@ import {
   AvatarGroupItem,
   AvatarGroupPopover,
   Badge,
+  Button,
   DataGrid,
   DataGridBody,
   DataGridCell,
+  DataGridCellFocusMode,
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
+  Link,
   List,
   ListItem,
   MessageBar,
@@ -48,8 +50,8 @@ import {
   createTableColumn,
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
-import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
-import { MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { BotFilled, CheckmarkRegular, MoreVerticalRegular } from '@fluentui/react-icons'
+import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
 
@@ -66,7 +68,20 @@ function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   }
 }
 
-const columns: TableColumnDefinition<PullRequest>[] = [
+const policyOutcomes = {
+  [PullRequestPolicyEvaluationStatus.Queued]: 'pending',
+  [PullRequestPolicyEvaluationStatus.Running]: 'pending',
+  [PullRequestPolicyEvaluationStatus.Approved]: 'approved',
+  [PullRequestPolicyEvaluationStatus.Rejected]: 'failed',
+  [PullRequestPolicyEvaluationStatus.NotApplicable]: 'not applicable',
+  [PullRequestPolicyEvaluationStatus.Broken]: 'failed',
+} as const
+
+const createColumns = (
+  reportActionError: (error: unknown) => void,
+  openActions: (event: ReactMouseEvent<HTMLElement>, pr: PullRequest) => void,
+  openPr: PullRequest | null
+): TableColumnDefinition<PullRequest>[] => [
   createTableColumn<PullRequest>({
     columnId: 'author',
     compare: (a, b) => {
@@ -101,10 +116,9 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       const failedOrConflicted =
         item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
 
-      const click = () => {
-        globalThis.api
-          .invoke('web-open-url', item.urls.web)
-          .catch((error) => console.error('Unable to open pull request', error))
+      const click = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+        return globalThis.api.invoke('web-open-url', item.urls.web).catch(reportActionError)
       }
 
       const sourceBranch = normalizeBranchName(item.details.branch)
@@ -122,15 +136,16 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       ) : null
 
       return (
-        <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+        <Tooltip content={`Open PR ${item.id}`} relationship="description" withArrow>
           <TableCellLayout
             className="pr-title"
             description={`${item.details.repository} · ${sourceBranch} → ${targetBranch}`}
             appearance="primary"
             truncate
-            onClick={click}
           >
-            <Text truncate>{item.details.label}</Text>
+            <Link href={item.urls.web} onClick={click}>
+              <Text truncate>{item.details.label}</Text>
+            </Link>
             {draftBadge}
             {conflictBadge}
           </TableCellLayout>
@@ -146,7 +161,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     renderHeaderCell: () => 'Reviews',
     renderCell: (item) => {
       if (item.reviewers.length === 0) {
-        return <CheckmarkRegular />
+        return <TableCellLayout>No reviewers</TableCellLayout>
       }
 
       return (
@@ -159,63 +174,85 @@ const columns: TableColumnDefinition<PullRequest>[] = [
   createTableColumn<PullRequest>({
     columnId: 'statusChecks',
     compare: (a, b) => {
-      const aFailed = a.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
-      ).length
-      const bFailed = b.evaluations.filter(
-        (status) => status.status === PullRequestPolicyEvaluationStatus.Rejected
-      ).length
+      const aFailed = a.evaluations.filter((status) => policyOutcomes[status.status] === 'failed').length
+      const bFailed = b.evaluations.filter((status) => policyOutcomes[status.status] === 'failed').length
       return aFailed - bFailed
     },
     renderHeaderCell: () => 'Status Checks',
     renderCell: (item) => {
-      const { failedChecks, pendingChecks } = item.evaluations.reduce(
-        (acc, status) => {
-          if (status.status === PullRequestPolicyEvaluationStatus.Rejected) {
-            acc.failedChecks.push(status)
-          } else if (status.status === PullRequestPolicyEvaluationStatus.Queued) {
-            acc.pendingChecks.push(status)
-          }
-          return acc
-        },
-        { failedChecks: [], pendingChecks: [] } as {
-          failedChecks: PullRequestPolicyEvaluationRecord[]
-          pendingChecks: PullRequestPolicyEvaluationRecord[]
-        }
-      )
-
-      if (failedChecks.length === 0 && pendingChecks.length === 0) {
-        return <CheckmarkRegular />
+      if (item.evaluations.length === 0) {
+        return <TableCellLayout>No checks</TableCellLayout>
       }
+
+      const counts = { failed: 0, pending: 0, approved: 0, 'not applicable': 0 }
+      for (const evaluation of item.evaluations) {
+        counts[policyOutcomes[evaluation.status]]++
+      }
+      const summary = Object.entries(counts)
+        .filter(([, count]) => count > 0)
+        .map(([outcome, count]) => `${count} ${outcome}`)
+        .join(', ')
 
       return (
         <Tooltip
           content={
             <>
-              {failedChecks.length > 0 &&
-                failedChecks.map((status) => <div key={status.id}>{status.displayName} failed.</div>)}
-              {pendingChecks.length > 0 &&
-                pendingChecks.map((status) => <div key={status.id}>{status.displayName} pending.</div>)}
+              {item.evaluations.map((evaluation) => (
+                <div key={evaluation.id}>
+                  {evaluation.displayName}:{' '}
+                  {evaluation.status === PullRequestPolicyEvaluationStatus.NotApplicable
+                    ? 'Not applicable'
+                    : PullRequestPolicyEvaluationStatus[evaluation.status]}
+                  .
+                </div>
+              ))}
             </>
           }
-          relationship="label"
+          relationship="description"
           withArrow
         >
-          <TableCellLayout>
-            {failedChecks.length > 0 && (
+          <TableCellLayout role="img" aria-label={summary} tabIndex={0}>
+            {counts.failed > 0 && (
               <Badge appearance="outline" color="danger" style={{ marginRight: '4px' }}>
-                {failedChecks.length} failed
+                {counts.failed} failed
               </Badge>
             )}
-            {pendingChecks.length > 0 && (
-              <Badge appearance="outline" color="brand">
-                {pendingChecks.length} pending
+            {counts.pending > 0 && (
+              <Badge appearance="outline" color="brand" style={{ marginRight: '4px' }}>
+                {counts.pending} pending
               </Badge>
+            )}
+            {counts.failed === 0 && counts.pending === 0 && (
+              <>
+                {counts.approved > 0 && <CheckmarkRegular />}
+                {counts['not applicable'] > 0 && (
+                  <Badge appearance="outline" color="subtle">
+                    {counts['not applicable']} N/A
+                  </Badge>
+                )}
+              </>
             )}
           </TableCellLayout>
         </Tooltip>
       )
     },
+  }),
+  createTableColumn<PullRequest>({
+    columnId: 'actions',
+    renderHeaderCell: () => null,
+    renderCell: (item) => (
+      <Tooltip content="More options" relationship="description">
+        <Button
+          appearance="subtle"
+          size="small"
+          icon={<MoreVerticalRegular />}
+          aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
+          aria-haspopup="menu"
+          aria-expanded={openPr === item}
+          onClick={(event) => openActions(event, item)}
+        />
+      </Tooltip>
+    ),
   }),
 ]
 
@@ -327,6 +364,10 @@ const columnSizingOptions = {
   statusChecks: {
     idealWidth: 100,
   },
+  actions: {
+    idealWidth: 24,
+    minWidth: 24,
+  },
 }
 
 type Props = {
@@ -342,17 +383,9 @@ export default function PrList(props: Readonly<Props>) {
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
   const [actionError, setActionError] = useState('')
   const positioningRef = useRef<PositioningImperativeRef>(null)
+  const actionTriggerRef = useRef<HTMLElement | null>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
   const { data, sorting = defaultProfileSorting } = props
-  const items = useMemo(() => {
-    const compare =
-      sorting?.sortColumn === 'creationDate'
-        ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
-        : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
-    return sorting && compare
-      ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
-      : data
-  }, [data, sorting])
 
   useEffect(() => {
     setContextMenuOpen(false)
@@ -394,37 +427,58 @@ export default function PrList(props: Readonly<Props>) {
     }
   }, [])
 
-  const reportActionError = (error: unknown) => {
+  const reportActionError = useCallback((error: unknown) => {
     setActionError(error instanceof Error ? error.message : 'Unable to complete request. Please try again.')
-  }
+  }, [])
 
-  const closeContextMenu = () => {
+  const closeContextMenu = (restoreFocus = true) => {
     setContextMenuOpen(false)
     contextMenuRepositoryRef.current = null
+    if (restoreFocus) actionTriggerRef.current?.focus()
   }
 
-  const openContextMenu = async (e: ReactMouseEvent<HTMLElement, MouseEvent>, pr: PullRequest) => {
-    e.preventDefault()
-    const target: PositioningVirtualElement = {
-      getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
-    }
-    positioningRef.current?.setTarget(target)
-    setContextMenuPr(pr)
-    setSolutionFiles([])
-    setContextMenuOpen(true)
-
-    const requestedRepository = pr.details.repository
-    contextMenuRepositoryRef.current = requestedRepository
-
-    try {
-      const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
-      if (contextMenuRepositoryRef.current === requestedRepository) {
-        setSolutionFiles(Array.isArray(files) ? files : [])
+  const openContextMenu = useCallback(
+    async (e: ReactMouseEvent<HTMLElement>, pr: PullRequest, atPointer = false) => {
+      e.preventDefault()
+      const target: PositioningVirtualElement = {
+        getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
       }
-    } catch (error) {
-      if (contextMenuRepositoryRef.current === requestedRepository) reportActionError(error)
-    }
-  }
+      positioningRef.current?.setTarget(atPointer && (e.clientX || e.clientY) ? target : e.currentTarget)
+      actionTriggerRef.current = atPointer
+        ? ((e.target as Element).closest<HTMLElement>('a, button, [tabindex]') ?? e.currentTarget)
+        : e.currentTarget
+      setContextMenuPr(pr)
+      setSolutionFiles([])
+      setContextMenuOpen(true)
+
+      const requestedRepository = pr.details.repository
+      contextMenuRepositoryRef.current = requestedRepository
+
+      try {
+        const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
+        if (contextMenuRepositoryRef.current === requestedRepository) {
+          setSolutionFiles(Array.isArray(files) ? files : [])
+        }
+      } catch (error) {
+        if (contextMenuRepositoryRef.current === requestedRepository) reportActionError(error)
+      }
+    },
+    [reportActionError]
+  )
+
+  const columns = useMemo(
+    () => createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null),
+    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr]
+  )
+  const items = useMemo(() => {
+    const compare =
+      sorting?.sortColumn === 'creationDate'
+        ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
+        : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
+    return sorting && compare
+      ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
+      : data
+  }, [data, sorting, columns])
 
   const approveCurrentPullRequest = () => {
     if (!contextMenuPr) {
@@ -475,7 +529,10 @@ export default function PrList(props: Readonly<Props>) {
       <Menu
         open={contextMenuOpen}
         positioning={{ positioningRef }}
-        onOpenChange={(_, event) => setContextMenuOpen(event.open)}
+        onOpenChange={(_, event) => {
+          if (event.open) setContextMenuOpen(true)
+          else closeContextMenu(event.type === 'menuPopoverKeyDown')
+        }}
       >
         <MenuPopover>
           <MenuList>
@@ -524,8 +581,16 @@ export default function PrList(props: Readonly<Props>) {
         </DataGridHeader>
         <DataGridBody<PullRequest>>
           {({ item, rowId }) => (
-            <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item)}>
-              {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+            <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item, true)}>
+              {({ renderCell, columnId }) => {
+                let focusMode: DataGridCellFocusMode = 'cell'
+                if (columnId === 'actions') {
+                  focusMode = 'none'
+                } else if (columnId === 'details' || columnId === 'statusChecks') {
+                  focusMode = 'group'
+                }
+                return <DataGridCell focusMode={focusMode}>{renderCell(item)}</DataGridCell>
+              }}
             </DataGridRow>
           )}
         </DataGridBody>

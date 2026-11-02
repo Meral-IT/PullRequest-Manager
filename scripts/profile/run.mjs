@@ -6,7 +6,7 @@ import { profileTemporaryRoot } from './config.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixtureSettings, evaluateBudgets, summarizeSamples } from './fixtures.mjs'
-import { profileToolPaths, sourceSha256 } from './tools.mjs'
+import { profileProcessTimeoutMs, profileToolPaths, sourceSha256 } from './tools.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
@@ -72,7 +72,12 @@ const report = {
   dirty: Boolean(execFileSync(gitExecutable, ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()),
   methodology:
     'Separate packaged profile main; real renderer/preload/window/tray/IPC/settings/service. SDK calls replaced by deterministic in-process synthetic requests (1ms healthy, 25ms slow), no wire latency or retries. RSS/CPU sum Electron getAppMetrics; controls use two animation frames and readiness predicates; navigation uses DOM readiness only. DOM/listeners after explicit renderer GC. Not a live Azure/network benchmark.',
-  limits: { processTimeoutMs: 120000, stepTimeoutMs: 15000, residentMemoryMiB: 2560 },
+  limits: {
+    processTimeoutMs: profileProcessTimeoutMs(0),
+    largeProcessTimeoutMs: profileProcessTimeoutMs(10000),
+    stepTimeoutMs: 15000,
+    residentMemoryMiB: 2560,
+  },
   runs: [],
 }
 await fs.mkdir(path.dirname(output), { recursive: true })
@@ -107,6 +112,7 @@ profiles: for (const count of selected) {
       stream.on('data', (chunk) => {
         diagnostics = (diagnostics + chunk).slice(-4000)
       })
+    const processTimeoutMs = profileProcessTimeoutMs(count)
     let timedOut = false
     const kill = () => {
       if (!child.pid) return
@@ -123,7 +129,7 @@ profiles: for (const count of selected) {
     const timeout = setTimeout(() => {
       timedOut = true
       kill()
-    }, report.limits.processTimeoutMs)
+    }, processTimeoutMs)
     const interrupt = () => {
       interrupted = true
       kill()
@@ -145,7 +151,7 @@ profiles: for (const count of selected) {
       if (timedOut)
         Object.assign(result, {
           status: 'failed',
-          error: 'Process safety timeout (120000ms); last completed stage retained',
+          error: `Process safety timeout (${processTimeoutMs}ms); last completed stage retained`,
         })
       if (result.samples?.length) {
         result.rssPeakMiB ??= Math.max(...result.samples.map((sample) => sample.rssMiB))
@@ -154,6 +160,7 @@ profiles: for (const count of selected) {
         )
         delete result.samples
       }
+      result.processTimeoutMs = processTimeoutMs
       result.idleCpuMeanPercent = result.idle?.cpuMeanPercent ?? null
       result.refreshCpuMeanPercent = result.refresh?.cpuMeanPercent ?? null
       result.refreshMaxMs = result.refreshes?.length ? Math.max(...result.refreshes.map((refresh) => refresh.ms)) : null

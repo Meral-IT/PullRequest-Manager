@@ -1,30 +1,57 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
-import { loadSettingsUnload } from './settings-unload-fixture.mjs'
+import electron from 'electron'
+import { withSmokeProfile } from './smoke-profile-path.mjs'
 
-test('reload stays by default and discards only when Leave is chosen', () => {
-  let unload
-  let response = 0
-  let discarded = false
-  const register = loadSettingsUnload({ showMessageBoxSync: () => response })
-  register({
-    webContents: {
-      on: (_event, handler) => {
-        unload = handler
-      },
-    },
+if (!process.versions.electron) {
+  test('reload stays by default and discards only when Leave is chosen', () => {
+    const result = withSmokeProfile((userData) =>
+      spawnSync(electron, [`--user-data-dir=${userData}`, import.meta.filename], {
+        stdio: 'inherit',
+        timeout: 15_000,
+      })
+    )
+    if (result.error) console.error(result.error)
+    assert.equal(result.status ?? 1, 0, 'Electron unload decisions must pass')
   })
-  unload({
-    preventDefault: () => {
-      discarded = true
-    },
+} else {
+  let exitCode = 1
+  await test('native unload decisions preserve drafts unless Leave is chosen', async () => {
+    const { registerSettingsUnloadProtection } = await import('../lib/window/settings-unload.ts')
+    const originalDialog = electron.dialog.showMessageBoxSync
+    let unload
+    let response = 0
+    electron.dialog.showMessageBoxSync = (_window, options) => {
+      assert.equal(options.defaultId, 0, 'Stay is the default')
+      assert.equal(options.cancelId, 0, 'Dismissal keeps the draft')
+      return response
+    }
+    try {
+      registerSettingsUnloadProtection({
+        webContents: {
+          on: (_event, handler) => {
+            unload = handler
+          },
+        },
+      })
+      for (const [choice, expected] of [
+        [0, false],
+        [1, true],
+      ]) {
+        response = choice
+        let discarded = false
+        unload({
+          preventDefault: () => {
+            discarded = true
+          },
+        })
+        assert.equal(discarded, expected, 'Only Leave permits Electron to unload the draft')
+      }
+    } finally {
+      electron.dialog.showMessageBoxSync = originalDialog
+    }
+    exitCode = 0
   })
-  assert.equal(discarded, false, 'Stay preserves the mounted draft')
-  response = 1
-  unload({
-    preventDefault: () => {
-      discarded = true
-    },
-  })
-  assert.equal(discarded, true, 'Leave allows Electron to complete the reload')
-})
+  electron.app.exit(exitCode)
+}

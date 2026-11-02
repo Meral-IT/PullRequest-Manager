@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
-import { profileToolPaths, sourceSha256 } from '../scripts/profile/tools.mjs'
+import { profileProcessTimeoutMs, profileToolPaths, sourceSha256 } from '../scripts/profile/tools.mjs'
 
 test('profile tools use fixed absolute installation paths and reject unsupported platforms', () => {
   assert.deepEqual(profileToolPaths('darwin'), { gitExecutable: '/usr/bin/git' })
@@ -41,4 +41,11 @@ test('source hash propagates file read errors', async (t) => {
     throw new Error('fixture read failed')
   })
   await assert.rejects(sourceSha256(path.resolve('fixture'), ['missing.txt']), /fixture read failed/)
+})
+
+test('large profile process ceiling permits all slow cycles without extending smaller runs', () => {
+  const slowPolicyFloorMs = 4 * (10000 / 4) * 25
+  assert.ok(profileProcessTimeoutMs(10000) > slowPolicyFloorMs + 60000)
+  assert.ok(profileProcessTimeoutMs(10000) <= 600000)
+  for (const count of [0, 32, 1000]) assert.equal(profileProcessTimeoutMs(count), 120000)
 })

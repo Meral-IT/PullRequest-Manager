@@ -1,17 +1,21 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, resolve, win32 } from 'node:path'
-import test from 'node:test'
+import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInThisContext } from 'node:vm'
 import { build } from 'rolldown'
+import { stopProfilePolling } from '../scripts/profile/lifecycle.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
 const isExternal = (id) =>
   (!id.startsWith('.') && !isAbsolute(id) && !win32.isAbsolute(id)) ||
   id === '../main/notification.service' ||
-  id === '../tools/loading.service'
+  id === '../tools/loading.service' ||
+  id === './tray'
 
 test('test loader bundles Windows, POSIX, and relative paths while keeping packages and mocks external', () => {
   for (const id of [
@@ -40,6 +44,7 @@ const { output } = await build({
       export { AzureDevOpsIntegrationsService } from '../lib/azure-devops/azure-devops-integrations.service'
       export { FilterEvaluator } from '../lib/models/ui-filter.model'
       export { defaultProfiles } from '../lib/models/pr-profile'
+      export { loadSettings, saveSettings } from '../lib/main/settings'
       export * from '../lib/models/azure-devops-access'
     `
           : undefined,
@@ -50,7 +55,9 @@ const { output } = await build({
   external: isExternal,
   write: false,
 })
-const compiled = { exports: {} }
+const settingsDirectory = await mkdtemp(resolve(tmpdir(), 'pr-vote-restart-'))
+after(() => rm(settingsDirectory, { recursive: true, force: true }))
+const loggedErrors = []
 const loading = {
   active: 0,
   start() {
@@ -60,20 +67,37 @@ const loading = {
     this.active--
   },
 }
-runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
-  (name) => {
-    if (name === 'electron') {
-      return { BrowserWindow: { getAllWindows: () => [{ webContents: { send: () => undefined } }] } }
-    }
-    if (name === 'electron-log/main') return { debug: () => undefined, error: () => undefined }
-    if (name === '../lib/main/notification.service')
-      return { NotificationService: { getInstance: () => ({ notifyNewPullRequests: () => {} }) } }
-    if (name === '../lib/tools/loading.service') return loading
-    return load(name)
-  },
-  compiled,
-  compiled.exports
-)
+function loadServices() {
+  const compiled = { exports: {} }
+  runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
+    (name) => {
+      if (name === 'electron') {
+        return {
+          BrowserWindow: { getAllWindows: () => [{ webContents: { send: () => undefined } }] },
+          app: {
+            getPath: () => settingsDirectory,
+            getLoginItemSettings: () => ({ openAtLogin: false }),
+            setLoginItemSettings: () => {},
+          },
+          safeStorage: {
+            encryptString: (value) => Buffer.from(value),
+            decryptString: (value) => value.toString(),
+          },
+        }
+      }
+      if (name === 'electron-log/main') return { debug: () => undefined, error: (...args) => loggedErrors.push(args) }
+      if (name === '../lib/main/notification.service')
+        return { NotificationService: { getInstance: () => ({ notifyNewPullRequests: () => {} }) } }
+      if (name === '../lib/tools/loading.service') return loading
+      if (name === '../lib/main/tray') return { updateTrayProfiles: () => {} }
+      return load(name)
+    },
+    compiled,
+    compiled.exports
+  )
+  return compiled.exports
+}
+const compiled = { exports: loadServices() }
 const { AzureDevOpsService, AzureDevOpsIntegrationsService, FilterEvaluator, defaultProfiles } = compiled.exports
 
 const settings = {
@@ -451,6 +475,448 @@ test('votes record denied access, retain it during refresh, and verify only afte
   assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
 })
 
+test('successful approvals and vote resets restore verification after restarting each integration', async () => {
+  for (const action of ['approvePullRequests', 'resetPullRequestFeedback']) {
+    const runtime = loadServices()
+    const integrations = ['first', 'second'].map((id) => ({ ...settings, id, name: id, updateInterval: 180 }))
+    await runtime.saveSettings({
+      general: {},
+      appearance: {},
+      profiles: [],
+      azDoIntegrations: integrations,
+    })
+    const manager = runtime.AzureDevOpsIntegrationsService.getInstance()
+    manager.setConfiguration(integrations)
+    for (const { service } of manager.services.values()) {
+      service.api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    }
+    await manager.updateDataImmediately()
+    const [pr] = manager.getPullRequests().items
+    await manager[action](action === 'approvePullRequests' ? [pr] : pr)
+    const restartedRuntime = loadServices()
+    const restoredSettings = await restartedRuntime.loadSettings()
+    assert.equal(restoredSettings.azDoIntegrations[0].pat, settings.pat)
+    const restarted = restartedRuntime.AzureDevOpsIntegrationsService.getInstance()
+    restarted.setConfiguration(restoredSettings.azDoIntegrations)
+    const [first, second] = restarted.getPullRequests().integrations
+    assert.equal(first.access.features.vote.status, 'verified')
+    assert.match(first.access.features.vote.message, /previous successful/i)
+    assert.equal(second.access.features.vote.status, 'unverified')
+    assert.equal(first.access.features.code.status, 'unverified')
+    assert.equal(first.access.features.identity.status, 'unverified')
+  }
+})
+
+test('only current verification is restored, and ordinary rechecks and settings changes retain it', async () => {
+  const fingerprint = compiled.exports.AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT
+  for (const marker of [undefined, 'older-requirements', fingerprint]) {
+    const service = new AzureDevOpsService()
+    service.setConfiguration({ ...settings, verifiedVoteRequirements: marker })
+    assert.equal(
+      service.getPullRequests().access.features.vote.status,
+      marker === fingerprint ? 'verified' : 'unverified'
+    )
+  }
+  const service = new AzureDevOpsService()
+  const saved = { ...settings, verifiedVoteRequirements: fingerprint }
+  service.setConfiguration(saved)
+  service.api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  await service.updateDataImmediately()
+  const originalValidation = AzureDevOpsService.validateAccess
+  try {
+    AzureDevOpsService.validateAccess = (api, connection) =>
+      originalValidation.call(AzureDevOpsService, service.api, connection)
+    const result = await service.validateConnection(settings)
+    assert.equal(result.access.features.vote.status, 'verified')
+    assert.deepEqual(service.api.approved, [], 'Rechecking must not cast a vote')
+  } finally {
+    AzureDevOpsService.validateAccess = originalValidation
+  }
+  service.setConfiguration({ ...saved, intelligentApproval: false, updateInterval: 60 })
+  assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+  for (const field of ['pat', 'project', 'organizationUrl']) {
+    const changed = new AzureDevOpsService()
+    changed.setConfiguration(saved)
+    changed.setConfiguration({ ...saved, [field]: `${settings[field]}-changed` })
+    assert.equal(changed.getPullRequests().access.features.vote.status, 'unverified', field)
+  }
+})
+
+test('temporary and resource failures retain write verification through recovery and restart', async (t) => {
+  for (const [operation, error] of [
+    ['poll', { statusCode: 503 }],
+    ['poll', { code: 'ETIMEDOUT' }],
+    ['poll', { statusCode: 404 }],
+    ['validate', { statusCode: 503 }],
+    ['validate', { statusCode: 404 }],
+    ['approve-setup', { statusCode: 503 }],
+    ['approve', { statusCode: 503 }],
+    ['approve', { statusCode: 404 }],
+    ['reset', { statusCode: 503 }],
+    ['reset', { statusCode: 404 }],
+    ['bulk', { statusCode: 503 }],
+  ]) {
+    await t.test(`${operation}: ${error.statusCode ?? error.code}`, async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+      const runtime = loadServices()
+      const integration = { ...settings, id: 'transient', name: 'Test', updateInterval: 1 }
+      await runtime.saveSettings({ general: {}, appearance: {}, profiles: [], azDoIntegrations: [integration] })
+      const manager = runtime.AzureDevOpsIntegrationsService.getInstance()
+      manager.setConfiguration([integration])
+      const service = manager.services.get(integration.id).service
+      const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, me.id)] })
+      service.initializeApi = () => api
+      service.api = api
+      await manager.updateDataImmediately()
+      await manager.approvePullRequests(manager.getPullRequests().items)
+      const fail = async () => {
+        throw Object.assign(new Error('Request failed'), error)
+      }
+      try {
+        if (operation === 'poll') {
+          service.start()
+          await service.refresh?.promise
+          await new Promise((resolve) => setImmediate(resolve))
+          api.connect = fail
+          t.mock.timers.tick(1000)
+          await service.refresh?.promise
+          assert.ok(service.getPullRequests().error, 'Refresh failures must still be reported')
+        } else if (operation === 'validate') {
+          api.connect = fail
+          const originalValidation = runtime.AzureDevOpsService.validateAccess
+          try {
+            runtime.AzureDevOpsService.validateAccess = () =>
+              originalValidation.call(runtime.AzureDevOpsService, api, settings)
+            const result = await manager.validateConnection(settings, integration.id)
+            assert.ok(result.error, 'Validation failures must still be reported')
+          } finally {
+            runtime.AzureDevOpsService.validateAccess = originalValidation
+          }
+        } else {
+          const git = await api.getGitApi()
+          api.getGitApi =
+            operation === 'approve-setup'
+              ? fail
+              : async () => ({
+                  ...git,
+                  createPullRequestReviewer: (...args) =>
+                    operation === 'bulk' && args[2] === 1 ? git.createPullRequestReviewer(...args) : fail(),
+                })
+          const prs = manager.getPullRequests().items
+          if (operation === 'reset') await manager.resetPullRequestFeedback(prs[0])
+          else await manager.approvePullRequests(prs)
+        }
+        service.stop()
+        assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+        assert.ok((await runtime.loadSettings()).azDoIntegrations[0].verifiedVoteRequirements)
+        service.api = apiFixture({ prs: [pullRequest(1, me.id)] })
+        await manager.updateDataImmediately()
+        assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+        const restarted = loadServices()
+        const saved = await restarted.loadSettings()
+        const restoredManager = restarted.AzureDevOpsIntegrationsService.getInstance()
+        restoredManager.setConfiguration(saved.azDoIntegrations)
+        assert.equal(restoredManager.getPullRequests().integrations[0].access.features.vote.status, 'verified')
+      } finally {
+        service.stop()
+      }
+    })
+  }
+})
+
+test('bulk approvals retain successful write evidence but prioritize authentication and permission failures', async () => {
+  for (const [failures, status, reason] of [
+    [[503, null], 'verified', undefined],
+    [[503, 401, null], 'unverified', 'authentication'],
+    [[503, 403, null], 'denied', 'authorization'],
+    [[503, 404], 'unverified', 'temporary'],
+  ]) {
+    const service = new AzureDevOpsService()
+    service.setConfiguration(settings)
+    const api = apiFixture({ prs: failures.map((_, index) => pullRequest(index + 1, me.id)) })
+    service.api = api
+    await service.updateDataImmediately()
+    api.getGitApi = async () => ({
+      createPullRequestReviewer: async (_vote, _repo, id) => {
+        const statusCode = failures[id - 1]
+        if (statusCode) throw Object.assign(new Error('Request failed'), { statusCode })
+        return { ...me, vote: 10 }
+      },
+    })
+    await service.approvePullRequests(service.getPullRequests().items)
+    const result = service.getPullRequests().access.features.vote
+    assert.equal(result.status, status)
+    assert.equal(result.reason, reason)
+  }
+})
+
+test('delayed inconclusive operations cannot overwrite newer vote access results', async (t) => {
+  for (const operation of ['poll', 'filtered-approval', 'filtered-denial']) {
+    await t.test(operation, async () => {
+      const service = new AzureDevOpsService()
+      service.setConfiguration({
+        ...settings,
+        verifiedVoteRequirements:
+          operation === 'filtered-denial' ? compiled.exports.AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT : undefined,
+      })
+      const api = apiFixture({ prs: [pullRequest(1, 'unrelated')] })
+      service.api = api
+      await service.updateDataImmediately()
+      const [pr] = service.getPullRequests().items
+      const waiting = Promise.withResolvers()
+      let calls = 0
+      api.connect = async () => {
+        if (++calls === 1) {
+          await waiting.promise
+          if (operation === 'poll') throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+        }
+        return { authenticatedUser: me }
+      }
+      const pending = operation === 'poll' ? service.updateDataImmediately() : service.approvePullRequests([pr])
+      if (operation === 'filtered-denial')
+        api.getGitApi = async () => ({
+          createPullRequestReviewer: async () => {
+            throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          },
+        })
+      await service.resetPullRequestFeedback(pr)
+      waiting.resolve()
+      await pending
+      assert.equal(
+        service.getPullRequests().access.features.vote.status,
+        operation === 'filtered-denial' ? 'denied' : 'verified'
+      )
+    })
+  }
+})
+
+test('delayed temporary approval failures retain the latest verified or denied result', async (t) => {
+  for (const previous of ['verified', 'denied']) {
+    await t.test(previous, async () => {
+      const persisted = []
+      const service = new AzureDevOpsService(undefined, async (_connection, verified) => {
+        persisted.push(verified)
+      })
+      service.setConfiguration(settings)
+      const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+      service.api = api
+      await service.updateDataImmediately()
+      const [pr] = service.getPullRequests().items
+      if (previous === 'denied')
+        api.getGitApi = async () => ({
+          createPullRequestReviewer: async () => {
+            throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          },
+        })
+      await service.resetPullRequestFeedback(pr)
+      assert.equal(service.getPullRequests().access.features.vote.status, previous)
+      const waiting = Promise.withResolvers()
+      let calls = 0
+      api.getGitApi = async () => ({
+        createPullRequestReviewer: async () => {
+          if (++calls === 1) {
+            await waiting.promise
+            throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+          }
+          if (previous === 'verified') throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          return { ...me, vote: 0 }
+        },
+      })
+      const approving = service.approvePullRequests([pr])
+      await new Promise((resolve) => setImmediate(resolve))
+      await service.resetPullRequestFeedback(pr)
+      waiting.resolve()
+      await approving
+      assert.equal(
+        service.getPullRequests().access.features.vote.status,
+        previous === 'verified' ? 'denied' : 'verified'
+      )
+      assert.equal(persisted.at(-1), previous === 'denied')
+    })
+  }
+})
+
+test('a delayed authentication failure invalidates a vote verified during that refresh', async () => {
+  const persisted = []
+  const service = new AzureDevOpsService(undefined, async (_connection, verified) => {
+    persisted.push(verified)
+  })
+  service.setConfiguration(settings)
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  service.api = api
+  await service.updateDataImmediately()
+  const [pr] = service.getPullRequests().items
+  const getGitApi = api.getGitApi
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async () => {
+      throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+    },
+  })
+  await service.resetPullRequestFeedback(pr)
+  api.getGitApi = getGitApi
+  const waiting = Promise.withResolvers()
+  let calls = 0
+  api.connect = async () => {
+    if (++calls === 1) {
+      await waiting.promise
+      throw Object.assign(new Error('Expired'), { statusCode: 401 })
+    }
+    return { authenticatedUser: me }
+  }
+  const refreshing = service.updateDataImmediately()
+  await service.resetPullRequestFeedback(pr)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+  waiting.resolve()
+  await refreshing
+  assert.equal(service.getPullRequests().access.features.vote.status, 'unverified')
+  assert.equal(service.getPullRequests().access.features.vote.reason, 'authentication')
+  assert.equal(persisted.at(-1), false)
+})
+
+test('access failures clear remembered verification and delayed votes cannot verify replacement connections', async () => {
+  for (const operation of ['refresh', 'refresh-forbidden', 'validate', 'approve', 'reset', 'delayed']) {
+    const persisted = []
+    const service = new AzureDevOpsService(undefined, async (connection, verified) => {
+      persisted.push({ connection, verified })
+    })
+    service.setConfiguration({
+      ...settings,
+      verifiedVoteRequirements: compiled.exports.AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
+    })
+    const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    service.api = api
+    await service.updateDataImmediately()
+    persisted.length = 0
+    const [pr] = service.getPullRequests().items
+    if (operation === 'delayed') {
+      let release
+      const waiting = new Promise((resolve) => {
+        release = resolve
+      })
+      api.getGitApi = async () => ({
+        createPullRequestReviewer: async () => {
+          await waiting
+          return { ...me, vote: 10 }
+        },
+      })
+      const pending = service.approvePullRequests([pr])
+      await new Promise((resolve) => setImmediate(resolve))
+      service.setConfiguration({ ...settings, pat: 'replacement-token' })
+      release()
+      await pending
+      assert.deepEqual(persisted, [])
+    } else if (operation.startsWith('refresh') || operation === 'validate') {
+      api.connect = async () => {
+        throw Object.assign(new Error('Connection failed'), {
+          statusCode: operation === 'refresh-forbidden' ? 403 : 401,
+        })
+      }
+      if (operation.startsWith('refresh')) await service.updateDataImmediately()
+      else {
+        const originalValidation = AzureDevOpsService.validateAccess
+        try {
+          AzureDevOpsService.validateAccess = () => originalValidation.call(AzureDevOpsService, api, settings)
+          await service.validateConnection(settings)
+        } finally {
+          AzureDevOpsService.validateAccess = originalValidation
+        }
+      }
+      assert.equal(persisted.at(-1)?.verified, false, operation)
+    } else {
+      api.getGitApi = async () => ({
+        createPullRequestReviewer: async () => {
+          throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+        },
+      })
+      if (operation === 'approve') await service.approvePullRequests([pr])
+      else await service.resetPullRequestFeedback(pr)
+      assert.equal(persisted.at(-1)?.verified, false, operation)
+    }
+    assert.notEqual(service.getPullRequests().access.features.vote.status, 'verified', operation)
+  }
+})
+
+test('read-only failures and in-flight refreshes preserve newer successful vote verification', async () => {
+  for (const failure of [true, false]) {
+    const persisted = []
+    const service = new AzureDevOpsService(undefined, async (_connection, verified) => {
+      persisted.push(verified)
+    })
+    service.setConfiguration(settings)
+    const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    service.api = api
+    await service.updateDataImmediately()
+    const [pr] = service.getPullRequests().items
+    let release
+    const waiting = new Promise((resolve) => {
+      release = resolve
+    })
+    const git = await api.getGitApi()
+    api.getGitApi = async () => ({
+      ...git,
+      getPullRequestsByProject: async () => {
+        await waiting
+        if (failure) throw Object.assign(new Error('Read denied'), { statusCode: 403 })
+        return [pullRequest(1, me.id)]
+      },
+    })
+    const refresh = service.updateDataImmediately()
+    await service.resetPullRequestFeedback(pr)
+    release()
+    await refresh
+    assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+    assert.equal(persisted.at(-1), true)
+  }
+})
+
+test('persistence failure reports the save failure without undoing a successful vote', async () => {
+  const service = new AzureDevOpsService(undefined, async () => {
+    throw new Error('Disk full')
+  })
+  service.setConfiguration(settings)
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  service.api = api
+  await service.updateDataImmediately()
+  loggedErrors.length = 0
+  await service.approvePullRequests(service.getPullRequests().items)
+  assert.deepEqual(api.approved, [1])
+  assert.equal(service.getPullRequests().items[0].reviewers[0].vote, 10)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+  assert.ok(loggedErrors.some((args) => /save.*write.access verification/i.test(args[0])))
+})
+
+test('a vote from a removed integration cannot verify a recreated integration with the same ID', async () => {
+  const persisted = []
+  const manager = new AzureDevOpsIntegrationsService(async (...args) => {
+    persisted.push(args)
+  })
+  const integration = { ...settings, id: 'integration', name: 'Test', updateInterval: 180 }
+  manager.setConfiguration([integration])
+  const service = manager.services.get(integration.id).service
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  service.api = api
+  await manager.updateDataImmediately()
+  persisted.length = 0
+  let release
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async () => {
+      await waiting
+      return { ...me, vote: 10 }
+    },
+  })
+  const voting = manager.approvePullRequests(manager.getPullRequests().items)
+  await new Promise((resolve) => setImmediate(resolve))
+  manager.setConfiguration([])
+  manager.setConfiguration([integration])
+  release()
+  await voting
+  assert.deepEqual(persisted, [])
+  assert.equal(manager.getPullRequests().integrations[0].access.features.vote.status, 'unverified')
+})
+
 test('changing credentials resets diagnostics and rejects stale acknowledgements and refresh results', async () => {
   const service = new AzureDevOpsService()
   service.setConfiguration(settings)
@@ -785,4 +1251,56 @@ test('policy enrichment attaches each response without per-result array searches
   api.getPolicyApi = async () => ({ getPolicyEvaluations: async (_project, artifact) => [{ evaluationId: artifact }] })
   await AzureDevOpsService.enrichPolicyEvaluations(api, settings, { items })
   assert.equal(items[999].evaluations[0].id, 'vstfs:///CodeReview/CodeReviewId/project/999')
+})
+
+test('profiler stops the manager so saved settings cannot restart manual-cycle polling', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  const integrations = [{ ...settings, id: 'fixture', name: 'Fixture', updateInterval: 0.01 }]
+  manager.setConfiguration(integrations)
+  const service = manager.services.get('fixture').service
+  service.initializeApi = () => apiFixture()
+  try {
+    manager.start()
+    await stopProfilePolling(manager)
+    manager.setConfiguration(integrations)
+    assert.equal(service.active, false)
+    assert.equal(service.pollTimer, undefined)
+    await manager.updateDataImmediately()
+    assert.equal(loading.active, 0)
+  } finally {
+    manager.stop()
+    await service.refresh?.promise
+  }
+})
+
+test('profiler stopping periodic polling drains its current refresh before measuring resources', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration([{ ...settings, id: 'fixture', name: 'Fixture', updateInterval: 0.01 }])
+  const service = manager.services.get('fixture').service
+  const release = Promise.withResolvers()
+  const api = apiFixture()
+  api.connect = async () => {
+    await release.promise
+    return { authenticatedUser: me }
+  }
+  service.initializeApi = () => api
+  try {
+    manager.start()
+    const draining = stopProfilePolling(manager)
+    let settled = false
+    draining.then(() => {
+      settled = true
+    })
+    await new Promise(setImmediate)
+    assert.equal(settled, false, 'stopping must await the in-flight synthetic request')
+    release.resolve()
+    await draining
+    assert.equal(loading.active, 0)
+    assert.equal(service.active, false)
+    assert.equal(service.pollTimer, undefined)
+  } finally {
+    release.resolve()
+    manager.stop()
+    await service.refresh?.promise
+  }
 })
