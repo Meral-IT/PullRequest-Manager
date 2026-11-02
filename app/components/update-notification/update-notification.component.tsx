@@ -206,13 +206,16 @@ function UpdateNotification() {
 
   const dismissNotification = useEffectEvent(() => dismissToast(notification.current.id))
 
-  const releaseNotesItem = (version: string, note?: string | null) => {
+  const releaseNotesItem = (version: string, note?: string | null, releaseDate?: string | null) => {
     if (!note) return null
+    const date = releaseDate ? new Date(releaseDate) : undefined
     return (
       <div key={version}>
         <h2>
           <span style={{ color: tokens.colorBrandForegroundLink }}>{version}</span>
-          <span style={{ color: tokens.colorNeutralForeground2 }}> - {new Date().toLocaleDateString()}</span>
+          {date && !Number.isNaN(date.getTime()) && (
+            <span style={{ color: tokens.colorNeutralForeground2 }}> - {date.toLocaleDateString()}</span>
+          )}
         </h2>
         <Text
           block
@@ -245,8 +248,10 @@ function UpdateNotification() {
   const releaseNotesDialog = () => {
     if (!releaseNotes) return null
     const releaseNotesContent = Array.isArray(releaseNotes.releaseNotes)
-      ? releaseNotes.releaseNotes.map((note) => releaseNotesItem(note.version, note.note))
-      : releaseNotesItem(releaseNotes.version, releaseNotes.releaseNotes)
+      ? releaseNotes.releaseNotes.map((note) =>
+          releaseNotesItem(note.version, note.note, note.version === releaseNotes.version ? releaseNotes.releaseDate : undefined)
+        )
+      : releaseNotesItem(releaseNotes.version, releaseNotes.releaseNotes, releaseNotes.releaseDate)
 
     return (
       <Dialog open={isReleaseNotesDialogOpened} onOpenChange={(_, data) => setIsReleaseNotesDialogOpened(data.open)}>
