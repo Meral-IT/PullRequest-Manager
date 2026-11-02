@@ -13,8 +13,19 @@ export function pullRequestDescriptionContext(pr: PullRequest, query: string): s
   const text = query.trim().toLowerCase()
   if (!text || matchesPullRequestSearch({ ...pr, details: { ...pr.details, description: undefined } }, text)) return
   const description = pr.details.description ?? ''
-  const index = description.toLowerCase().indexOf(text)
+  const lowercase = description.toLowerCase()
+  let index = lowercase.indexOf(text)
   if (index < 0) return
+  if (lowercase.length !== description.length) {
+    let remaining = index
+    index = 0
+    for (const character of description) {
+      const length = character.toLowerCase().length
+      if (remaining < length) break
+      remaining -= length
+      index += character.length
+    }
+  }
   const start = Math.max(0, index - 48)
   const end = Math.min(description.length, start + 160)
   return `${start ? '…' : ''}${description.slice(start, end).replace(/\s+/g, ' ').trim()}${end < description.length ? '…' : ''}`

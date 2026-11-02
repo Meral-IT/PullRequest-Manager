@@ -95,3 +95,13 @@ test('description context follows literal search semantics and stays bounded at 
   const withoutDescription = { ...pr, details: { ...pr.details, description: undefined } }
   assert.equal(pullRequestDescriptionContext(withoutDescription, 'precision'), undefined)
 })
+
+test('description context maps expanding lowercase characters back to original offsets', () => {
+  for (const prefix of ['İ'.repeat(200), 'İ😀'.repeat(200)]) {
+    const item = { ...pr, details: { ...pr.details, description: `${prefix} needle ${'tail '.repeat(100)}` } }
+    assert.equal(matchesPullRequestSearch(item, 'needle'), true)
+    const context = pullRequestDescriptionContext(item, 'needle')
+    assert.ok(context?.includes('needle'), `Expected matching text in ${JSON.stringify(context)}`)
+    assert.ok(context && context.length <= 162)
+  }
+})
