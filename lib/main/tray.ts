@@ -12,11 +12,12 @@ import pull from '@/resources/tray/pull@3x.png?asset'
 import refresh from '@/resources/tray/refresh.png?asset'
 import shutDown from '@/resources/tray/shut-down.png?asset'
 import tableLayout from '@/resources/tray/table-layout.png?asset'
-import { app, BrowserWindow, Menu, MenuItem, nativeImage, NativeImage, nativeTheme, Tray } from 'electron'
+import { app, BrowserWindow, Menu, MenuItem, nativeImage, NativeImage, nativeTheme, Notification, Tray } from 'electron'
 import log from 'electron-log/main'
 import { AzureDevOpsIntegrationsService } from '../azure-devops/azure-devops-integrations.service'
 import { PrProfile } from '../models/pr-profile'
 import { getAzureDevOpsAccessFailure } from '../models/azure-devops-access'
+import { pullRequestActionMessage } from '../models/pull-request-action'
 import loader from '../tools/loading.service'
 import getOrCreateAppWindow, { showWindow } from './app'
 import { loadSettings } from './settings'
@@ -26,6 +27,7 @@ let trayIcon: Tray | null = null
 let trayManager: TrayManager | null = null
 let contextMenu: Menu | null = null
 let trayProfiles: PrProfile[] = []
+let approvalPending = false
 
 function themedImage(image: NativeImage, darkBackground: boolean): NativeImage {
   if (process.platform === 'darwin') {
@@ -92,7 +94,8 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
     { type: 'separator' },
     {
       id: 'approve',
-      label: 'Approve...',
+      label: approvalPending ? 'Approving…' : 'Approve...',
+      enabled: !approvalPending,
       type: 'submenu',
       visible: false,
       submenu: [],
@@ -116,12 +119,27 @@ function createTrayMenu(mainWindow: BrowserWindow, profiles?: PrProfile[]): Menu
           new MenuItem({
             label: profile.label,
             type: 'normal',
-            click: () => {
-              AzureDevOpsIntegrationsService.getInstance()
-                .approvePullRequestsForProfile(profile)
-                .catch((error) => {
-                  log.error('Failed to approve pull requests', getAzureDevOpsAccessFailure(error).message)
-                })
+            enabled: !approvalPending,
+            click: async () => {
+              if (approvalPending) return
+              approvalPending = true
+              updateTrayProfiles(trayProfiles)
+              let message: string
+              try {
+                const result = await AzureDevOpsIntegrationsService.getInstance().approvePullRequestsForProfile(profile)
+                message = pullRequestActionMessage(result, 'approve')
+              } catch (error) {
+                message = getAzureDevOpsAccessFailure(error).message
+                log.error('Failed to approve pull requests', message)
+              } finally {
+                approvalPending = false
+                updateTrayProfiles(trayProfiles)
+              }
+              try {
+                new Notification({ title: 'Pull request approval result', body: message }).show()
+              } catch {
+                log.error('Failed to show pull request approval result')
+              }
             },
           })
         )

@@ -17,12 +17,15 @@ import {
   AvatarGroupItem,
   AvatarGroupPopover,
   Badge,
+  Button,
   DataGrid,
   DataGridBody,
   DataGridCell,
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
+  DataGridProps,
+  Link,
   List,
   ListItem,
   MessageBar,
@@ -47,10 +50,11 @@ import {
   createTableColumn,
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
-import { BotFilled, CheckmarkRegular } from '@fluentui/react-icons'
-import { MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { BotFilled, CheckmarkRegular, MoreHorizontalRegular } from '@fluentui/react-icons'
+import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
+import { usePrVoteAction } from './use-pr-vote-action'
 
 function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   switch (vote) {
@@ -74,7 +78,11 @@ const policyOutcomes = {
   [PullRequestPolicyEvaluationStatus.Broken]: 'failed',
 } as const
 
-const columns: TableColumnDefinition<PullRequest>[] = [
+const createColumns = (
+  reportActionError: (error: unknown) => void,
+  openActions: (event: ReactMouseEvent<HTMLElement>, pr: PullRequest) => void,
+  openPr: PullRequest | null
+): TableColumnDefinition<PullRequest>[] => [
   createTableColumn<PullRequest>({
     columnId: 'author',
     compare: (a, b) => {
@@ -109,14 +117,17 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       const failedOrConflicted =
         item.mergeStatus === PullRequestMergeStatus.Conflicts || item.mergeStatus === PullRequestMergeStatus.Failure
 
-      const click = () => {
-        globalThis.api
-          .invoke('web-open-url', item.urls.web)
-          .catch((error) => console.error('Unable to open pull request', error))
+      const click = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+        return globalThis.api.invoke('web-open-url', item.urls.web).catch(reportActionError)
       }
 
       const sourceBranch = normalizeBranchName(item.details.branch)
       const targetBranch = normalizeBranchName(item.details.targetBranch)
+      const source = [item.details.organization, item.details.project].filter(Boolean).join('/')
+      const description = [source, `#${item.details.number}`, item.details.repository, `${sourceBranch} → ${targetBranch}`]
+        .filter(Boolean)
+        .join(' · ')
 
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
@@ -130,15 +141,16 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       ) : null
 
       return (
-        <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+        <Tooltip content={`${item.details.label} — ${description}`} relationship="description" withArrow>
           <TableCellLayout
             className="pr-title"
-            description={`${item.details.repository} · ${sourceBranch} → ${targetBranch}`}
+            description={description}
             appearance="primary"
             truncate
-            onClick={click}
           >
-            <Text truncate>{item.details.label}</Text>
+            <Link href={item.urls.web} onClick={click}>
+              <Text truncate>{item.details.label}</Text>
+            </Link>
             {draftBadge}
             {conflictBadge}
           </TableCellLayout>
@@ -229,6 +241,23 @@ const columns: TableColumnDefinition<PullRequest>[] = [
         </Tooltip>
       )
     },
+  }),
+  createTableColumn<PullRequest>({
+    columnId: 'actions',
+    renderHeaderCell: () => 'Actions',
+    renderCell: (item) => (
+      <Button
+        appearance="subtle"
+        size="small"
+        icon={<MoreHorizontalRegular />}
+        aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
+        aria-haspopup="menu"
+        aria-expanded={openPr === item}
+        onClick={(event) => openActions(event, item)}
+      >
+        Actions
+      </Button>
+    ),
   }),
 ]
 
@@ -340,14 +369,26 @@ const columnSizingOptions = {
   statusChecks: {
     idealWidth: 100,
   },
+  actions: {
+    idealWidth: 100,
+    minWidth: 100,
+  },
 }
 
 type Props = {
   data: PullRequest[]
   sorting?: PrProfile['sorting']
+  voteAction?: ReturnType<typeof usePrVoteAction>
 }
 
 export default function PrList(props: Readonly<Props>) {
+  const localVoteAction = usePrVoteAction()
+  const voteAction = props.voteAction ?? localVoteAction
+  const [page, setPage] = useState(0)
+  const [manualSort, setManualSort] = useState<NonNullable<DataGridProps['sortState']>>({
+    sortColumn: undefined,
+    sortDirection: 'ascending',
+  })
   const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [contextMenuPr, setContextMenuPr] = useState<PullRequest | null>(null)
@@ -355,17 +396,15 @@ export default function PrList(props: Readonly<Props>) {
   const [solutionFiles, setSolutionFiles] = useState<string[]>([])
   const [actionError, setActionError] = useState('')
   const positioningRef = useRef<PositioningImperativeRef>(null)
+  const actionTriggerRef = useRef<HTMLElement | null>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
   const { data, sorting = defaultProfileSorting } = props
-  const items = useMemo(() => {
-    const compare =
-      sorting?.sortColumn === 'creationDate'
-        ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
-        : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
-    return sorting && compare
-      ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
-      : data
-  }, [data, sorting])
+  const { sortColumn, sortDirection } = sorting ?? manualSort
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(data.length / 100) - 1))
+
+  useEffect(() => {
+    setPage(0)
+  }, [data, sortColumn, sortDirection])
 
   useEffect(() => {
     setContextMenuOpen(false)
@@ -373,7 +412,7 @@ export default function PrList(props: Readonly<Props>) {
     return () => {
       contextMenuRepositoryRef.current = null
     }
-  }, [data])
+  }, [data, currentPage, sortColumn, sortDirection])
 
   useEffect(() => {
     let active = true
@@ -407,43 +446,63 @@ export default function PrList(props: Readonly<Props>) {
     }
   }, [])
 
-  const reportActionError = (error: unknown) => {
+  const reportActionError = useCallback((error: unknown) => {
     setActionError(error instanceof Error ? error.message : 'Unable to complete request. Please try again.')
-  }
+  }, [])
 
-  const closeContextMenu = () => {
+  const closeContextMenu = (restoreFocus = true) => {
     setContextMenuOpen(false)
     contextMenuRepositoryRef.current = null
+    if (restoreFocus) actionTriggerRef.current?.focus()
   }
 
-  const openContextMenu = async (e: ReactMouseEvent<HTMLElement, MouseEvent>, pr: PullRequest) => {
-    e.preventDefault()
-    const target: PositioningVirtualElement = {
-      getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
-    }
-    positioningRef.current?.setTarget(target)
-    setContextMenuPr(pr)
-    setSolutionFiles([])
-    setContextMenuOpen(true)
-
-    const requestedRepository = pr.details.repository
-    contextMenuRepositoryRef.current = requestedRepository
-
-    try {
-      const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
-      if (contextMenuRepositoryRef.current === requestedRepository) {
-        setSolutionFiles(Array.isArray(files) ? files : [])
+  const openContextMenu = useCallback(
+    async (e: ReactMouseEvent<HTMLElement>, pr: PullRequest, atPointer = false) => {
+      e.preventDefault()
+      const target: PositioningVirtualElement = {
+        getBoundingClientRect: () => new DOMRect(e.clientX, e.clientY, 0, 0),
       }
-    } catch (error) {
-      if (contextMenuRepositoryRef.current === requestedRepository) reportActionError(error)
-    }
-  }
+      positioningRef.current?.setTarget(atPointer && (e.clientX || e.clientY) ? target : e.currentTarget)
+      actionTriggerRef.current = atPointer
+        ? ((e.target as Element).closest<HTMLElement>('a, button, [tabindex]') ?? e.currentTarget)
+        : e.currentTarget
+      setContextMenuPr(pr)
+      setSolutionFiles([])
+      setContextMenuOpen(true)
+
+      const requestedRepository = pr.details.repository
+      contextMenuRepositoryRef.current = requestedRepository
+
+      try {
+        const files = await globalThis.api.invoke('find-solution-files', requestedRepository)
+        if (contextMenuRepositoryRef.current === requestedRepository) {
+          setSolutionFiles(Array.isArray(files) ? files : [])
+        }
+      } catch (error) {
+        if (contextMenuRepositoryRef.current === requestedRepository) reportActionError(error)
+      }
+    },
+    [reportActionError]
+  )
+
+  const columns = useMemo(
+    () => createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null),
+    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr]
+  )
+  const items = useMemo(() => {
+    const compare =
+      sortColumn === 'creationDate'
+        ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
+        : columns.find((column) => column.columnId === sortColumn)?.compare
+    return compare ? data.toSorted((a, b) => compare(a, b) * (sortDirection === 'ascending' ? 1 : -1)) : data
+  }, [data, sortColumn, sortDirection, columns])
+  const pageItems = useMemo(() => items.slice(currentPage * 100, (currentPage + 1) * 100), [items, currentPage])
 
   const approveCurrentPullRequest = () => {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('approve-prs', [contextMenuPr]).catch(reportActionError)
+    void voteAction.run('approve', [contextMenuPr])
     closeContextMenu()
   }
 
@@ -451,7 +510,7 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('reset-pr-feedback', contextMenuPr).catch(reportActionError)
+    void voteAction.run('reset', [contextMenuPr])
     closeContextMenu()
   }
 
@@ -480,6 +539,16 @@ export default function PrList(props: Readonly<Props>) {
 
   return (
     <>
+      {!props.voteAction && voteAction.pending && (
+        <MessageBar role="status">
+          <MessageBarBody>Updating pull request votes…</MessageBarBody>
+        </MessageBar>
+      )}
+      {!props.voteAction && voteAction.notice && (
+        <MessageBar intent={voteAction.notice.intent} role={voteAction.notice.intent === 'error' ? 'alert' : 'status'}>
+          <MessageBarBody>{voteAction.notice.message}</MessageBarBody>
+        </MessageBar>
+      )}
       {actionError && (
         <MessageBar intent="error" role="alert">
           <MessageBarBody>{actionError}</MessageBarBody>
@@ -488,12 +557,19 @@ export default function PrList(props: Readonly<Props>) {
       <Menu
         open={contextMenuOpen}
         positioning={{ positioningRef }}
-        onOpenChange={(_, event) => setContextMenuOpen(event.open)}
+        onOpenChange={(_, event) => {
+          if (event.open) setContextMenuOpen(true)
+          else closeContextMenu(event.type === 'menuPopoverKeyDown')
+        }}
       >
         <MenuPopover>
           <MenuList>
-            <MenuItem onClick={approveCurrentPullRequest}>Approve</MenuItem>
-            <MenuItem onClick={resetCurrentPullRequestFeedback}>Reset feedback</MenuItem>
+            <MenuItem disabled={voteAction.pending} onClick={approveCurrentPullRequest}>
+              Approve
+            </MenuItem>
+            <MenuItem disabled={voteAction.pending} onClick={resetCurrentPullRequestFeedback}>
+              Reset feedback
+            </MenuItem>
             <MenuDivider />
             {vscodeInstalled && <MenuItem onClick={openCurrentRepositoryInVsCode}>Open in VSCode</MenuItem>}
             {solutionFiles.length === 1 && (
@@ -518,13 +594,38 @@ export default function PrList(props: Readonly<Props>) {
           </MenuList>
         </MenuPopover>
       </Menu>
+      {items.length > 100 && (
+        <nav className="pr-pagination" aria-label="Pull request pages">
+          <Text role="status" aria-live="polite" aria-atomic="true">
+            {`${currentPage * 100 + 1}–${Math.min((currentPage + 1) * 100, items.length)} of ${items.length} PRs`}
+          </Text>
+          <Button
+            size="small"
+            aria-label="Previous PR page"
+            disabled={currentPage === 0}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            size="small"
+            aria-label="Next PR page"
+            disabled={(currentPage + 1) * 100 >= items.length}
+            onClick={() => setPage(currentPage + 1)}
+          >
+            Next
+          </Button>
+        </nav>
+      )}
       <DataGrid
-        items={items}
+        items={pageItems}
         getRowId={pullRequestKey}
         columns={columns}
         columnSizingOptions={columnSizingOptions}
         // selectionMode="multiselect"
         sortable={!sorting}
+        sortState={sorting ?? manualSort}
+        onSortChange={(_, state) => setManualSort(state)}
         size={tableSize as any}
         // subtleSelection
         resizableColumns
@@ -537,9 +638,17 @@ export default function PrList(props: Readonly<Props>) {
         </DataGridHeader>
         <DataGridBody<PullRequest>>
           {({ item, rowId }) => (
-            <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item)}>
+            <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item, true)}>
               {({ renderCell, columnId }) => (
-                <DataGridCell focusMode={columnId === 'statusChecks' ? 'group' : 'cell'}>
+                <DataGridCell
+                  focusMode={
+                    columnId === 'actions'
+                      ? 'none'
+                      : columnId === 'details' || columnId === 'statusChecks'
+                        ? 'group'
+                        : 'cell'
+                  }
+                >
                   {renderCell(item)}
                 </DataGridCell>
               )}

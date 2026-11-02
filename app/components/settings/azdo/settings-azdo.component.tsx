@@ -185,7 +185,7 @@ export default function AzureDevOpsSettings() {
 
           <Field
             label="Smart Approval"
-            hint="Enable smart approval for pull requests by only approving the changes that matter."
+            hint="Approve only PRs with no reviewers, or where you or one of your teams is a reviewer or has reviewed on behalf of a reviewer."
           >
             <Checkbox
               label={'Enable smart approval'}

@@ -1304,3 +1304,196 @@ test('profiler stopping periodic polling drains its current refresh before measu
     await service.refresh?.promise
   }
 })
+
+test('approval outcomes count unique successful, smart-skipped, and denied requests without leaking errors', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, 'unrelated'), pullRequest(3, team2.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  const writes = []
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async (_vote, _repo, id) => {
+      writes.push(id)
+      if (id === 3) throw Object.assign(new Error('PAT=test-token secret server response'), { statusCode: 403 })
+      return { ...me, vote: 10 }
+    },
+  })
+  const items = service.getPullRequests().items
+  const result = await service.approvePullRequests([...items, items[0]])
+  assert.deepEqual(result, {
+    succeeded: 1,
+    skipped: 1,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  assert.deepEqual(writes, [1, 3], 'Duplicate requests and smart-ineligible requests must not cast votes')
+  assert.equal(service.getPullRequests().items.length, 3, 'Partial failure must keep healthy PRs visible')
+  assert.equal(service.getPullRequests().access.features.vote.status, 'denied')
+})
+
+test('all smart-ineligible requests report skips without verifying write access', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, 'unrelated')] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  const result = await service.approvePullRequests(service.getPullRequests().items)
+  assert.deepEqual(result, { succeeded: 0, skipped: 1, failed: 0 })
+  assert.deepEqual(api.approved, [])
+  assert.equal(service.getPullRequests().access.features.vote.status, 'unverified')
+})
+
+test('empty approval is a no-op and setup failures count every unique request safely', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, me.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  let connections = 0
+  api.connect = async () => {
+    connections++
+    throw Object.assign(new Error('PAT=test-token credential failure'), { statusCode: 401 })
+  }
+  assert.deepEqual(await service.approvePullRequests([]), { succeeded: 0, skipped: 0, failed: 0 })
+  assert.equal(connections, 0, 'Empty selection must not contact Azure DevOps')
+  const items = service.getPullRequests().items
+  assert.deepEqual(await service.approvePullRequests([...items, ...items]), {
+    succeeded: 0,
+    skipped: 0,
+    failed: 2,
+    error: 'Authentication failed. Check whether the PAT expired, was revoked, or needs additional scopes.',
+  })
+})
+
+test('manager outcomes include stale selections once and route only the current trusted target', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration([{ ...settings, id: 'current', name: 'Current', updateInterval: 180 }])
+  const service = manager.services.get('current').service
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  service.api = api
+  await manager.updateDataImmediately()
+  const [current] = manager.getPullRequests().items
+  const stale = { ...current, id: 99 }
+  const forged = { ...current, integrationId: 'untrusted' }
+  assert.deepEqual(await manager.approvePullRequests([forged, current, stale, stale]), {
+    succeeded: 1,
+    skipped: 1,
+    failed: 0,
+  })
+  assert.deepEqual(api.approved, [1])
+  assert.deepEqual(await manager.resetPullRequestFeedback(stale), { succeeded: 0, skipped: 1, failed: 0 })
+  assert.deepEqual(api.approved, [1], 'A stale reset must not cast a vote')
+})
+
+test('reset feedback reports a successful write or safe failure without hiding PRs', async () => {
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = api
+  await service.updateDataImmediately()
+  const [pr] = service.getPullRequests().items
+  assert.deepEqual(await service.resetPullRequestFeedback(pr), { succeeded: 1, skipped: 0, failed: 0 })
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async () => {
+      throw Object.assign(new Error('PAT=test-token secret server response'), { statusCode: 403 })
+    },
+  })
+  assert.deepEqual(await service.resetPullRequestFeedback(pr), {
+    succeeded: 0,
+    skipped: 0,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  assert.equal(service.getPullRequests().items.length, 1)
+})
+
+test('approval revision changes count unsent queued requests as skipped and retain sent successes', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  const api = apiFixture({ prs: Array.from({ length: 5 }, (_, index) => pullRequest(index + 1, me.id)) })
+  service.api = api
+  await service.updateDataImmediately()
+  let release
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  const sent = []
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async (_vote, _repo, id) => {
+      sent.push(id)
+      await waiting
+      return { ...me, vote: 10 }
+    },
+  })
+  const pending = service.approvePullRequests(service.getPullRequests().items)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(sent.length, 4)
+  service.setConfiguration({ ...settings, pat: 'replacement-token' })
+  release()
+  assert.deepEqual(await pending, { succeeded: 4, skipped: 1, failed: 0 })
+  assert.equal(service.getPullRequests().items.length, 0)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'unverified')
+})
+
+test('overlapping manager approval and reset requests skip pending keys until the original vote settles', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration([{ ...settings, id: 'current', name: 'Current', updateInterval: 180 }])
+  const service = manager.services.get('current').service
+  const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, me.id)] })
+  service.api = api
+  await manager.updateDataImmediately()
+  const [first, second] = manager.getPullRequests().items
+  let release
+  const pending = new Promise((resolve) => {
+    release = resolve
+  })
+  const writes = []
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async (_vote, _repo, id) => {
+      writes.push(id)
+      if (id === first.id) await pending
+      return { ...me, vote: 10 }
+    },
+  })
+  const original = manager.approvePullRequests([first])
+  assert.deepEqual(await manager.resetPullRequestFeedback(first), { succeeded: 0, skipped: 1, failed: 0 })
+  assert.deepEqual(await manager.approvePullRequests([first, second]), { succeeded: 1, skipped: 1, failed: 0 })
+  release()
+  assert.deepEqual(await original, { succeeded: 1, skipped: 0, failed: 0 })
+  assert.deepEqual(writes, [first.id, second.id])
+  assert.deepEqual(await manager.resetPullRequestFeedback(first), { succeeded: 1, skipped: 0, failed: 0 })
+  assert.deepEqual(writes, [first.id, second.id, first.id], 'Settled requests must release the pending guard')
+})
+
+test('manager aggregates healthy and denied integration outcomes without losing stale skips', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration(
+    ['healthy', 'denied'].map((id) => ({
+      ...settings,
+      id,
+      name: id,
+      updateInterval: 180,
+      organizationUrl: `https://dev.azure.com/${id}`,
+    }))
+  )
+  for (const [id, { service }] of manager.services) {
+    service.api = apiFixture({ prs: [pullRequest(1, me.id)] })
+    service.api.connect = async () => ({ authenticatedUser: me, instanceId: id })
+  }
+  await manager.updateDataImmediately()
+  const denied = manager.services.get('denied').service
+  denied.api.getGitApi = async () => ({
+    createPullRequestReviewer: async () => {
+      throw Object.assign(new Error('PAT=test-token'), { statusCode: 403 })
+    },
+  })
+  const items = manager.getPullRequests().items
+  assert.deepEqual(await manager.approvePullRequests([...items, { ...items[0], id: 99 }]), {
+    succeeded: 1,
+    skipped: 1,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  assert.equal(manager.getPullRequests().items.length, 2)
+})

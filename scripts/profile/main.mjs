@@ -4,7 +4,7 @@ import { performance } from 'node:perf_hooks'
 import { setInterval as interval, setTimeout as delay } from 'node:timers/promises'
 import { createFixture, fixtureSettings, summarizeSamples } from './fixtures.mjs'
 import { readProfileConfig } from './config.mjs'
-import { stopProfilePolling } from './lifecycle.mjs'
+import { initialPrReadiness, stopProfilePolling } from './lifecycle.mjs'
 
 const config = readProfileConfig(process.env.PR_PROFILE_CONFIG)
 app.setPath('userData', config.userData)
@@ -236,12 +236,7 @@ async function run() {
   report.startupMs = Date.now() - config.launchedAtMs
   await stopProfilePolling(integrations)
   await service.updateDataImmediately()
-  await waitFor(
-    config.count
-      ? `document.querySelectorAll('[role="row"]').length === ${config.count + 1}`
-      : `document.body.innerText.includes('Currently, no pull requests')`,
-    'initial PR rendering'
-  )
+  await waitFor(initialPrReadiness(config.count), 'initial PR rendering and full IPC dataset')
   report.initialReadyMs = Date.now() - config.launchedAtMs
   window.webContents.debugger.attach('1.3')
   report.initial = await resources()

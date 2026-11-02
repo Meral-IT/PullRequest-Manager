@@ -47,6 +47,8 @@ async function component(entry) {
       if (name === 'get-theme') return 'system'
       if (name === 'get-settings') return settings
       if (name === 'get-pr-data') return { error: null, items: [] }
+      if (name === 'approve-prs') return { succeeded: args[0].length, skipped: 0, failed: 0 }
+      if (name === 'reset-pr-feedback') return { succeeded: 1, skipped: 0, failed: 0 }
       if (name === 'update:get-state') return { status: 'idle' }
       return false
     },
@@ -392,7 +394,10 @@ test('integration repair actions open their own settings and keep legacy setting
   const buttons = (props) => elements(banner.render(props), (element) => element.type === 'Button')
   buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/integrations/second'])
-  assert.equal(buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'], 'Second connection: Azure DevOps settings')
+  assert.equal(
+    buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'],
+    'Second connection: Azure DevOps settings'
+  )
   buttons({ access })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/azure-devops'])
 
@@ -766,7 +771,7 @@ test('profile filtering caches badges while search touches only the active profi
     [1]
   )
   const secondTab = elements(tree, (element) => element.type === 'Tab' && element.props.value === 'two')[0]
-  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: {} })
+  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
   tree = view.render()
   elements(tree, (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
   assert.deepEqual(
@@ -1561,4 +1566,554 @@ test('filter help explains blank behavior and links to the existing filter docum
   )
   assert.equal(link.props.target, '_blank')
   assert.equal(link.props.rel, 'noreferrer')
+})
+
+test('PR details distinguish identical queues by organization, project, and number with full title tooltips', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const title = 'Fix invoice rounding across multiple currencies and regional payment processing systems'
+  const data = ['North', 'South'].map((organization) => ({
+    id: 12,
+    details: {
+      label: title,
+      number: 42,
+      organization,
+      project: 'Finance',
+      repository: 'Billing',
+      branch: 'refs/heads/feature',
+      targetBranch: 'refs/heads/main',
+    },
+    urls: { web: `https://dev.azure.com/${organization}/Finance/_git/Billing/pullrequest/42` },
+  }))
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const details = grid.props.columns.find((column) => column.columnId === 'details')
+  for (const [index, organization] of ['North', 'South'].entries()) {
+    const cell = details.renderCell(data[index])
+    const layout = elements(cell, (element) => element.type === 'TableCellLayout')[0]
+    assert.equal(layout.props.description, `${organization}/Finance · #42 · Billing · feature → main`)
+    const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+    assert.ok(tooltip.props.content.includes(title), 'Truncated titles remain readable in full')
+    assert.ok(tooltip.props.content.includes(`${organization}/Finance`), 'Source remains available when details truncate')
+    assert.ok(tooltip.props.content.includes('#42'), 'Use the display PR number rather than the internal id')
+    assert.equal(tooltip.props.relationship, 'description')
+  }
+  const legacy = { ...data[0], details: { ...data[0].details, organization: undefined, project: undefined } }
+  const legacyLayout = elements(details.renderCell(legacy), (element) => element.type === 'TableCellLayout')[0]
+  assert.equal(legacyLayout.props.description, '#42 · Billing · feature → main')
+})
+
+test('PR title links open the intended URL and expose launch failures', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const item = {
+    id: 12,
+    details: { label: 'Fix invoice', repository: 'Billing', branch: 'feature', targetBranch: 'main' },
+    urls: { web: 'https://example.com/pr/12' },
+  }
+  const data = [item]
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const cell = grid.props.columns.find((column) => column.columnId === 'details').renderCell(item)
+  const link = elements(cell, (element) => element.type === 'Link')[0]
+  assert.ok(link, 'The PR title must be a semantic link')
+  assert.equal(link.props.href, 'https://example.com/pr/12')
+  assert.equal(link.props.children.props.children, 'Fix invoice')
+  let prevented = false
+  await link.props.onClick({
+    preventDefault() {
+      prevented = true
+    },
+  })
+  assert.equal(prevented, true)
+  assert.deepEqual(view.calls.at(-1), ['web-open-url', 'https://example.com/pr/12'])
+  await view.flush()
+  view.api.invoke = async () => {
+    throw new Error('Browser launch failed. Try again.')
+  }
+  await link.props.onClick({ preventDefault: () => undefined })
+  await view.flush()
+  const alert = elements(view.render({ data }), (element) => element.props.role === 'alert')[0]
+  assert.ok(elements(alert, (element) => element.props.children === 'Browser launch failed. Try again.').length)
+})
+
+test('visible row actions share approval and reset handlers and restore trigger focus', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const data = [
+    { id: 1, details: { label: 'First', repository: 'One' } },
+    { id: 2, details: { label: 'Second', repository: 'Two' } },
+  ]
+  view.render({ data })
+  await view.flush()
+  const grid = () => elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const actions = grid().props.columns.find((column) => column.columnId === 'actions')
+  assert.ok(actions, 'Each PR needs a visible actions control')
+  let focused = 0
+  const trigger = {
+    focus() {
+      focused++
+    },
+    getBoundingClientRect() {
+      return {}
+    },
+  }
+  const button = elements(actions.renderCell(data[1]), (element) => element.type === 'Button')[0]
+  assert.equal(button.props['aria-label'], 'Actions for PR 2: Second')
+  assert.equal(button.props.children, 'Actions')
+  assert.equal(button.props['aria-haspopup'], 'menu')
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  let tree = view.render({ data })
+  let menu = elements(tree, (element) => element.type === 'Menu')[0]
+  assert.equal(menu.props.open, true)
+  elements(menu, (element) => element.type === 'MenuItem' && element.props.children === 'Approve')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [data[1]]]
+  )
+  assert.equal(focused, 1)
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  tree = view.render({ data })
+  menu = elements(tree, (element) => element.type === 'Menu')[0]
+  elements(
+    menu,
+    (element) => element.type === 'MenuItem' && element.props.children === 'Reset feedback'
+  )[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'reset-pr-feedback'),
+    ['reset-pr-feedback', data[1]]
+  )
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, keyboard: true, type: 'menuPopoverKeyDown', event: { key: 'Escape' } })
+  assert.equal(focused, 3)
+  const body = elements(view.render({ data }), (element) => element.type === 'DataGridBody')[0]
+  const row = body.props.children({ item: data[0], rowId: 1 })
+  let contextFocus = 0
+  const origin = { focus: () => contextFocus++ }
+  await row.props.onContextMenu({
+    preventDefault: () => undefined,
+    currentTarget: { focus: () => undefined },
+    target: { closest: () => origin },
+    clientX: 0,
+    clientY: 0,
+  })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, type: 'menuPopoverKeyDown' })
+  assert.equal(contextFocus, 1, 'Context menu Escape returns to the originating link or cell')
+  for (const columnId of ['details', 'actions', 'statusChecks']) {
+    assert.equal(
+      row.props.children({ columnId, renderCell: () => null }).props.focusMode,
+      columnId === 'actions' ? 'none' : 'group'
+    )
+  }
+})
+
+test('visible bulk approval names its matching scope and uses the active profile filters', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const profiles = [
+    {
+      ...profile,
+      id: 'enabled',
+      label: 'Review queue',
+      isDefault: true,
+      enableAcceptAll: true,
+      filter: { op: 'AND', filters: [{ isDraft: false }] },
+    },
+    { ...profile, id: 'disabled', label: 'Read only' },
+  ]
+  const items = [
+    {
+      id: 1,
+      isDraft: false,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice fix', repository: 'Billing', targetBranch: 'main' },
+    },
+    {
+      id: 2,
+      isDraft: false,
+      author: { id: 'grace', label: 'Grace' },
+      details: { label: 'Dashboard fix', repository: 'Portal', targetBranch: 'develop' },
+    },
+    {
+      id: 3,
+      isDraft: true,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice draft', repository: 'Billing', targetBranch: 'main' },
+    },
+  ]
+  view.setSettings({ ...settings, profiles })
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'get-pr-data' ? Promise.resolve({ items, error: null }) : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  const bulk = () =>
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Review queue')
+    )[0]
+  assert.ok(bulk(), 'Bulk approval needs an explicit labeled trigger')
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(2\)/)
+  elements(
+    view.render(),
+    (element) => element.type === 'Button' && element.props['aria-controls'] === 'pr-filter-line'
+  )[0].props.onClick()
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'invoice' })
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(1\)/)
+  bulk().props.onClick({ currentTarget: { focus: () => undefined } })
+  elements(view.render(), (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [items[0]]]
+  )
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'no matches' })
+  assert.equal(bulk().props.disabled, true)
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'disabled' })
+  assert.equal(bulk(), undefined)
+})
+
+function pageControl(tree, label) {
+  return elements(tree, (element) => element.type === 'Button' && element.props['aria-label'] === label)[0]
+}
+
+const pagedPrs = (count) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    creationDate: new Date(2026, 0, 1, 0, index),
+    author: { id: 'author', label: 'Author' },
+    details: {
+      label: `PR ${String(count - index).padStart(5, '0')}`,
+      repository: `repo-${index + 1}`,
+      targetBranch: 'main',
+    },
+    reviewers: [],
+    evaluations: [],
+    urls: { web: `https://example.invalid/${index + 1}` },
+  }))
+const gridIn = (tree) => elements(tree, (element) => element.type === 'DataGrid')[0]
+
+test('PR pagination bounds 101 and 10000 items, exposes ranges, and reaches the last page', async () => {
+  for (const count of [101, 10000]) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    view.setSettings(settings)
+    const props = { data: pagedPrs(count) }
+    let tree = view.render(props)
+    await view.flush()
+    tree = view.render(props)
+    assert.equal(gridIn(tree).props.items.length, 100)
+    assert.equal(gridIn(tree).props.items[0].id, count)
+    assert.equal(pageControl(tree, 'Previous PR page').props.disabled, true)
+    assert.equal(pageControl(tree, 'Next PR page').props.disabled, false)
+    const range = () => elements(tree, (element) => element.props?.role === 'status')[0].props.children
+    assert.equal(range(), `1–100 of ${count} PRs`)
+    for (let page = 1; page < Math.ceil(count / 100); page++) {
+      pageControl(tree, 'Next PR page').props.onClick()
+      tree = view.render(props)
+    }
+    assert.equal(pageControl(tree, 'Next PR page').props.disabled, true)
+    assert.equal(gridIn(tree).props.items.length, count % 100 || 100)
+    assert.equal(gridIn(tree).props.items.at(-1).id, 1)
+    assert.equal(range(), `${Math.floor((count - 1) / 100) * 100 + 1}–${count} of ${count} PRs`)
+    pageControl(tree, 'Previous PR page').props.onClick()
+    tree = view.render(props)
+    assert.equal(gridIn(tree).props.items.length, 100)
+  }
+})
+
+test('PR pages reset after filter shrink, refresh and saved/manual sorting changes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const data = pagedPrs(201)
+  let props = { data, sorting: null }
+  let tree = view.render(props)
+  await view.flush()
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 101)
+  gridIn(tree).props.onSortChange(null, { sortColumn: 'details', sortDirection: 'ascending' })
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 201, 'Manual sort must order the full set before slicing')
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 101)
+  props = { data: data.slice(0, 2), sorting: null }
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items.length, 2, 'Shrinking a filter must never expose an empty stale page')
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(pageControl(tree, 'Next PR page'), undefined)
+  props = { data: [...data], sorting: null }
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 201)
+  pageControl(tree, 'Next PR page').props.onClick()
+  props = { data: props.data, sorting: { sortColumn: 'creationDate', sortDirection: 'ascending' } }
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 1)
+  assert.deepEqual(
+    gridIn(tree).props.sortState,
+    props.sorting,
+    'Fluent must not reapply stale manual sorting to a saved page'
+  )
+})
+
+test('later-page row actions keep their PR and repository targets', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'check-vscode-installed' ? Promise.resolve(true) : invoke(name, ...args)
+  const props = { data: pagedPrs(101), sorting: null }
+  let tree = view.render(props)
+  await view.flush()
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  const grid = gridIn(tree)
+  const item = grid.props.items[0]
+  const actions = grid.props.columns.find((column) => column.columnId === 'actions').renderCell(item)
+  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  tree = view.render(props)
+  const menuItem = (label) =>
+    elements(tree, (element) => element.type === 'MenuItem' && element.props.children === label)[0]
+  menuItem('Open in VSCode').props.onClick()
+  assert.deepEqual(
+    view.calls.find(([name]) => name === 'open-in-vscode'),
+    ['open-in-vscode', 'repo-101']
+  )
+  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  tree = view.render(props)
+  menuItem('Approve').props.onClick()
+  assert.deepEqual(
+    view.calls.find(([name]) => name === 'approve-prs'),
+    ['approve-prs', [props.data[100]]]
+  )
+})
+
+test('empty and single-page PR lists do not add pagination controls', async () => {
+  for (const count of [0, 1, 100]) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    const tree = view.render({ data: pagedPrs(count) })
+    assert.equal(pageControl(tree, 'Previous PR page'), undefined)
+    assert.equal(pageControl(tree, 'Next PR page'), undefined)
+  }
+})
+
+test('creation sorting keeps equal and missing dates stable across page boundaries', async () => {
+  for (const sortDirection of ['ascending', 'descending']) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    view.setSettings(settings)
+    const data = pagedPrs(102).map((item) => ({
+      ...item,
+      creationDate: item.id === 102 ? undefined : new Date(2026, 0, 1),
+    }))
+    const props = { data, sorting: { sortColumn: 'creationDate', sortDirection } }
+    let tree = view.render(props)
+    await view.flush()
+    const first = gridIn(tree).props.items
+    pageControl(tree, 'Next PR page').props.onClick()
+    tree = view.render(props)
+    const ids = [...first, ...gridIn(tree).props.items].map((item) => item.id)
+    assert.deepEqual(
+      ids,
+      sortDirection === 'ascending' ? [102, ...data.slice(0, 101).map((item) => item.id)] : data.map((item) => item.id)
+    )
+  }
+})
+
+test('pending row approvals disable vote controls, suppress duplicate clicks, and announce partial outcomes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const props = { data: pagedPrs(3) }
+  const invoke = view.api.invoke
+  let release
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return waiting
+    }
+    return invoke(name, ...args)
+  }
+  view.render(props)
+  await view.flush()
+  const actions = () => gridIn(view.render(props)).props.columns.find((column) => column.columnId === 'actions')
+  const trigger = elements(actions().renderCell(props.data[0]), (element) => element.type === 'Button')[0]
+  await trigger.props.onClick({ currentTarget: { focus: () => undefined }, preventDefault: () => undefined })
+  const voteItem = (tree, text) =>
+    elements(tree, (element) => element.type === 'MenuItem' && element.props.children === text)[0]
+  const approve = voteItem(view.render(props), 'Approve')
+  approve.props.onClick()
+  approve.props.onClick()
+  assert.equal(
+    view.calls.filter(([name]) => name === 'approve-prs').length,
+    1,
+    'Repeated clicks must not duplicate votes'
+  )
+  let tree = view.render(props)
+  assert.equal(voteItem(tree, 'Approve').props.disabled, true)
+  assert.equal(voteItem(tree, 'Reset feedback').props.disabled, true)
+  release({
+    succeeded: 1,
+    skipped: 1,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  await view.flush()
+  tree = view.render(props)
+  const notice = elements(tree, (element) => element.props.role === 'alert')[0]
+  assert.ok(notice, 'Partial failures need an accessible outcome')
+  assert.ok(
+    elements(notice, (element) => /1 approved.*1 skipped.*1 failed/.test(String(element.props.children))).length
+  )
+  assert.equal(gridIn(tree).props.items.length, 3, 'Action failure must not hide healthy rows')
+  assert.equal(voteItem(tree, 'Approve').props.disabled, false)
+})
+
+test('pending bulk approval prevents repeated actions and keeps healthy rows after a safe error', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  view.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true, enableAcceptAll: true }] })
+  const items = pagedPrs(2)
+  const invoke = view.api.invoke
+  let reject
+  const waiting = new Promise((_resolve, failure) => {
+    reject = failure
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'get-pr-data') return Promise.resolve({ items, error: null })
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return waiting
+    }
+    return invoke(name, ...args)
+  }
+  view.render()
+  await view.flush()
+  const bulk = () =>
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Test')
+    )[0]
+  bulk().props.onClick({ currentTarget: { focus: () => undefined } })
+  const approve = elements(view.render(), (element) => element.type?.name === 'TabHeaderMenu')[0]
+  approve.props.onClick()
+  approve.props.onClick()
+  assert.equal(view.calls.filter(([name]) => name === 'approve-prs').length, 1)
+  assert.equal(bulk().props.disabled, true)
+  reject(new Error('PAT=test-token sensitive server response'))
+  await view.flush()
+  const tree = view.render()
+  const notice = elements(tree, (element) => element.props.role === 'alert')[0]
+  assert.ok(notice, 'Transport failure needs an accessible safe outcome')
+  assert.equal(JSON.stringify(notice).includes('test-token'), false, 'Raw IPC errors must never reach action UI')
+  assert.ok(elements(tree, (element) => element.type?.name === 'PrList' && element.props.data.length === 2).length)
+  assert.equal(bulk().props.disabled, false)
+})
+
+test('row and bulk approval share pending state and keep outcomes when profiles change', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  view.setSettings({
+    ...settings,
+    profiles: [
+      { ...profile, isDefault: true, enableAcceptAll: true },
+      { ...profile, id: 'other', label: 'Other', enableAcceptAll: true },
+    ],
+  })
+  const items = pagedPrs(1)
+  const invoke = view.api.invoke
+  let release
+  const pending = new Promise((resolve) => {
+    release = resolve
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'get-pr-data') return Promise.resolve({ items, error: null })
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return pending
+    }
+    return invoke(name, ...args)
+  }
+  view.render()
+  await view.flush()
+  const row = () => elements(view.render(), (element) => element.type?.name === 'PrList')[0]
+  const action = row().props.voteAction
+  const voting = action.run('approve', items)
+  action.run('reset', items)
+  let tree = view.render()
+  assert.equal(row().props.voteAction.pending, true)
+  assert.equal(
+    elements(
+      tree,
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Test')
+    )[0].props.disabled,
+    true
+  )
+  elements(tree, (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'other' })
+  assert.equal(row().props.voteAction.pending, true, 'Profile changes must not release pending votes')
+  release({ succeeded: 0, skipped: 1, failed: 0 })
+  await voting
+  tree = view.render()
+  assert.equal(view.calls.filter(([name]) => name === 'approve-prs').length, 1)
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'status' &&
+        elements(element, (child) => /0 approved.*1 skipped.*0 failed/.test(String(child.props.children))).length
+    ).length
+  )
+})
+
+test('row reset announces a successful reset and safe denied outcome while retaining rows', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const props = { data: pagedPrs(1) }
+  view.render(props)
+  await view.flush()
+  const reset = async () => {
+    const column = gridIn(view.render(props)).props.columns.find((column) => column.columnId === 'actions')
+    const trigger = elements(column.renderCell(props.data[0]), (element) => element.type === 'Button')[0]
+    await trigger.props.onClick({ currentTarget: { focus: () => undefined }, preventDefault: () => undefined })
+    elements(
+      view.render(props),
+      (element) => element.type === 'MenuItem' && element.props.children === 'Reset feedback'
+    )[0].props.onClick()
+    await view.flush()
+    return view.render(props)
+  }
+  let tree = await reset()
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'status' &&
+        elements(element, (child) => /1 vote reset.*0 skipped.*0 failed/.test(String(child.props.children))).length
+    ).length
+  )
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'reset-pr-feedback'
+      ? Promise.resolve({
+          succeeded: 0,
+          skipped: 0,
+          failed: 1,
+          error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+        })
+      : invoke(name, ...args)
+  tree = await reset()
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'alert' &&
+        elements(element, (child) =>
+          /0 votes reset.*0 skipped.*1 failed.*Access denied/.test(String(child.props.children))
+        ).length
+    ).length
+  )
+  assert.equal(gridIn(tree).props.items.length, 1)
 })

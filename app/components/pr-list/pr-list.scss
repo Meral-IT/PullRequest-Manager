@@ -1,3 +1,20 @@
-.pr-title:hover {
-  cursor: pointer;
+.pr-title .fui-Link {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pr-pagination {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--colorNeutralBackground1);
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  font-variant-numeric: tabular-nums;
 }
