@@ -229,6 +229,8 @@ Run `npm run build`, `npm run profile:build -- --config.electronDist=node_module
 `npm run profile:run -- --output temp/resource-profile.json` on native macOS or Windows. The separate package
 uses deterministic empty, typical, 1,000-PR and 10,000-PR fixtures with temporary settings and no Azure traffic.
 The manual **Packaged resource profile** workflow produces the same JSON on both platforms.
+The 10,000-PR process has a 10-minute safety ceiling to complete four slow policy passes; smaller fixtures retain
+the 2-minute ceiling. Interaction, memory and performance budgets remain unchanged.
 Reports include the methodology and environment; thresholds are in [the profiling budgets](scripts/profile/budgets.json).
 The default run currently fails the 2.5 GiB memory ceiling with 10,000 PRs on macOS; native Windows measurements are pending.
 

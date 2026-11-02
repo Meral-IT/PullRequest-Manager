@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks'
 import { setInterval as interval, setTimeout as delay } from 'node:timers/promises'
 import { createFixture, fixtureSettings, summarizeSamples } from './fixtures.mjs'
 import { readProfileConfig } from './config.mjs'
+import { stopProfilePolling } from './lifecycle.mjs'
 
 const config = readProfileConfig(process.env.PR_PROFILE_CONFIG)
 app.setPath('userData', config.userData)
@@ -25,13 +26,14 @@ const report = {
 let monitor
 let finishing = false
 let service
+let integrations
 let window
 const checkpoint = () => fs.writeFile(config.result, JSON.stringify(report, null, 2))
 async function finish(error) {
   if (finishing) return
   finishing = true
   clearInterval(monitor)
-  service?.stop()
+  integrations?.stop()
   report.status = error ? 'failed' : 'passed'
   if (error) report.error = String(error.stack ?? error)
   await checkpoint()
@@ -59,6 +61,7 @@ async function interact(name, expression, predicate = 'true') {
   report.interactions.push({ name, ms: performance.now() - started })
 }
 async function resources() {
+  await service.refresh?.promise
   await window.webContents.debugger.sendCommand('HeapProfiler.collectGarbage')
   const dom = await window.webContents.debugger.sendCommand('Memory.getDOMCounters')
   return {
@@ -73,7 +76,7 @@ async function resources() {
     windows: BrowserWindow.getAllWindows().length,
     tray: Boolean(getTrayManager()),
     loading: loader.isLoading,
-    polling: Boolean(service.pollTimer),
+    polling: Boolean(service.active || service.pollTimer),
   }
 }
 let loader
@@ -181,7 +184,7 @@ async function run() {
     ])
   loader = loading.default
   getTrayManager = tray.getTrayManager
-  const integrations = AzureDevOpsIntegrationsService.getInstance()
+  integrations = AzureDevOpsIntegrationsService.getInstance()
   integrations.setConfiguration(fixtureSettings.azDoIntegrations)
   service = integrations.services.get('fixture').service
   service.initializeApi = () => fixture.api
@@ -231,7 +234,7 @@ async function run() {
   window.show()
   await waitFor('Boolean(document.querySelector("[role=tab]"))', 'renderer ready')
   report.startupMs = Date.now() - config.launchedAtMs
-  service.stop()
+  await stopProfilePolling(integrations)
   await service.updateDataImmediately()
   await waitFor(
     config.count
@@ -266,11 +269,11 @@ async function run() {
     throw new Error('Replacement did not recover')
   report.stage = 'periodic-coalescing'
   fixture.setMode('slow')
-  service.start()
+  integrations.start()
   await delay(120)
   const concurrent = Array.from({ length: 8 }, () => service.updateDataImmediately())
   await Promise.all(concurrent)
-  service.stop()
+  await stopProfilePolling(integrations)
   if (report.maxActiveRefreshes !== 1) throw new Error('Periodic/manual refresh overlapped')
   fixture.setMode('healthy')
   const stats = fixture.stats()
