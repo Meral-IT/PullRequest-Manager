@@ -5,6 +5,8 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'rolldown'
 import * as React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { DataGridHeaderCell } from '@fluentui/react-components'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
@@ -1461,6 +1463,23 @@ test('visible row actions share approval and reset handlers and restore trigger 
       columnId === 'actions' ? 'none' : 'group'
     )
   }
+})
+
+test('actions column header has an accessible name without visible text', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const tree = view.render({ data: [{ id: 1, details: { label: 'First', repository: 'One' } }] })
+  const grid = elements(tree, (element) => element.type === 'DataGrid')[0]
+  const header = elements(grid, (element) => element.type === 'DataGridHeader')[0]
+  const row = elements(header, (element) => element.type === 'DataGridRow')[0]
+  const actions = grid.props.columns.find((column) => column.columnId === 'actions')
+  const cell = row.props.children(actions)
+  const markup = renderToStaticMarkup(React.createElement(DataGridHeaderCell, cell.props, cell.props.children))
+  assert.match(markup, /<div role="columnheader" tabindex="0" aria-label="Actions"/)
+  assert.equal(markup.replace(/<[^>]*>/g, ''), '')
+  assert.equal(actions.renderHeaderCell(), null)
+  const details = grid.props.columns.find((column) => column.columnId === 'details')
+  assert.equal(row.props.children(details).props['aria-label'], undefined)
 })
 
 test('visible bulk approval names its matching scope and uses the active profile filters', async () => {
