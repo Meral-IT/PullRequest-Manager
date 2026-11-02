@@ -149,6 +149,7 @@ async function component(entry) {
   new Function('require', 'module', 'exports', output[0].code)(
     (name) => {
       if (name === 'react') return hooks
+      if (name === 'dompurify') return { __esModule: true, default: { sanitize: (html) => html } }
       if (name === '@fluentui/react-icons') return load(name)
       if (name.startsWith('@fluentui/')) return fluent
       if (name === 'react-router-dom')
@@ -948,6 +949,47 @@ test('failed update download stays visible with a retry action and closes releas
   assert.equal(view.toasts[0].options.intent, 'error')
   assert.ok(elements(view.toasts[0].content, (element) => element.props?.children === 'Retry download').length)
   assert.equal(elements(view.render(), (element) => element.type === 'Dialog')[0].props.open, false)
+})
+
+test('release notes date only the current release when its actual release date is available', async () => {
+  const view = await component('app/components/update-notification/update-notification.component.tsx')
+  view.render()
+  await view.flush()
+  view.listeners.get('update:state-changed')({
+    status: 'available',
+    info: {
+      version: '2.0.0',
+      releaseDate: '2026-10-30T10:00:00Z',
+      releaseNotes: [
+        { version: '2.0.0', note: 'Current release' },
+        { version: '1.9.0', note: 'Historical release' },
+      ],
+    },
+  })
+  view.listeners.get('update:show-releaseNotes')()
+  const dialog = elements(view.render(), (element) => element.type === 'Dialog')[0]
+  const headings = elements(dialog, (element) => element.type === 'h2')
+  const currentRelease = elements(headings[0], (element) => element.type === 'span')
+  assert.equal(
+    currentRelease[1].props.children.join(''),
+    ` - ${new Date('2026-10-30T10:00:00Z').toLocaleDateString()}`
+  )
+  assert.equal(elements(headings[1], (element) => element.type === 'span').length, 1)
+})
+
+test('release notes omit a date when the release date is missing or invalid', async () => {
+  for (const releaseDate of [undefined, 'not-a-date']) {
+    const view = await component('app/components/update-notification/update-notification.component.tsx')
+    view.render()
+    await view.flush()
+    view.listeners.get('update:state-changed')({
+      status: 'available',
+      info: { version: '2.0.0', releaseDate, releaseNotes: 'Undated release' },
+    })
+    view.listeners.get('update:show-releaseNotes')()
+    const heading = elements(view.render(), (element) => element.type === 'h2')[0]
+    assert.equal(elements(heading, (element) => element.type === 'span').length, 1)
+  }
 })
 
 test('update startup snapshot cannot replace a newer ready event and subscriptions are cleaned up', async () => {
