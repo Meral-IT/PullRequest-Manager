@@ -1636,10 +1636,7 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    for (const [name, remaining] of [
-      ['Second connection', 2],
-      ['Smoke integration', 1],
-    ]) {
+    const checkIntegrationRemoval = async (name, remaining) => {
       const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
         pat: document.querySelector('input[name="azDoPat"]').value,
         project: document.querySelector('input[name="azDoProject"]').value })`)
@@ -1696,6 +1693,8 @@ async function runSmokeTest() {
         remaining === 2 ? 'Smoke integration' : null
       )
     }
+    await checkIntegrationRemoval('Second connection', 2)
+    await checkIntegrationRemoval('Smoke integration', 1)
     assert.equal(
       await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
       true
@@ -1794,7 +1793,7 @@ async function runSmokeTest() {
         { value: 'descending', disabled: false },
       ]
     )
-    for (const value of ['details', 'creationDate', '']) {
+    const checkSortSelection = async (value) => {
       await window.webContents.executeJavaScript(`(() => {
         const select = document.querySelector('select')
         select.value = ${JSON.stringify(value)}
@@ -1803,11 +1802,14 @@ async function runSmokeTest() {
       await waitForRenderer(window, `document.querySelectorAll('select')[1].disabled === ${!value}`)
       await checkProfileLayout(window)
     }
+    await checkSortSelection('details')
+    await checkSortSelection('creationDate')
+    await checkSortSelection('')
     await capture(window, 'profile-general')
     await selectProfileTab(window, 'filter')
     await checkProfileLayout(window)
     const resizeLayouts = []
-    for (const height of [670, 900, 450, 350, 670]) {
+    const checkFilterPanelHeight = async (height) => {
       window.setContentSize(900, height)
       await settleLayout(window)
       await checkProfileLayout(window)
@@ -1830,6 +1832,11 @@ async function runSmokeTest() {
       )
       if (height === 350) await capture(window, 'profile-short')
     }
+    await checkFilterPanelHeight(670)
+    await checkFilterPanelHeight(900)
+    await checkFilterPanelHeight(450)
+    await checkFilterPanelHeight(350)
+    await checkFilterPanelHeight(670)
     assert.ok(resizeLayouts[2].editor.height < resizeLayouts[1].editor.height, JSON.stringify(resizeLayouts))
     assert.ok(
       Math.abs(resizeLayouts[4].editor.height - resizeLayouts[0].editor.height) <= 1,
