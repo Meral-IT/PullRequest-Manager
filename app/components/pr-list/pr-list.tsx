@@ -24,6 +24,7 @@ import {
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
+  DataGridProps,
   Link,
   List,
   ListItem,
@@ -375,6 +376,11 @@ type Props = {
 }
 
 export default function PrList(props: Readonly<Props>) {
+  const [page, setPage] = useState(0)
+  const [manualSort, setManualSort] = useState<NonNullable<DataGridProps['sortState']>>({
+    sortColumn: undefined,
+    sortDirection: 'ascending',
+  })
   const [tableSize, setTableSize] = usePersistentState('pr-table-size', 'small')
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [contextMenuPr, setContextMenuPr] = useState<PullRequest | null>(null)
@@ -385,6 +391,12 @@ export default function PrList(props: Readonly<Props>) {
   const actionTriggerRef = useRef<HTMLElement | null>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
   const { data, sorting = defaultProfileSorting } = props
+  const { sortColumn, sortDirection } = sorting ?? manualSort
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(data.length / 100) - 1))
+
+  useEffect(() => {
+    setPage(0)
+  }, [data, sortColumn, sortDirection])
 
   useEffect(() => {
     setContextMenuOpen(false)
@@ -392,7 +404,7 @@ export default function PrList(props: Readonly<Props>) {
     return () => {
       contextMenuRepositoryRef.current = null
     }
-  }, [data])
+  }, [data, currentPage, sortColumn, sortDirection])
 
   useEffect(() => {
     let active = true
@@ -471,13 +483,12 @@ export default function PrList(props: Readonly<Props>) {
   )
   const items = useMemo(() => {
     const compare =
-      sorting?.sortColumn === 'creationDate'
+      sortColumn === 'creationDate'
         ? (a: PullRequest, b: PullRequest) => (a.creationDate?.getTime() ?? 0) - (b.creationDate?.getTime() ?? 0)
-        : columns.find((column) => column.columnId === sorting?.sortColumn)?.compare
-    return sorting && compare
-      ? data.toSorted((a, b) => compare(a, b) * (sorting.sortDirection === 'ascending' ? 1 : -1))
-      : data
-  }, [data, sorting, columns])
+        : columns.find((column) => column.columnId === sortColumn)?.compare
+    return compare ? data.toSorted((a, b) => compare(a, b) * (sortDirection === 'ascending' ? 1 : -1)) : data
+  }, [data, sortColumn, sortDirection, columns])
+  const pageItems = useMemo(() => items.slice(currentPage * 100, (currentPage + 1) * 100), [items, currentPage])
 
   const approveCurrentPullRequest = () => {
     if (!contextMenuPr) {
@@ -561,13 +572,38 @@ export default function PrList(props: Readonly<Props>) {
           </MenuList>
         </MenuPopover>
       </Menu>
+      {items.length > 100 && (
+        <nav className="pr-pagination" aria-label="Pull request pages">
+          <Text role="status" aria-live="polite" aria-atomic="true">
+            {`${currentPage * 100 + 1}–${Math.min((currentPage + 1) * 100, items.length)} of ${items.length} PRs`}
+          </Text>
+          <Button
+            size="small"
+            aria-label="Previous PR page"
+            disabled={currentPage === 0}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            size="small"
+            aria-label="Next PR page"
+            disabled={(currentPage + 1) * 100 >= items.length}
+            onClick={() => setPage(currentPage + 1)}
+          >
+            Next
+          </Button>
+        </nav>
+      )}
       <DataGrid
-        items={items}
+        items={pageItems}
         getRowId={pullRequestKey}
         columns={columns}
         columnSizingOptions={columnSizingOptions}
         // selectionMode="multiselect"
         sortable={!sorting}
+        sortState={sorting ?? manualSort}
+        onSortChange={(_, state) => setManualSort(state)}
         size={tableSize as any}
         // subtleSelection
         resizableColumns

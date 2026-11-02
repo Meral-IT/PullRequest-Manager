@@ -57,3 +57,35 @@ test('measurement summary and budgets reject missing data and report regressions
   ])
   assert.equal(evaluateBudgets({}, { startupMs: 100 })[0].passed, false)
 })
+
+test('initial readiness requires bounded rendered rows and the complete IPC dataset', async () => {
+  const { initialPrReadiness } = await import('../scripts/profile/lifecycle.mjs')
+  const { runInNewContext } = await import('node:vm')
+  for (const count of [0, 32, 101, 1000, 10000]) {
+    let rowCount = count ? Math.min(count, 100) + 1 : 0
+    let items = Array.from({ length: count })
+    let error = null
+    const document = {
+      querySelectorAll: () => ({ length: rowCount }),
+      body: { innerText: 'Currently, no pull requests' },
+    }
+    const api = {
+      invoke: async (name) => {
+        assert.equal(name, 'get-pr-data')
+        return { items, error }
+      },
+    }
+    const ready = () => runInNewContext(initialPrReadiness(count), { document, api })
+    assert.equal(await ready(), true)
+    items = Array.from({ length: count + 1 })
+    assert.equal(await ready(), false, 'A bounded table must not hide incomplete or unexpected IPC data')
+    items = Array.from({ length: count })
+    error = { message: 'fixture failed' }
+    assert.equal(await ready(), false)
+    error = null
+    if (count) {
+      rowCount--
+      assert.equal(await ready(), false, 'Readiness must wait for the complete first page')
+    }
+  }
+})

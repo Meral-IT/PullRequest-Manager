@@ -389,7 +389,10 @@ test('integration repair actions open their own settings and keep legacy setting
   const buttons = (props) => elements(banner.render(props), (element) => element.type === 'Button')
   buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/integrations/second'])
-  assert.equal(buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'], 'Second connection: Azure DevOps settings')
+  assert.equal(
+    buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'],
+    'Second connection: Azure DevOps settings'
+  )
   buttons({ access })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/azure-devops'])
 
@@ -1336,4 +1339,153 @@ test('visible bulk approval names its matching scope and uses the active profile
   assert.equal(bulk().props.disabled, true)
   elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'disabled' })
   assert.equal(bulk(), undefined)
+})
+
+function pageControl(tree, label) {
+  return elements(tree, (element) => element.type === 'Button' && element.props['aria-label'] === label)[0]
+}
+
+const pagedPrs = (count) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    creationDate: new Date(2026, 0, 1, 0, index),
+    author: { id: 'author', label: 'Author' },
+    details: { label: `PR ${String(count - index).padStart(5, '0')}`, repository: `repo-${index + 1}` },
+    reviewers: [],
+    evaluations: [],
+    urls: { web: `https://example.invalid/${index + 1}` },
+  }))
+const gridIn = (tree) => elements(tree, (element) => element.type === 'DataGrid')[0]
+
+test('PR pagination bounds 101 and 10000 items, exposes ranges, and reaches the last page', async () => {
+  for (const count of [101, 10000]) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    view.setSettings(settings)
+    const props = { data: pagedPrs(count) }
+    let tree = view.render(props)
+    await view.flush()
+    tree = view.render(props)
+    assert.equal(gridIn(tree).props.items.length, 100)
+    assert.equal(gridIn(tree).props.items[0].id, count)
+    assert.equal(pageControl(tree, 'Previous PR page').props.disabled, true)
+    assert.equal(pageControl(tree, 'Next PR page').props.disabled, false)
+    const range = () => elements(tree, (element) => element.props?.role === 'status')[0].props.children
+    assert.equal(range(), `1–100 of ${count} PRs`)
+    for (let page = 1; page < Math.ceil(count / 100); page++) {
+      pageControl(tree, 'Next PR page').props.onClick()
+      tree = view.render(props)
+    }
+    assert.equal(pageControl(tree, 'Next PR page').props.disabled, true)
+    assert.equal(gridIn(tree).props.items.length, count % 100 || 100)
+    assert.equal(gridIn(tree).props.items.at(-1).id, 1)
+    assert.equal(range(), `${Math.floor((count - 1) / 100) * 100 + 1}–${count} of ${count} PRs`)
+    pageControl(tree, 'Previous PR page').props.onClick()
+    tree = view.render(props)
+    assert.equal(gridIn(tree).props.items.length, 100)
+  }
+})
+
+test('PR pages reset after filter shrink, refresh and saved/manual sorting changes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const data = pagedPrs(201)
+  let props = { data, sorting: null }
+  let tree = view.render(props)
+  await view.flush()
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 101)
+  gridIn(tree).props.onSortChange(null, { sortColumn: 'details', sortDirection: 'ascending' })
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 201, 'Manual sort must order the full set before slicing')
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 101)
+  props = { data: data.slice(0, 2), sorting: null }
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items.length, 2, 'Shrinking a filter must never expose an empty stale page')
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(pageControl(tree, 'Next PR page'), undefined)
+  props = { data: [...data], sorting: null }
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 201)
+  pageControl(tree, 'Next PR page').props.onClick()
+  props = { data: props.data, sorting: { sortColumn: 'creationDate', sortDirection: 'ascending' } }
+  view.render(props)
+  await view.flush()
+  tree = view.render(props)
+  assert.equal(gridIn(tree).props.items[0].id, 1)
+  assert.deepEqual(
+    gridIn(tree).props.sortState,
+    props.sorting,
+    'Fluent must not reapply stale manual sorting to a saved page'
+  )
+})
+
+test('later-page row actions keep their PR and repository targets', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'check-vscode-installed' ? Promise.resolve(true) : invoke(name, ...args)
+  const props = { data: pagedPrs(101), sorting: null }
+  let tree = view.render(props)
+  await view.flush()
+  pageControl(tree, 'Next PR page').props.onClick()
+  tree = view.render(props)
+  const grid = gridIn(tree)
+  const item = grid.props.items[0]
+  const actions = grid.props.columns.find((column) => column.columnId === 'actions').renderCell(item)
+  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  tree = view.render(props)
+  const menuItem = (label) =>
+    elements(tree, (element) => element.type === 'MenuItem' && element.props.children === label)[0]
+  menuItem('Open in VSCode').props.onClick()
+  assert.deepEqual(
+    view.calls.find(([name]) => name === 'open-in-vscode'),
+    ['open-in-vscode', 'repo-101']
+  )
+  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  tree = view.render(props)
+  menuItem('Approve').props.onClick()
+  assert.deepEqual(
+    view.calls.find(([name]) => name === 'approve-prs'),
+    ['approve-prs', [props.data[100]]]
+  )
+})
+
+test('empty and single-page PR lists do not add pagination controls', async () => {
+  for (const count of [0, 1, 100]) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    const tree = view.render({ data: pagedPrs(count) })
+    assert.equal(pageControl(tree, 'Previous PR page'), undefined)
+    assert.equal(pageControl(tree, 'Next PR page'), undefined)
+  }
+})
+
+test('creation sorting keeps equal and missing dates stable across page boundaries', async () => {
+  for (const sortDirection of ['ascending', 'descending']) {
+    const view = await component('app/components/pr-list/pr-list.tsx')
+    view.setSettings(settings)
+    const data = pagedPrs(102).map((item) => ({
+      ...item,
+      creationDate: item.id === 102 ? undefined : new Date(2026, 0, 1),
+    }))
+    const props = { data, sorting: { sortColumn: 'creationDate', sortDirection } }
+    let tree = view.render(props)
+    await view.flush()
+    const first = gridIn(tree).props.items
+    pageControl(tree, 'Next PR page').props.onClick()
+    tree = view.render(props)
+    const ids = [...first, ...gridIn(tree).props.items].map((item) => item.id)
+    assert.deepEqual(
+      ids,
+      sortDirection === 'ascending' ? [102, ...data.slice(0, 101).map((item) => item.id)] : data.map((item) => item.id)
+    )
+  }
 })

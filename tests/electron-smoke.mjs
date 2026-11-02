@@ -1404,6 +1404,78 @@ async function checkPrSearch(window, settings) {
   await expectTitles(extendedTitles)
   await capture(window, 'azdo-partial-failure')
 
+  const paged = Array.from({ length: 101 }, (_, index) =>
+    pr(index + 1, `Page PR ${String(index + 1).padStart(3, '0')}`, 'Ada Lovelace', `Repo ${index + 1}`, '')
+  )
+  settings.profiles[0].sorting = { sortColumn: 'details', sortDirection: 'descending' }
+  window.webContents.send('settings', settings)
+  window.webContents.send('pr-data', { items: paged, error: null })
+  await expectTitles(
+    paged
+      .slice(1)
+      .reverse()
+      .map((item) => item.details.label)
+  )
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[role=row]').length`), 101)
+  await window.webContents.executeJavaScript(`document.querySelector('.scrollable-content').scrollTop = 100000`)
+  await settleLayout(window)
+  assert.equal(
+    await window.webContents.executeJavaScript(`(() => {
+    const next = document.querySelector('[aria-label="Next PR page"]')
+    const { top, bottom } = next.getBoundingClientRect()
+    return top >= 0 && bottom <= innerHeight && document.querySelector('.scrollable-content').scrollTop > 0
+  })()`),
+    true,
+    'Page controls stay visible after scrolling the full page'
+  )
+  await capture(window, 'pr-pagination-sticky')
+  await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Next PR page"]').focus()`)
+  await press('Enter')
+  await expectTitles(['Page PR 001'])
+  assert.equal(
+    await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Next PR page"]').disabled`),
+    true
+  )
+  assert.equal(
+    await window.webContents.executeJavaScript(`document.querySelector('.pr-pagination [role=status]').textContent`),
+    '101–101 of 101 PRs'
+  )
+  await clickButton('Approve all matching PRs in All (101)')
+  await waitForRenderer(window, `!!${bulkMenu}`)
+  await window.webContents.executeJavaScript(`${bulkMenu}.click()`)
+  assert.deepEqual(
+    approvals.at(-1),
+    paged.map((item) => item.id),
+    'Bulk approval spans every matching page'
+  )
+  await window.webContents.executeJavaScript(
+    `document.querySelector('button[aria-label="Actions for PR 1: Page PR 001"]').click()`
+  )
+  await waitForRenderer(window, `!!${rowMenu}`)
+  await window.webContents.executeJavaScript(`${rowMenu}.click()`)
+  assert.deepEqual(approvals.at(-1), [1], 'Later-page menu targets its displayed PR')
+  settings.profiles[0].sorting = null
+  window.webContents.send('settings', settings)
+  await expectTitles(paged.slice(0, 100).map((item) => item.details.label))
+  await window.webContents.executeJavaScript(
+    `Array.from(document.querySelectorAll('[role=columnheader]')).find(cell => cell.textContent === 'Details').click()`
+  )
+  await expectTitles(paged.slice(0, 100).map((item) => item.details.label))
+  await clickButton('Next PR page')
+  await expectTitles(['Page PR 101'])
+  await window.webContents.executeJavaScript(
+    `Array.from(document.querySelectorAll('[role=columnheader]')).find(cell => cell.textContent === 'Details').click()`
+  )
+  await expectTitles(
+    paged
+      .slice(1)
+      .reverse()
+      .map((item) => item.details.label)
+  )
+  window.webContents.send('pr-data', { items: paged.slice(0, 2), error: null })
+  await expectTitles(['Page PR 002', 'Page PR 001'])
+  assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.pr-pagination')`), false)
+
   settings.profiles = originalProfiles
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: [], error: null })
