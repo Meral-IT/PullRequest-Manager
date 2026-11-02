@@ -6,10 +6,13 @@ import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import type { NotificationService } from '../lib/main/notification.service'
+import type { PrProfile } from '../lib/models/pr-profile'
 import type { PullRequest } from '../lib/models/pull-request.model'
+import type { PullRequestFilter } from '../lib/models/ui-filter.model'
 
-test('independent refreshes notify each new PR once even when integration ownership changes', () => {
+test('blank notification filters match all while preserving de-duplication and opt-outs', () => {
   const bodies: string[] = []
+  const trayStates: boolean[] = []
   const localRequire = createRequire(path.join(__dirname, '../lib/main/notification.service.js'))
   const result = { exports: {} as { NotificationService: typeof NotificationService } }
   const source = ts.transpileModule(readFileSync('lib/main/notification.service.ts', 'utf8'), {
@@ -32,7 +35,8 @@ test('independent refreshes notify each new PR once even when integration owners
           },
         }
       if (name === 'electron-log/main') return { debug: () => {} }
-      if (name === '../main/tray') return { getTrayManager: () => undefined }
+      if (name === '../main/tray')
+        return { getTrayManager: () => ({ setActiveState: (active: boolean) => trayStates.push(active) }) }
       return localRequire(name)
     },
   })
@@ -67,4 +71,48 @@ test('independent refreshes notify each new PR once even when integration owners
   service.notifyNewPullRequests([first, second])
   service.notifyNewPullRequests([first, { ...second, integrationId: 'replacement' }])
   assert.deepEqual(bodies, ['Author: first', 'Author: second'])
+
+  service.setSettings(
+    { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
+    [{ id: 'all', label: 'All', visible: true, enableAcceptAll: false, notifyOnNewPrs: true }]
+  )
+  service.initialize([pr('baseline', now - 10000)])
+  service.notifyNewPullRequests([pr('blank-filter', now - 1000)])
+  assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
+  assert.equal(trayStates.at(-1), true)
+
+  service.setSettings(
+    { openAtLogin: false, enableNotifications: false, notificationSound: false, repositoriesRootDirectory: '' },
+    [{ id: 'all', label: 'All', visible: true, enableAcceptAll: false, notifyOnNewPrs: true }]
+  )
+  service.initialize([pr('baseline', now - 10000)])
+  service.notifyNewPullRequests([pr('global-disabled', now - 1000)])
+  assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
+
+  service.setSettings(
+    { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
+    [{ id: 'off', label: 'Off', visible: true, enableAcceptAll: false, notifyOnNewPrs: false }]
+  )
+  service.initialize([pr('baseline', now - 10000)])
+  service.notifyNewPullRequests([pr('opted-out', now - 1000)])
+  assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
+  assert.equal(trayStates.at(-1), false)
+
+  service.setSettings(
+    { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
+    [
+      {
+        id: 'invalid',
+        label: 'Invalid',
+        visible: true,
+        enableAcceptAll: false,
+        notifyOnNewPrs: true,
+        filter: { op: 'XOR', filters: [] } as unknown as PullRequestFilter,
+      } as PrProfile,
+    ]
+  )
+  service.initialize([pr('baseline', now - 10000)])
+  service.notifyNewPullRequests([pr('invalid-filter', now - 1000)])
+  assert.deepEqual(bodies, ['Author: first', 'Author: second', 'Author: blank-filter'])
+  assert.equal(trayStates.at(-1), false)
 })
