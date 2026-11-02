@@ -9,6 +9,7 @@ import {
 } from '@/lib/models/pull-request.model'
 import { SettingsModel } from '@/lib/models/settings.model'
 import { normalizeBranchName } from '@/lib/tools/name-normalizer'
+import { pullRequestDescriptionContext } from '@/lib/tools/pr-search'
 import { usePersistentState } from '@/lib/tools/persistent-state.hook'
 import emptyImage from '@/resources/emptyPRList.svg'
 import {
@@ -81,7 +82,8 @@ const policyOutcomes = {
 const createColumns = (
   reportActionError: (error: unknown) => void,
   openActions: (event: ReactMouseEvent<HTMLElement>, pr: PullRequest) => void,
-  openPr: PullRequest | null
+  openPr: PullRequest | null,
+  searchQuery: string
 ): TableColumnDefinition<PullRequest>[] => [
   createTableColumn<PullRequest>({
     columnId: 'author',
@@ -129,6 +131,8 @@ const createColumns = (
         .filter(Boolean)
         .join(' · ')
 
+      const context = pullRequestDescriptionContext(item, searchQuery)
+
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
           Draft
@@ -141,10 +145,21 @@ const createColumns = (
       ) : null
 
       return (
-        <Tooltip content={`${item.details.label} — ${description}`} relationship="description" withArrow>
+        <Tooltip
+          content={`${item.details.label} — ${description}${context ? ` — Description: ${context}` : ''}`}
+          relationship="description"
+          withArrow
+        >
           <TableCellLayout
             className="pr-title"
-            description={description}
+            description={
+              context ? (
+                <>
+                  {description}
+                  <Text block className="pr-description-match">Description: {context}</Text>
+                </>
+              ) : description
+            }
             appearance="primary"
             truncate
           >
@@ -378,6 +393,7 @@ const columnSizingOptions = {
 type Props = {
   data: PullRequest[]
   sorting?: PrProfile['sorting']
+  searchQuery?: string
   voteAction?: ReturnType<typeof usePrVoteAction>
 }
 
@@ -398,7 +414,7 @@ export default function PrList(props: Readonly<Props>) {
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const actionTriggerRef = useRef<HTMLElement | null>(null)
   const contextMenuRepositoryRef = useRef<string | null>(null)
-  const { data, sorting = defaultProfileSorting } = props
+  const { data, sorting = defaultProfileSorting, searchQuery = '' } = props
   const { sortColumn, sortDirection } = sorting ?? manualSort
   const currentPage = Math.min(page, Math.max(0, Math.ceil(data.length / 100) - 1))
 
@@ -486,8 +502,8 @@ export default function PrList(props: Readonly<Props>) {
   )
 
   const columns = useMemo(
-    () => createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null),
-    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr]
+    () => createColumns(reportActionError, openContextMenu, contextMenuOpen ? contextMenuPr : null, searchQuery),
+    [reportActionError, openContextMenu, contextMenuOpen, contextMenuPr, searchQuery]
   )
   const items = useMemo(() => {
     const compare =

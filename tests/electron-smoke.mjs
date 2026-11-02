@@ -853,7 +853,7 @@ async function checkPrSearch(window, settings) {
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
-  const titleList = `Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent)`
+  const titleList = `Array.from(document.querySelectorAll('.pr-title a')).map(element => element.textContent)`
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
@@ -1022,10 +1022,14 @@ async function checkPrSearch(window, settings) {
   await search('INVOICE', ['Fix invoice rounding'])
   await search('final paragraph', ['Fix invoice rounding'])
   assert.match(
+    await window.webContents.executeJavaScript("document.querySelector('.pr-description-match')?.textContent ?? ''"),
+    /Description: .*final paragraph/
+  )
+  assert.match(
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('All')).textContent"
     ),
-    /All\s*2/
+    /All\s*1 of 2/
   )
   await shortcut(process.platform === 'darwin' ? 'meta' : 'control')
   assert.equal(
@@ -1278,7 +1282,7 @@ async function checkPrSearch(window, settings) {
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith('Grace')).textContent"
     ),
-    /Grace\s*1/
+    /Grace\s*0 of 1/
   )
   await clickTab('All')
   await expectTitles(['Fix invoice rounding'])
