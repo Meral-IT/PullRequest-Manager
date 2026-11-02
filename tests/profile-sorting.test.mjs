@@ -1290,6 +1290,9 @@ test('overview with hidden or deleted profiles offers profile management and rec
     assert.equal(empty?.props.primaryText, 'No visible profiles')
     assert.equal(empty.props.actionText, 'Manage profiles')
     assert.equal(empty.props.actionHref, profiles.length ? '/settings/profiles/test' : '/settings/profiles/new')
+    const refresh = elements(tree, (element) => element.type === 'Button' && element.props.children === 'Refresh')[0]
+    assert.ok(refresh, 'Refresh remains available with no visible profiles')
+    assert.equal(refresh.props.disabled, false)
     assert.equal(elements(tree, (element) => element.type === 'TabList').length, 0)
     view.listeners.get('settings')({ ...settings, profiles: [profile] })
     assert.equal(elements(view.render(), (element) => element.type === 'TabList')[0].props.selectedValue, 'test')
