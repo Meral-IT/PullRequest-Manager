@@ -48,12 +48,16 @@ shows the current match count and opens the approval menu. Right-clicking or mid
 opens the same menu. **Escape** closes an action menu and restores focus without resetting filters.
 
 Open a PR using its title link, or use the row's **Actions** button for approval, feedback reset, and available
-IDE shortcuts. Right-clicking a row opens the same actions. Keyboard users can navigate the grid with arrow
+IDE shortcuts. Right-clicking a row opens the same actions. Approval and feedback reset show successful,
+skipped, and failed counts; partial failures leave the remaining PRs available. Vote controls are disabled while
+an action is pending to prevent repeated votes. Tray approvals report the same outcomes in a native notification. Keyboard users can navigate the grid with arrow
 keys, press **Enter** in a title cell to reach its link, and activate links or buttons with **Enter**.
 
 You can manage multiple connections under **Settings → Integrations** in the left navigation. Select a connection to
 edit it, or choose **Add Integration**, give the new connection a name, and enter its organization URL, project name or ID, and PAT. Refresh intervals, smart approval,
-validation, and scope acknowledgements apply to each connection separately. Use **Save Settings** to apply additions,
+validation, and scope acknowledgements apply to each connection separately. Smart approval only includes PRs
+with no reviewers, or where you or one of your teams is a reviewer or has reviewed on behalf of a reviewer;
+ineligible and stale selections are counted as skipped. Use **Save Settings** to apply additions,
 edits, or removals. Existing Azure DevOps settings migrate automatically on first launch, keeping PATs encrypted.
 
 PRs from all connections appear together. Overlapping connections produce one row per PR; votes use the first

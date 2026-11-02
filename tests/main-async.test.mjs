@@ -5,12 +5,16 @@ import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 
-test('settings saves publish immediately and handle a failed background refresh', async () => {
+test('IPC preserves vote outcomes and publishes settings while handling a failed background refresh', async () => {
   const handlers = new Map()
   const published = []
   const errors = []
   const settings = { general: {}, profiles: [], azDoIntegrations: [], appearance: { theme: 'light' } }
+  const approval = { succeeded: 1, skipped: 2, failed: 1, error: 'Safe access failure' }
+  const reset = { succeeded: 0, skipped: 1, failed: 0 }
   const service = {
+    approvePullRequests: async () => approval,
+    resetPullRequestFeedback: async () => reset,
     setConfiguration: () => undefined,
     updateDataImmediately: () => Promise.reject(new Error('temporary outage')),
   }
@@ -40,6 +44,8 @@ test('settings saves publish immediately and handle a failed background refresh'
     setMenuBarVisibility: () => undefined,
     webContents: { send: (channel) => published.push(channel) },
   })
+  assert.equal(await handlers.get('approve-prs')(null, []), approval, 'IPC must preserve the approval outcome')
+  assert.equal(await handlers.get('reset-pr-feedback')(null, {}), reset, 'IPC must preserve the reset outcome')
   await handlers.get('save-settings')(null, settings)
   assert.deepEqual(published, ['theme-changed', 'settings'])
   await new Promise((resolve) => setImmediate(resolve))

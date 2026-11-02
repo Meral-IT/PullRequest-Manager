@@ -47,6 +47,8 @@ async function component(entry) {
       if (name === 'get-theme') return 'system'
       if (name === 'get-settings') return settings
       if (name === 'get-pr-data') return { error: null, items: [] }
+      if (name === 'approve-prs') return { succeeded: args[0].length, skipped: 0, failed: 0 }
+      if (name === 'reset-pr-feedback') return { succeeded: 1, skipped: 0, failed: 0 }
       if (name === 'update:get-state') return { status: 'idle' }
       return false
     },
@@ -1350,7 +1352,11 @@ const pagedPrs = (count) =>
     id: index + 1,
     creationDate: new Date(2026, 0, 1, 0, index),
     author: { id: 'author', label: 'Author' },
-    details: { label: `PR ${String(count - index).padStart(5, '0')}`, repository: `repo-${index + 1}` },
+    details: {
+      label: `PR ${String(count - index).padStart(5, '0')}`,
+      repository: `repo-${index + 1}`,
+      targetBranch: 'main',
+    },
     reviewers: [],
     evaluations: [],
     urls: { web: `https://example.invalid/${index + 1}` },
@@ -1488,4 +1494,199 @@ test('creation sorting keeps equal and missing dates stable across page boundari
       sortDirection === 'ascending' ? [102, ...data.slice(0, 101).map((item) => item.id)] : data.map((item) => item.id)
     )
   }
+})
+
+test('pending row approvals disable vote controls, suppress duplicate clicks, and announce partial outcomes', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const props = { data: pagedPrs(3) }
+  const invoke = view.api.invoke
+  let release
+  const waiting = new Promise((resolve) => {
+    release = resolve
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return waiting
+    }
+    return invoke(name, ...args)
+  }
+  view.render(props)
+  await view.flush()
+  const actions = () => gridIn(view.render(props)).props.columns.find((column) => column.columnId === 'actions')
+  const trigger = elements(actions().renderCell(props.data[0]), (element) => element.type === 'Button')[0]
+  await trigger.props.onClick({ currentTarget: { focus: () => undefined }, preventDefault: () => undefined })
+  const voteItem = (tree, text) =>
+    elements(tree, (element) => element.type === 'MenuItem' && element.props.children === text)[0]
+  const approve = voteItem(view.render(props), 'Approve')
+  approve.props.onClick()
+  approve.props.onClick()
+  assert.equal(
+    view.calls.filter(([name]) => name === 'approve-prs').length,
+    1,
+    'Repeated clicks must not duplicate votes'
+  )
+  let tree = view.render(props)
+  assert.equal(voteItem(tree, 'Approve').props.disabled, true)
+  assert.equal(voteItem(tree, 'Reset feedback').props.disabled, true)
+  release({
+    succeeded: 1,
+    skipped: 1,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  await view.flush()
+  tree = view.render(props)
+  const notice = elements(tree, (element) => element.props.role === 'alert')[0]
+  assert.ok(notice, 'Partial failures need an accessible outcome')
+  assert.ok(
+    elements(notice, (element) => /1 approved.*1 skipped.*1 failed/.test(String(element.props.children))).length
+  )
+  assert.equal(gridIn(tree).props.items.length, 3, 'Action failure must not hide healthy rows')
+  assert.equal(voteItem(tree, 'Approve').props.disabled, false)
+})
+
+test('pending bulk approval prevents repeated actions and keeps healthy rows after a safe error', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  view.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true, enableAcceptAll: true }] })
+  const items = pagedPrs(2)
+  const invoke = view.api.invoke
+  let reject
+  const waiting = new Promise((_resolve, failure) => {
+    reject = failure
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'get-pr-data') return Promise.resolve({ items, error: null })
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return waiting
+    }
+    return invoke(name, ...args)
+  }
+  view.render()
+  await view.flush()
+  const bulk = () =>
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Test')
+    )[0]
+  bulk().props.onClick({ currentTarget: { focus: () => undefined } })
+  const approve = elements(view.render(), (element) => element.type?.name === 'TabHeaderMenu')[0]
+  approve.props.onClick()
+  approve.props.onClick()
+  assert.equal(view.calls.filter(([name]) => name === 'approve-prs').length, 1)
+  assert.equal(bulk().props.disabled, true)
+  reject(new Error('PAT=test-token sensitive server response'))
+  await view.flush()
+  const tree = view.render()
+  const notice = elements(tree, (element) => element.props.role === 'alert')[0]
+  assert.ok(notice, 'Transport failure needs an accessible safe outcome')
+  assert.equal(JSON.stringify(notice).includes('test-token'), false, 'Raw IPC errors must never reach action UI')
+  assert.ok(elements(tree, (element) => element.type?.name === 'PrList' && element.props.data.length === 2).length)
+  assert.equal(bulk().props.disabled, false)
+})
+
+test('row and bulk approval share pending state and keep outcomes when profiles change', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  view.setSettings({
+    ...settings,
+    profiles: [
+      { ...profile, isDefault: true, enableAcceptAll: true },
+      { ...profile, id: 'other', label: 'Other', enableAcceptAll: true },
+    ],
+  })
+  const items = pagedPrs(1)
+  const invoke = view.api.invoke
+  let release
+  const pending = new Promise((resolve) => {
+    release = resolve
+  })
+  view.api.invoke = (name, ...args) => {
+    if (name === 'get-pr-data') return Promise.resolve({ items, error: null })
+    if (name === 'approve-prs') {
+      view.calls.push([name, ...args])
+      return pending
+    }
+    return invoke(name, ...args)
+  }
+  view.render()
+  await view.flush()
+  const row = () => elements(view.render(), (element) => element.type?.name === 'PrList')[0]
+  const action = row().props.voteAction
+  const voting = action.run('approve', items)
+  action.run('reset', items)
+  let tree = view.render()
+  assert.equal(row().props.voteAction.pending, true)
+  assert.equal(
+    elements(
+      tree,
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Test')
+    )[0].props.disabled,
+    true
+  )
+  elements(tree, (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'other' })
+  assert.equal(row().props.voteAction.pending, true, 'Profile changes must not release pending votes')
+  release({ succeeded: 0, skipped: 1, failed: 0 })
+  await voting
+  tree = view.render()
+  assert.equal(view.calls.filter(([name]) => name === 'approve-prs').length, 1)
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'status' &&
+        elements(element, (child) => /0 approved.*1 skipped.*0 failed/.test(String(child.props.children))).length
+    ).length
+  )
+})
+
+test('row reset announces a successful reset and safe denied outcome while retaining rows', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const props = { data: pagedPrs(1) }
+  view.render(props)
+  await view.flush()
+  const reset = async () => {
+    const column = gridIn(view.render(props)).props.columns.find((column) => column.columnId === 'actions')
+    const trigger = elements(column.renderCell(props.data[0]), (element) => element.type === 'Button')[0]
+    await trigger.props.onClick({ currentTarget: { focus: () => undefined }, preventDefault: () => undefined })
+    elements(
+      view.render(props),
+      (element) => element.type === 'MenuItem' && element.props.children === 'Reset feedback'
+    )[0].props.onClick()
+    await view.flush()
+    return view.render(props)
+  }
+  let tree = await reset()
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'status' &&
+        elements(element, (child) => /1 vote reset.*0 skipped.*0 failed/.test(String(child.props.children))).length
+    ).length
+  )
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'reset-pr-feedback'
+      ? Promise.resolve({
+          succeeded: 0,
+          skipped: 0,
+          failed: 1,
+          error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+        })
+      : invoke(name, ...args)
+  tree = await reset()
+  assert.ok(
+    elements(
+      tree,
+      (element) =>
+        element.props.role === 'alert' &&
+        elements(element, (child) =>
+          /0 votes reset.*0 skipped.*1 failed.*Access denied/.test(String(child.props.children))
+        ).length
+    ).length
+  )
+  assert.equal(gridIn(tree).props.items.length, 1)
 })

@@ -26,6 +26,7 @@ import {
 import { PullRequestData } from '../models/pr-data'
 import { PrProfile } from '../models/pr-profile'
 import { PrVote } from '../models/pr-vote'
+import { PullRequestActionResult } from '../models/pull-request-action'
 import {
   PullRequest,
   PullRequestMergeStatus,
@@ -250,18 +251,18 @@ export class AzureDevOpsService {
     return this.pullRequests
   }
 
-  public async approvePullRequestsForProfile(profile: PrProfile): Promise<void> {
+  public async approvePullRequestsForProfile(profile: PrProfile): Promise<PullRequestActionResult> {
     const prs = FilterEvaluator.evaluate(this.pullRequests.items, profile.filter!)
 
-    if (prs.length === 0) {
-      return
-    }
     return this.approvePullRequests(prs)
   }
 
-  public async approvePullRequests(prs: PullRequest[]): Promise<void> {
+  public async approvePullRequests(prs: PullRequest[]): Promise<PullRequestActionResult> {
+    prs = [...new Map(prs.map((pr) => [pullRequestKey(pr), pr])).values()]
+    const result: PullRequestActionResult = { succeeded: 0, skipped: 0, failed: 0 }
+    if (!prs.length) return result
     if (!this.settings || !this.isValidSettings(this.settings) || !this.api) {
-      return
+      return { ...result, skipped: prs.length, error: 'Configure an Azure DevOps integration before approving.' }
     }
 
     const revision = this.connectionRevision
@@ -274,13 +275,15 @@ export class AzureDevOpsService {
       connectionData = await AzureDevOpsService.connect(api)
       buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
     } catch (error) {
-      await this.publishVoteAccess(getAzureDevOpsAccessFailure(error), revision)
-      return
+      const failure = getAzureDevOpsAccessFailure(error)
+      await this.publishVoteAccess(failure, revision)
+      return { ...result, failed: prs.length, error: failure.message }
     }
-    if (revision !== this.connectionRevision) return
+    if (revision !== this.connectionRevision) return { ...result, skipped: prs.length }
 
     // Filter for PRs where the user is already a reviewer
     if (this.settings.intelligentApproval) {
+      const requested = prs.length
       const myApproverIds = this.data.teams.map((team) => team.id)
       if (connectionData.authenticatedUser?.id) {
         myApproverIds.push(connectionData.authenticatedUser.id)
@@ -299,9 +302,10 @@ export class AzureDevOpsService {
           })
         )
       })
+      result.skipped = requested - prs.length
     }
 
-    if (!prs.length) return
+    if (!prs.length) return result
 
     log.debug(
       'Approving pull requests: ',
@@ -310,7 +314,10 @@ export class AzureDevOpsService {
     const failures: AzureDevOpsAccessResult[] = []
     const tasks = prs.map((pr) => {
       return async () => {
-        if (revision !== this.connectionRevision) return
+        if (revision !== this.connectionRevision) {
+          result.skipped++
+          return
+        }
         try {
           const reviewer = await AzureDevOpsService.checkAccess(access, 'vote', () =>
             buildApi.createPullRequestReviewer(
@@ -327,7 +334,9 @@ export class AzureDevOpsService {
           // update the related pull request
           if (revision === this.connectionRevision)
             AzureDevOpsService.appendReviewer(this.pullRequests, connectionData, pr, reviewer)
+          result.succeeded++
         } catch (error) {
+          result.failed++
           failures.push(getAzureDevOpsAccessFailure(error))
           log.error('Failed to approve pull request', getAzureDevOpsAccessFailure(error).message)
         }
@@ -335,20 +344,23 @@ export class AzureDevOpsService {
     })
 
     await throttleAll<void>(4, tasks)
-    if (failures.length)
-      access.features.vote = AzureDevOpsService.mergeVoteAccess(
-        access.features.vote,
+    if (failures.length) {
+      const failure =
         failures.find((failure) => failure.status === 'denied') ??
-          failures.find((failure) => failure.reason === 'authentication') ??
-          failures[0]
-      )
+        failures.find((failure) => failure.reason === 'authentication') ??
+        failures[0]
+      result.error = failure.message
+      access.features.vote = AzureDevOpsService.mergeVoteAccess(access.features.vote, failure)
+    }
 
     await this.publishVoteAccess(access.features.vote, revision)
+    return result
   }
 
-  public async resetPullRequestFeedback(pr: PullRequest): Promise<void> {
+  public async resetPullRequestFeedback(pr: PullRequest): Promise<PullRequestActionResult> {
+    const result: PullRequestActionResult = { succeeded: 0, skipped: 0, failed: 0 }
     if (!this.settings || !this.isValidSettings(this.settings) || !this.api) {
-      return
+      return { ...result, skipped: 1, error: 'Configure an Azure DevOps integration before resetting feedback.' }
     }
 
     const revision = this.connectionRevision
@@ -358,7 +370,7 @@ export class AzureDevOpsService {
     try {
       const connectionData = await AzureDevOpsService.connect(api)
       const buildApi = await api.getGitApi(settings.organizationUrl, [api.authHandler])
-      if (revision !== this.connectionRevision) return
+      if (revision !== this.connectionRevision) return { ...result, skipped: 1 }
       const reviewer = await AzureDevOpsService.checkAccess(access, 'vote', () =>
         buildApi.createPullRequestReviewer(
           {
@@ -373,11 +385,15 @@ export class AzureDevOpsService {
 
       if (revision === this.connectionRevision)
         AzureDevOpsService.appendReviewer(this.pullRequests, connectionData, pr, reviewer)
+      result.succeeded = 1
     } catch (error) {
+      result.failed = 1
       access.features.vote = getAzureDevOpsAccessFailure(error)
+      result.error = access.features.vote.message
       log.error('Failed to reset pull request feedback', access.features.vote.message)
     }
     await this.publishVoteAccess(access.features.vote, revision)
+    return result
   }
 
   private static appendReviewer(

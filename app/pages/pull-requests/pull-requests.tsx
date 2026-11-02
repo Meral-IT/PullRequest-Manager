@@ -1,6 +1,7 @@
 import ErrorComponent from '@/app/components/error/error.component'
 import AzureDevOpsAccessBanner from '@/app/components/azure-devops-access-banner'
 import PrList from '@/app/components/pr-list/pr-list'
+import { usePrVoteAction } from '@/app/components/pr-list/use-pr-vote-action'
 import ZeroData from '@/app/components/zero-data/zero-data.component'
 import { ErrorDetail, ErrorType } from '@/lib/models/error-detail'
 import { PullRequestData } from '@/lib/models/pr-data'
@@ -98,18 +99,20 @@ function TabHeaderMenu({
   onClick,
   onOpenChange,
   label,
+  disabled,
 }: Readonly<{
   open: boolean
   positioning: PositioningShorthand
   onOpenChange: MenuProps['onOpenChange']
   onClick: () => void
   label: string
+  disabled: boolean
 }>) {
   return (
     <Menu open={open} positioning={positioning} onOpenChange={onOpenChange}>
       <MenuPopover>
         <MenuList>
-          <MenuItem icon={<ThumbLikeFilled />} onClick={onClick}>
+          <MenuItem icon={<ThumbLikeFilled />} disabled={disabled} onClick={onClick}>
             {label}
           </MenuItem>
         </MenuList>
@@ -199,6 +202,7 @@ const OverflowMenu = (props: OverflowMenuProps) => {
 }
 
 export default function PullRequestsOverview() {
+  const voteAction = usePrVoteAction()
   const positioningRef = useRef<PositioningImperativeRef>(null)
   const [open, setOpen] = useState(false)
   const bulkTriggerRef = useRef<HTMLElement | null>(null)
@@ -355,6 +359,7 @@ export default function PullRequestsOverview() {
   }
 
   const onHeaderMenu = (target: HTMLElement, items: PullRequest[], scope: string) => {
+    if (voteAction.pending) return
     bulkTriggerRef.current = target
     positioningRef.current?.setTarget(target)
     setMenuData(items)
@@ -363,7 +368,7 @@ export default function PullRequestsOverview() {
   }
 
   const onApproveClick = () => {
-    globalThis.api.invoke('approve-prs', menuData).catch(showError)
+    void voteAction.run('approve', menuData)
     setOpen(false)
     bulkTriggerRef.current?.focus()
   }
@@ -403,7 +408,7 @@ export default function PullRequestsOverview() {
           imagePath={emptyImage}
         />
       ) : (
-        <PrList key={profile.id} data={visible} sorting={profile.sorting} />
+        <PrList key={profile.id} data={visible} sorting={profile.sorting} voteAction={voteAction} />
       ))
 
     return {
@@ -433,9 +438,23 @@ export default function PullRequestsOverview() {
         onClick={onApproveClick}
         onOpenChange={onOpenChange}
         label={`Approve all matching PRs in ${menuScope} (${menuData.length})`}
+        disabled={voteAction.pending}
       />
       <div className="container">
         <IntegrationNotices data={pullRequests} />
+        {voteAction.pending && (
+          <MessageBar role="status">
+            <MessageBarBody>Updating pull request votes…</MessageBarBody>
+          </MessageBar>
+        )}
+        {voteAction.notice && (
+          <MessageBar
+            intent={voteAction.notice.intent}
+            role={voteAction.notice.intent === 'error' ? 'alert' : 'status'}
+          >
+            <MessageBarBody>{voteAction.notice.message}</MessageBarBody>
+          </MessageBar>
+        )}
         <div className="section">
           <div className="content header pr-list-header">
             <div className="pr-profile-tabs">
@@ -453,7 +472,7 @@ export default function PullRequestsOverview() {
                 aria-label={`Approve all matching PRs in ${active.profile.label} (${visible.length})`}
                 aria-haspopup="menu"
                 aria-expanded={open && menuScope === active.profile.label}
-                disabled={visible.length === 0}
+                disabled={visible.length === 0 || voteAction.pending}
                 onClick={(event) => onHeaderMenu(event.currentTarget, visible, active.profile.label)}
               >
                 Approve all matching PRs ({visible.length})
