@@ -767,7 +767,7 @@ test('profile filtering caches badges while search touches only the active profi
     [1]
   )
   const secondTab = elements(tree, (element) => element.type === 'Tab' && element.props.value === 'two')[0]
-  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: {} })
+  secondTab.props.onContextMenu({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
   tree = view.render()
   elements(tree, (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
   assert.deepEqual(
@@ -1212,4 +1212,178 @@ test('settings startup retains access diagnostics when PR events precede connect
     await provider.flush()
     assert.equal(provider.render({}, 'SettingProvider').props.value.azDoAccess, access)
   }
+})
+
+test('PR title links open the intended URL and expose launch failures', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const item = {
+    id: 12,
+    details: { label: 'Fix invoice', repository: 'Billing', branch: 'feature', targetBranch: 'main' },
+    urls: { web: 'https://example.com/pr/12' },
+  }
+  const data = [item]
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const cell = grid.props.columns.find((column) => column.columnId === 'details').renderCell(item)
+  const link = elements(cell, (element) => element.type === 'Link')[0]
+  assert.ok(link, 'The PR title must be a semantic link')
+  assert.equal(link.props.href, 'https://example.com/pr/12')
+  assert.equal(link.props.children.props.children, 'Fix invoice')
+  let prevented = false
+  await link.props.onClick({
+    preventDefault() {
+      prevented = true
+    },
+  })
+  assert.equal(prevented, true)
+  assert.deepEqual(view.calls.at(-1), ['web-open-url', 'https://example.com/pr/12'])
+  await view.flush()
+  view.api.invoke = async () => {
+    throw new Error('Browser launch failed. Try again.')
+  }
+  await link.props.onClick({ preventDefault: () => undefined })
+  await view.flush()
+  const alert = elements(view.render({ data }), (element) => element.props.role === 'alert')[0]
+  assert.ok(elements(alert, (element) => element.props.children === 'Browser launch failed. Try again.').length)
+})
+
+test('visible row actions share approval and reset handlers and restore trigger focus', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const data = [
+    { id: 1, details: { label: 'First', repository: 'One' } },
+    { id: 2, details: { label: 'Second', repository: 'Two' } },
+  ]
+  view.render({ data })
+  await view.flush()
+  const grid = () => elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const actions = grid().props.columns.find((column) => column.columnId === 'actions')
+  assert.ok(actions, 'Each PR needs a visible actions control')
+  let focused = 0
+  const trigger = {
+    focus() {
+      focused++
+    },
+    getBoundingClientRect() {
+      return {}
+    },
+  }
+  const cell = actions.renderCell(data[1])
+  const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+  assert.equal(tooltip.props.content, 'More options')
+  assert.equal(tooltip.props.relationship, 'description')
+  const button = elements(cell, (element) => element.type === 'Button')[0]
+  assert.equal(button.props['aria-label'], 'Actions for PR 2: Second')
+  assert.equal(button.props.children, undefined)
+  assert.equal(button.props.icon.type.render.displayName, 'MoreVerticalRegular')
+  assert.equal(button.props['aria-haspopup'], 'menu')
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  let tree = view.render({ data })
+  let menu = elements(tree, (element) => element.type === 'Menu')[0]
+  assert.equal(menu.props.open, true)
+  elements(menu, (element) => element.type === 'MenuItem' && element.props.children === 'Approve')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [data[1]]]
+  )
+  assert.equal(focused, 1)
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  tree = view.render({ data })
+  menu = elements(tree, (element) => element.type === 'Menu')[0]
+  elements(
+    menu,
+    (element) => element.type === 'MenuItem' && element.props.children === 'Reset feedback'
+  )[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'reset-pr-feedback'),
+    ['reset-pr-feedback', data[1]]
+  )
+  await button.props.onClick({ currentTarget: trigger, preventDefault: () => undefined })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, keyboard: true, type: 'menuPopoverKeyDown', event: { key: 'Escape' } })
+  assert.equal(focused, 3)
+  const body = elements(view.render({ data }), (element) => element.type === 'DataGridBody')[0]
+  const row = body.props.children({ item: data[0], rowId: 1 })
+  let contextFocus = 0
+  const origin = { focus: () => contextFocus++ }
+  await row.props.onContextMenu({
+    preventDefault: () => undefined,
+    currentTarget: { focus: () => undefined },
+    target: { closest: () => origin },
+    clientX: 0,
+    clientY: 0,
+  })
+  menu = elements(view.render({ data }), (element) => element.type === 'Menu')[0]
+  menu.props.onOpenChange(null, { open: false, type: 'menuPopoverKeyDown' })
+  assert.equal(contextFocus, 1, 'Context menu Escape returns to the originating link or cell')
+  for (const columnId of ['details', 'actions', 'statusChecks']) {
+    assert.equal(
+      row.props.children({ columnId, renderCell: () => null }).props.focusMode,
+      columnId === 'actions' ? 'none' : 'group'
+    )
+  }
+})
+
+test('visible bulk approval names its matching scope and uses the active profile filters', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const profiles = [
+    {
+      ...profile,
+      id: 'enabled',
+      label: 'Review queue',
+      isDefault: true,
+      enableAcceptAll: true,
+      filter: { op: 'AND', filters: [{ isDraft: false }] },
+    },
+    { ...profile, id: 'disabled', label: 'Read only' },
+  ]
+  const items = [
+    {
+      id: 1,
+      isDraft: false,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice fix', repository: 'Billing', targetBranch: 'main' },
+    },
+    {
+      id: 2,
+      isDraft: false,
+      author: { id: 'grace', label: 'Grace' },
+      details: { label: 'Dashboard fix', repository: 'Portal', targetBranch: 'develop' },
+    },
+    {
+      id: 3,
+      isDraft: true,
+      author: { id: 'ada', label: 'Ada' },
+      details: { label: 'Invoice draft', repository: 'Billing', targetBranch: 'main' },
+    },
+  ]
+  view.setSettings({ ...settings, profiles })
+  const invoke = view.api.invoke
+  view.api.invoke = (name, ...args) =>
+    name === 'get-pr-data' ? Promise.resolve({ items, error: null }) : invoke(name, ...args)
+  view.render()
+  await view.flush()
+  const bulk = () =>
+    elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props['aria-label']?.includes('matching PRs in Review queue')
+    )[0]
+  assert.ok(bulk(), 'Bulk approval needs an explicit labeled trigger')
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(2\)/)
+  elements(
+    view.render(),
+    (element) => element.type === 'Button' && element.props['aria-controls'] === 'pr-filter-line'
+  )[0].props.onClick()
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'invoice' })
+  assert.match(bulk().props['aria-label'], /matching PRs in Review queue \(1\)/)
+  bulk().props.onClick({ currentTarget: { focus: () => undefined } })
+  elements(view.render(), (element) => element.type?.name === 'TabHeaderMenu')[0].props.onClick()
+  assert.deepEqual(
+    view.calls.find(([channel]) => channel === 'approve-prs'),
+    ['approve-prs', [items[0]]]
+  )
+  elements(view.render(), (element) => element.type === 'Input')[0].props.onChange(null, { value: 'no matches' })
+  assert.equal(bulk().props.disabled, true)
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'disabled' })
+  assert.equal(bulk(), undefined)
 })
