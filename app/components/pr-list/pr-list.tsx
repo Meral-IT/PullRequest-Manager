@@ -538,7 +538,11 @@ export default function PrList(props: Readonly<Props>) {
         <DataGridBody<PullRequest>>
           {({ item, rowId }) => (
             <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item)}>
-              {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}
+              {({ renderCell, columnId }) => (
+                <DataGridCell focusMode={columnId === 'statusChecks' ? 'group' : 'cell'}>
+                  {renderCell(item)}
+                </DataGridCell>
+              )}
             </DataGridRow>
           )}
         </DataGridBody>
