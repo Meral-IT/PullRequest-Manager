@@ -691,6 +691,7 @@ async function checkTitlebarMenus(window) {
 }
 
 async function checkPrSearch(window, settings) {
+  await focusWindow(window)
   const originalProfiles = settings.profiles
   settings.profiles = [
     {
@@ -791,13 +792,18 @@ async function checkPrSearch(window, settings) {
   ipcMain.handle('approve-prs', (_event, items) => {
     approvals.push(items.map((item) => item.id))
   })
+  let rejectUrl = false
   ipcMain.handle('web-open-url', (_event, url) => {
+    if (rejectUrl) throw new Error('Browser launch failed. Try again.')
     openedUrls.push(url)
   })
+  const resets = []
+  ipcMain.handle('reset-pr-feedback', (_event, item) => resets.push(item.id))
   ipcMain.handle('find-solution-files', () => [])
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
+  await settleLayout(window)
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
   const policySummary = '[role="img"][aria-label="2 failed, 2 pending, 1 approved, 1 not applicable"]'
@@ -827,6 +833,7 @@ async function checkPrSearch(window, settings) {
     true,
     'Arrow navigation reaches the status gridcell'
   )
+  await focusWindow(window)
   await policyKey('Enter')
   assert.equal(
     await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('${policySummary}')`),
@@ -951,13 +958,117 @@ async function checkPrSearch(window, settings) {
     'invoice',
     'Outside clicks preserve search'
   )
-  await window.webContents.executeJavaScript("document.querySelector('.pr-title').click()")
+  await window.webContents.executeJavaScript("document.querySelector('.pr-title a').click()")
   assert.deepEqual(openedUrls, ['https://example.com/pr/1'])
   assert.equal(
     await window.webContents.executeJavaScript(`${input}?.value`),
     'invoice',
     'Opening a PR preserves search'
   )
+
+  await focusWindow(window)
+  const titleLink = `document.querySelector('.pr-title a')`
+  const rowActions = `document.querySelector('button[aria-label="Actions for PR 1: Fix invoice rounding"]')`
+  const bulkActions = `document.querySelector('button[aria-label="Approve all matching PRs in All (1)"]')`
+  const rowMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent === 'Approve')`
+  const bulkMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all'))`
+  const press = async (keyCode) => {
+    const nativeButton = await window.webContents.executeJavaScript(`document.activeElement?.tagName === 'BUTTON'`)
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+    if (keyCode === 'Enter' && nativeButton) window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+    await settleLayout(window)
+  }
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`(() => {
+      const link = ${titleLink}
+      link.closest('[role=gridcell]').focus()
+      return { text: link.textContent, href: link.href }
+    })()`),
+    { text: 'Fix invoice rounding', href: 'https://example.com/pr/1' }
+  )
+  await press('Enter')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${titleLink}`), true)
+  await press('Enter')
+  assert.deepEqual(openedUrls, ['https://example.com/pr/1', 'https://example.com/pr/1'])
+  rejectUrl = true
+  await press('Enter')
+  await waitForRenderer(
+    window,
+    `document.querySelector('[role=alert]')?.textContent.includes('Browser launch failed. Try again.')`
+  )
+  rejectUrl = false
+  await window.webContents.executeJavaScript(
+    `${rowActions}.closest('[role=row]').querySelectorAll('[role=gridcell]')[3].focus()`
+  )
+  await press('Right')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${rowActions}`), true)
+  await press('Space')
+  await waitForRenderer(window, `${rowMenu} === document.activeElement`, 'row menu focus attempt 1')
+  await press('Escape')
+  await waitForRenderer(window, `!${rowMenu} && document.activeElement === ${rowActions}`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}.value`),
+    'invoice',
+    'Row menu Escape preserves filters'
+  )
+  await press('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${rowMenu} === document.activeElement`),
+    true,
+    'reopen after Escape'
+  )
+  await press('Enter')
+  await waitForRenderer(window, `!${rowMenu} && document.activeElement === ${rowActions}`)
+  assert.deepEqual(approvals, [[1]], 'Keyboard row approval targets the displayed PR')
+  await press('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${rowMenu} === document.activeElement`),
+    true,
+    'reopen after approval'
+  )
+  await press('Down')
+  assert.equal(await window.webContents.executeJavaScript('document.activeElement.textContent'), 'Reset feedback')
+  await press('Enter')
+  assert.deepEqual(resets, [1], 'Keyboard row reset targets the same PR')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${rowActions}`), true)
+  await window.webContents.executeJavaScript(
+    `${titleLink}.focus(); ${titleLink}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`
+  )
+  await waitForRenderer(window, `${rowMenu} === document.activeElement`, 'Context accelerator focuses row actions')
+  await press('Escape')
+  await waitForRenderer(
+    window,
+    `!${rowMenu} && document.activeElement === ${titleLink}`,
+    'Context menu Escape restores the originating PR link'
+  )
+  assert.equal(await window.webContents.executeJavaScript(`${input}.value`), 'invoice')
+  await window.webContents.executeJavaScript(`${bulkActions}.focus()`)
+  await press('Enter')
+  await waitForRenderer(window, `${bulkMenu} === document.activeElement`)
+  assert.match(await window.webContents.executeJavaScript(`${bulkMenu}.textContent`), /matching PRs in All \(1\)/)
+  await press('Escape')
+  await waitForRenderer(window, `!${bulkMenu} && document.activeElement === ${bulkActions}`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}.value`),
+    'invoice',
+    'Bulk menu Escape preserves filters'
+  )
+  await press('Space')
+  await waitForRenderer(window, `${bulkMenu} === document.activeElement`)
+  await press('Enter')
+  assert.deepEqual(approvals, [[1], [1]], 'Visible bulk approval uses the filtered matching scope')
+  await capture(window, 'pr-actions-light')
+  settings.appearance.theme = 'dark'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'dark')
+  await settleLayout(window)
+  await capture(window, 'pr-actions-dark')
+  settings.appearance.theme = 'light'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'light')
+  await settleLayout(window)
+  approvals.length = 0
 
   await window.webContents.executeJavaScript(
     "document.querySelector('.pr-title').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))"

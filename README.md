@@ -43,7 +43,13 @@ to narrow each profile. Filter values and the line's visibility stay shared when
 **Ctrl+F** (**Cmd+F** on macOS) reveals the line and focuses search;
 Each control's **×** resets its value. The **×** at the end clears all filters and hides the line;
 **Escape** resets all filters without hiding it. Toggling the filter icon keeps filters active,
-as indicated by the highlighted icon. The profile's **Approve all** action includes only matching PRs.
+as indicated by the highlighted icon. When a profile allows bulk approval, **Approve all matching PRs**
+shows the current match count and opens the approval menu. Right-clicking or middle-clicking the profile tab
+opens the same menu. **Escape** closes an action menu and restores focus without resetting filters.
+
+Open a PR using its title link, or use the row's **Actions** button for approval, feedback reset, and available
+IDE shortcuts. Right-clicking a row opens the same actions. Keyboard users can navigate the grid with arrow
+keys, press **Enter** in a title cell to reach its link, and activate links or buttons with **Enter**.
 
 You can manage multiple connections under **Settings → Integrations** in the left navigation. Select a connection to
 edit it, or choose **Add Integration**, give the new connection a name, and enter its organization URL, project name or ID, and PAT. Refresh intervals, smart approval,
