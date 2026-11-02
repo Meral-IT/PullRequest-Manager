@@ -40,12 +40,14 @@ function waitForRenderer(window, condition, description = condition) {
       if (ready()) {
         observer.disconnect()
         document.removeEventListener('focusin', check)
+        globalThis.removeEventListener('popstate', check)
         resolve()
       }
     }
     const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
     document.addEventListener('focusin', check)
+    globalThis.addEventListener('popstate', check)
   })`)
 }
 
