@@ -136,8 +136,10 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     return AzureDevOpsIntegrationsService.getInstance().getPullRequests()
   })
 
-  handleIPC('update-pr-data', (_e) => {
-    return AzureDevOpsIntegrationsService.getInstance().updateDataImmediately()
+  handleIPC('update-pr-data', async (_e) => {
+    const service = AzureDevOpsIntegrationsService.getInstance()
+    await service.updateDataImmediately()
+    return service.getPullRequests()
   })
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {

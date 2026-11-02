@@ -11,6 +11,7 @@ import { PullRequest, pullRequestKey } from '../models/pull-request.model'
 import { AzDoIntegration } from '../models/settings.model'
 import { FilterEvaluator } from '../models/ui-filter.model'
 import { AzureDevOpsService } from './azure-devops.service'
+import loader from '../tools/loading.service'
 
 export class AzureDevOpsIntegrationsService {
   constructor(
@@ -79,7 +80,13 @@ export class AzureDevOpsIntegrationsService {
     const integrations: NonNullable<PullRequestData['integrations']> = []
     for (const [id, { service, settings }] of this.services) {
       const data = service.getPullRequests()
-      integrations.push({ id, name: settings.name, access: data.access, error: data.error })
+      integrations.push({
+        id,
+        name: settings.name,
+        access: data.access,
+        error: data.error,
+        lastSuccessfulRefreshAt: data.lastSuccessfulRefreshAt,
+      })
       for (const pr of data.items) {
         const key = pullRequestKey(pr)
         if (!items.has(key)) items.set(key, { ...pr, integrationId: id })
@@ -90,6 +97,11 @@ export class AzureDevOpsIntegrationsService {
         (a, b) => (b.creationDate?.getTime() ?? 0) - (a.creationDate?.getTime() ?? 0)
       ),
       integrations,
+      isLoading: loader.isLoading,
+      lastSuccessfulRefreshAt:
+        integrations.length && integrations.every((integration) => integration.lastSuccessfulRefreshAt !== undefined)
+          ? Math.min(...integrations.map((integration) => integration.lastSuccessfulRefreshAt!))
+          : undefined,
       error: this.services.size
         ? null
         : {

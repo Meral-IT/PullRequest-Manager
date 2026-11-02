@@ -40,6 +40,7 @@ import {
   Overflow,
   OverflowItem,
   Option,
+  Spinner,
   Tab,
   TabList,
   Text,
@@ -54,6 +55,7 @@ import {
   FilterRegular,
   MoreHorizontalRegular,
   PersonRegular,
+  ArrowClockwiseRegular,
   ThumbLikeFilled,
 } from '@fluentui/react-icons'
 import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -217,6 +219,12 @@ export default function PullRequestsOverview() {
     error: null,
     items: [],
   })
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [refreshPending, setRefreshPending] = useState(false)
+  const [refreshMessage, setRefreshMessage] = useState('')
+  const refreshInFlight = useRef(false)
+  const liveData = useRef<PullRequestData | undefined>(undefined)
   const [menuData, setMenuData] = useState<PullRequest[]>([])
   const [profiles, setProfiles] = useState<PrProfile[]>([])
   const [filtersVisible, setFiltersVisible] = useState(false)
@@ -284,21 +292,38 @@ export default function PullRequestsOverview() {
   useEffect(() => {
     let active = true
     let dataReceived = false
+    let loadingReceived = false
+    const unsubscribeLoading = globalThis.api.receive('loading', ({ isLoading }) => {
+      loadingReceived = true
+      setIsLoading(isLoading)
+    })
     const unsubscribe = globalThis.api.receive('pr-data', (data) => {
       dataReceived = true
+      liveData.current = data
+      setRefreshMessage('')
+      setDataLoaded(true)
       setPullRequests(data)
     })
     globalThis.api
       .invoke('get-pr-data')
       .then((data) => {
-        if (active && !dataReceived && data) setPullRequests(data)
+        if (!active || !data) return
+        if (!loadingReceived) setIsLoading(data.isLoading ?? false)
+        if (!dataReceived) {
+          setDataLoaded(true)
+          setPullRequests(data)
+        }
       })
       .catch((error) => {
-        if (active && !dataReceived) showError(error)
+        if (active && !dataReceived) {
+          setDataLoaded(true)
+          showError(error)
+        }
       })
     return () => {
       active = false
       unsubscribe()
+      unsubscribeLoading()
     }
   }, [showError])
 
@@ -348,9 +373,55 @@ export default function PullRequestsOverview() {
     [active?.filtered, searchQuery, createdBy?.id, targetBranch]
   )
 
+  const busy = !dataLoaded || isLoading || refreshPending
+  const initialLoading = busy && !pullRequests.lastSuccessfulRefreshAt && !pullRequests.items.length
+  const refresh = async () => {
+    if (busy || refreshInFlight.current) return
+    refreshInFlight.current = true
+    setRefreshPending(true)
+    setRefreshMessage('')
+    const beforeRefresh = liveData.current
+    try {
+      const result: PullRequestData = await globalThis.api.invoke('update-pr-data')
+      const data = liveData.current !== beforeRefresh ? liveData.current! : result
+      if (liveData.current === beforeRefresh) setPullRequests(data)
+      const errors = [data.error, ...(data.integrations?.map((integration) => integration.error) ?? [])].filter(
+        (error) => error !== null
+      )
+      setRefreshMessage(
+        errors.length ? `Refresh incomplete: ${errors.map((error) => error.message).join('; ')}` : 'Refresh complete.'
+      )
+    } catch (error) {
+      setRefreshMessage(`Refresh failed: ${error instanceof Error ? error.message : String(error)}. Try Refresh again.`)
+    } finally {
+      refreshInFlight.current = false
+      setRefreshPending(false)
+    }
+  }
+  const refreshButton = (
+    <Button icon={<ArrowClockwiseRegular />} disabled={busy} onClick={refresh}>
+      Refresh
+    </Button>
+  )
+  const refreshStatus = (busy || refreshMessage || pullRequests.lastSuccessfulRefreshAt !== undefined) && (
+    <div className="content pr-refresh-status" role="status" aria-live="polite" aria-atomic="true">
+      {busy ? (initialLoading ? 'Loading pull requests…' : 'Refreshing pull requests…') : refreshMessage}
+      {pullRequests.lastSuccessfulRefreshAt !== undefined && (
+        <Text block size={200}>
+          Last successful refresh (oldest integration):{' '}
+          <time dateTime={new Date(pullRequests.lastSuccessfulRefreshAt).toISOString()}>
+            {new Date(pullRequests.lastSuccessfulRefreshAt).toLocaleString()}
+          </time>
+        </Text>
+      )}
+    </div>
+  )
+
   if (pullRequests.error) {
     return (
       <div className="container">
+        <div className="content header pr-list-header">{refreshButton}</div>
+        {refreshStatus}
         <IntegrationNotices data={pullRequests} />
         {PullRequestErrors(pullRequests.error)}
       </div>
@@ -421,7 +492,9 @@ export default function PullRequestsOverview() {
 
     const list: React.ReactNode =
       selectedValue === profile.id &&
-      (hasFilters && visible.length === 0 ? (
+      (initialLoading ? (
+        <Spinner key={profile.id} label="Loading pull requests…" />
+      ) : hasFilters && visible.length === 0 ? (
         <ZeroData
           key={profile.id}
           primaryText="No pull requests match your filters"
@@ -517,7 +590,9 @@ export default function PullRequestsOverview() {
                 }}
               />
             </Tooltip>
+            {refreshButton}
           </div>
+          {refreshStatus}
           {filtersVisible && (
             <div id="pr-filter-line" className="content pr-filter-line" role="search" aria-label="Pull request filters">
               <Input

@@ -712,6 +712,69 @@ async function checkTitlebarMenus(window) {
   }
 }
 
+async function checkPrRefresh(window, items) {
+  let finishRefresh
+  let refreshCalls = 0
+  const button = `Array.from(document.querySelectorAll('.pr-list-header button')).find(button => button.innerText === 'Refresh')`
+  const status = `document.querySelector('.pr-refresh-status[role="status"]').textContent`
+  const timestamp = Date.now() - 60_000
+  const data = { items, error: null, lastSuccessfulRefreshAt: timestamp }
+  ipcMain.handle('update-pr-data', () => {
+    refreshCalls++
+    return new Promise((resolve) => {
+      finishRefresh = resolve
+    })
+  })
+  const start = async () => {
+    await focusWindow(window)
+    await window.webContents.executeJavaScript(`${button}.focus()`)
+    pressKey(window, 'Enter')
+    await waitForRenderer(window, `${button}.disabled && ${status}.includes('Refreshing pull requests')`)
+    assert.ok(await window.webContents.executeJavaScript(`document.querySelectorAll('.pr-title').length > 0`))
+  }
+  try {
+    await start()
+    await window.webContents.executeJavaScript(`${button}.click()`)
+    assert.equal(refreshCalls, 1)
+    finishRefresh(data)
+    await waitForRenderer(window, `!${button}.disabled && ${status}.includes('Refresh complete')`)
+    const time = `document.querySelector('.pr-refresh-status time').dateTime`
+    assert.equal(await window.webContents.executeJavaScript(time), new Date(timestamp).toISOString())
+    await start()
+    finishRefresh({
+      ...data,
+      integrations: [
+        {
+          id: 'offline',
+          name: 'Offline integration',
+          error: {
+            type: 'Unknown',
+            message: 'Connection unavailable',
+            details: 'Check settings or retry.',
+            actionText: 'Integration settings',
+            actionHref: '/settings/azure-devops',
+          },
+        },
+      ],
+    })
+    await waitForRenderer(window, `!${button}.disabled && ${status}.includes('Refresh incomplete')`)
+    assert.equal(await window.webContents.executeJavaScript(time), new Date(timestamp).toISOString())
+    assert.ok(
+      await window.webContents.executeJavaScript(
+        `!!document.querySelector('button[aria-label="Offline integration: Integration settings"]')`
+      )
+    )
+    await capture(window, 'refresh-partial-failure')
+    await start()
+    finishRefresh({ ...data, lastSuccessfulRefreshAt: timestamp + 1000 })
+    await waitForRenderer(window, `!${button}.disabled && ${status}.includes('Refresh complete')`)
+    assert.equal(await window.webContents.executeJavaScript(time), new Date(timestamp + 1000).toISOString())
+    await capture(window, 'refresh-recovered')
+  } finally {
+    ipcMain.removeHandler('update-pr-data')
+  }
+}
+
 async function checkPrSearch(window, settings) {
   await focusWindow(window)
   const originalProfiles = settings.profiles
@@ -830,6 +893,7 @@ async function checkPrSearch(window, settings) {
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
+  await checkPrRefresh(window, prs)
   await settleLayout(window)
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
@@ -1622,7 +1686,7 @@ async function runSmokeTest() {
       updates.installs++
       updates.publish({ status: 'installing', info: updateState.info })
     })
-    let prData = { items: [], error: null }
+    let prData = { items: [], error: null, isLoading: true }
     let pendingValidation
     let deferValidation = false
     ipcMain.handle('get-pr-data', () => ({
@@ -1688,6 +1752,19 @@ async function runSmokeTest() {
       (_details, callback) => callback({ cancel: true })
     )
     await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
+    await waitForRenderer(
+      window,
+      `Array.from(document.querySelectorAll('.pr-list-header button')).find(button => button.innerText === "Refresh")?.disabled && !!document.querySelector('.window-titlebar .fui-Spinner')`
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `document.body.innerText.includes('Currently, no pull requests need your attention')`
+      ),
+      false
+    )
+    await capture(window, 'refresh-initial-loading')
+    prData.isLoading = false
+    window.webContents.send('loading', { isLoading: false })
     await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
     await focusWindow(window)
     assert.equal(window.webContents.getLastWebPreferences().sandbox, true)

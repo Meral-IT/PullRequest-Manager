@@ -60,6 +60,9 @@ after(() => rm(settingsDirectory, { recursive: true, force: true }))
 const loggedErrors = []
 const loading = {
   active: 0,
+  get isLoading() {
+    return this.active > 0
+  },
   start() {
     this.active++
   },
@@ -1496,4 +1499,90 @@ test('manager aggregates healthy and denied integration outcomes without losing 
     error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
   })
   assert.equal(manager.getPullRequests().items.length, 2)
+})
+
+test('refresh freshness follows successful service completion and survives failure until recovery', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  const waiting = Promise.withResolvers()
+  const api = apiFixture()
+  api.connect = async () => {
+    await waiting.promise
+    return { authenticatedUser: me }
+  }
+  service.api = api
+  const pending = service.updateDataImmediately()
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, undefined)
+  waiting.resolve()
+  await pending
+  const first = service.getPullRequests().lastSuccessfulRefreshAt
+  assert.ok(Number.isFinite(first), 'successful completion records freshness')
+  service.api = {
+    ...apiFixture(),
+    connect: async () => {
+      throw new Error('offline')
+    },
+  }
+  await service.updateDataImmediately()
+  assert.ok(service.getPullRequests().error)
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, first)
+  service.api = apiFixture()
+  await service.updateDataImmediately()
+  assert.equal(service.getPullRequests().error, null)
+  assert.ok(service.getPullRequests().lastSuccessfulRefreshAt >= first)
+  service.setConfiguration({ ...settings, project: 'different' })
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, undefined)
+})
+
+test('aggregate freshness is the oldest successful integration and omitted before all have succeeded', () => {
+  const service = new AzureDevOpsIntegrationsService()
+  const entries = [
+    {
+      settings: { name: 'One' },
+      service: { getPullRequests: () => ({ items: [], error: null, lastSuccessfulRefreshAt: 200 }) },
+    },
+    { settings: { name: 'Two' }, service: { getPullRequests: () => ({ items: [], error: { message: 'offline' } }) } },
+  ]
+  entries.forEach((entry, index) => service.services.set(String(index), entry))
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, undefined)
+  entries[1].service.getPullRequests = () => ({
+    items: [],
+    error: { message: 'offline' },
+    lastSuccessfulRefreshAt: 100,
+  })
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, 100)
+  assert.equal(service.getPullRequests().integrations[0].lastSuccessfulRefreshAt, 200)
+})
+
+test('non-Error refresh failures cannot be reported as a successful refresh', async () => {
+  const service = new AzureDevOpsService()
+  service.setConfiguration(settings)
+  service.api = {
+    ...apiFixture(),
+    connect: async () => {
+      throw 'offline'
+    },
+  }
+  await service.updateDataImmediately()
+  assert.ok(service.getPullRequests().error)
+  assert.equal(service.getPullRequests().lastSuccessfulRefreshAt, undefined)
+})
+
+test('aggregate snapshots expose a refresh already running before a renderer subscribes', async () => {
+  const service = new AzureDevOpsIntegrationsService()
+  service.setConfiguration([{ ...settings, id: 'one', name: 'One' }])
+  const waiting = Promise.withResolvers()
+  service.services.get('one').service.api = {
+    ...apiFixture(),
+    connect: async () => {
+      await waiting.promise
+      return { authenticatedUser: me }
+    },
+  }
+  const refresh = service.updateDataImmediately()
+  assert.equal(service.getPullRequests().isLoading, true)
+  waiting.resolve()
+  await refresh
+  assert.equal(service.getPullRequests().isLoading, false)
+  assert.ok(Number.isFinite(service.getPullRequests().lastSuccessfulRefreshAt))
 })

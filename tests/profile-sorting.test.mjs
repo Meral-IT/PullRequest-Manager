@@ -2117,3 +2117,106 @@ test('row reset announces a successful reset and safe denied outcome while retai
   )
   assert.equal(gridIn(tree).props.items.length, 1)
 })
+
+test('overview exposes pending initial snapshot, refresh partial failure, retry, and real freshness', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  view.setSettings(settings)
+  const initial = Promise.withResolvers()
+  const refreshes = []
+  const invoke = view.api.invoke
+  view.api.invoke = (channel, ...args) => {
+    if (channel === 'get-pr-data') return initial.promise
+    if (channel === 'update-pr-data') {
+      const refresh = Promise.withResolvers()
+      refreshes.push(refresh)
+      return refresh.promise
+    }
+    return invoke(channel, ...args)
+  }
+  const button = (tree) =>
+    elements(tree, (element) => element.type === 'Button' && element.props.children === 'Refresh')[0]
+  const text = (tree) => JSON.stringify(tree, (_, value) => (typeof value === 'function' ? undefined : value))
+  let tree = view.render()
+  await view.flush()
+  assert.ok(button(tree), 'Refresh is visible while initial data is pending')
+  assert.equal(button(tree).props.disabled, true)
+  assert.match(text(tree), /Loading pull requests/)
+  assert.equal(elements(tree, (element) => element.type?.name === 'PrList').length, 0)
+  initial.resolve({ items: [], error: null, isLoading: true })
+  await view.flush()
+  assert.equal(button(view.render()).props.disabled, true, 'snapshot retains an already running refresh')
+  const timestamp = Date.now() - 60_000
+  view.listeners.get('pr-data')({ items: [], error: null, lastSuccessfulRefreshAt: timestamp })
+  view.listeners.get('loading')({ isLoading: false })
+  tree = view.render()
+  assert.equal(button(tree).props.disabled, false)
+  assert.match(text(tree), /Last successful refresh/)
+  const click = button(tree).props.onClick()
+  await button(tree).props.onClick()
+  assert.equal(refreshes.length, 1, 'duplicate calls are suppressed before a rerender')
+  tree = view.render()
+  assert.equal(button(tree).props.disabled, true)
+  assert.match(text(tree), /Refreshing pull requests/)
+  refreshes[0].resolve({
+    items: [],
+    error: null,
+    lastSuccessfulRefreshAt: timestamp,
+    integrations: [{ id: 'one', name: 'One', error: { message: 'Offline' } }],
+  })
+  await click
+  tree = view.render()
+  assert.equal(button(tree).props.disabled, false)
+  assert.match(text(tree), /Refresh incomplete/)
+  assert.match(text(tree), /Offline/)
+  assert.ok(elements(tree, (element) => element.props?.role === 'status').length)
+  const retry = button(tree).props.onClick()
+  refreshes[1].resolve({ items: [], error: null, lastSuccessfulRefreshAt: timestamp + 1000 })
+  await retry
+  tree = view.render()
+  assert.match(text(tree), /Refresh complete/)
+  assert.doesNotMatch(text(tree), /Refresh incomplete/)
+  const failed = button(tree).props.onClick()
+  refreshes[2].reject(new Error('IPC unavailable'))
+  await failed
+  tree = view.render()
+  assert.match(text(tree), /Refresh failed.*IPC unavailable/)
+  assert.equal(button(tree).props.disabled, false)
+  assert.match(text(tree), /Last successful refresh/)
+  const staleRefresh = button(tree).props.onClick()
+  view.listeners.get('pr-data')({
+    items: [],
+    error: null,
+    integrations: [{ id: 'replacement', name: 'Replacement', error: { message: 'Current connection failed' } }],
+  })
+  refreshes[3].resolve({ items: [], error: null, lastSuccessfulRefreshAt: timestamp })
+  await staleRefresh
+  tree = view.render()
+  assert.doesNotMatch(
+    text(tree),
+    /Last successful refresh/,
+    'a late response cannot restore a replaced connection snapshot'
+  )
+  assert.match(text(tree), /Current connection failed/)
+  view.unmount()
+  assert.equal(view.listenerCount('loading'), 0)
+})
+
+test('titlebar restores running refresh from snapshot and ignores a stale loading snapshot', async () => {
+  const view = await component('lib/window/components/Titlebar.tsx')
+  view.setContext({ titlebar: { title: 'PullRequest-Manager' }, window: { platform: 'darwin' } })
+  const invoke = view.api.invoke
+  view.api.invoke = (channel) =>
+    channel === 'get-pr-data' ? Promise.resolve({ items: [], error: null, isLoading: true }) : invoke(channel)
+  view.render({}, 'Titlebar')
+  await view.flush()
+  assert.equal(elements(view.render({}, 'Titlebar'), (element) => element.type === 'Spinner').length, 1)
+  view.unmount()
+  const delayed = Promise.withResolvers()
+  view.api.invoke = (channel) => (channel === 'get-pr-data' ? delayed.promise : invoke(channel))
+  view.render({}, 'Titlebar')
+  await view.flush()
+  view.listeners.get('loading')({ isLoading: false })
+  delayed.resolve({ items: [], error: null, isLoading: true })
+  await view.flush()
+  assert.equal(elements(view.render({}, 'Titlebar'), (element) => element.type === 'Spinner').length, 0)
+})

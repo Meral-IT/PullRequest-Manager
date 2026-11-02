@@ -16,6 +16,7 @@ import {
 import { DismissFilled, LineHorizontal1Filled, MaximizeFilled } from '@fluentui/react-icons'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { PullRequestData } from '../../models/pr-data'
 import type { UpdateState } from '../../models/update-state'
 import type { TitlebarMenu, TitlebarMenuItem } from '../titlebarMenus'
 import { useWindowContext } from './WindowContext'
@@ -34,9 +35,22 @@ export const Titlebar = () => {
   const wcontext = useWindowContext().window
 
   useEffect(() => {
-    return globalThis.api.receive('loading', (event) => {
+    let active = true
+    let receivedLoading = false
+    const unsubscribe = globalThis.api.receive('loading', (event) => {
+      receivedLoading = true
       setLoaderVisible(event.isLoading)
     })
+    globalThis.api
+      .invoke('get-pr-data')
+      .then((data: PullRequestData) => {
+        if (active && !receivedLoading) setLoaderVisible(data.isLoading ?? false)
+      })
+      .catch((error) => console.error('Unable to load refresh status', error))
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
