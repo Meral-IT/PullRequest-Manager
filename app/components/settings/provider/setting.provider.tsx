@@ -112,11 +112,9 @@ export const SettingProvider = ({ children }: Props) => {
       const next = settings.azDoIntegrations.find((item) => item.id === selectedId.current)
       if (!previous || !next || !sameAzureDevOpsConnection(previous, next)) resetValidation()
       savedConnections.current = settings.azDoIntegrations
-      const currentSnapshot = JSON.stringify(currentForm.current)
-      const replaceDraft = pendingSave.current === undefined || currentSnapshot === pendingSave.current
       const saved = convertSettings(settings)
-      setSavedSnapshot(JSON.stringify(saved))
-      if (replaceDraft) {
+      if (pendingSave.current === undefined) {
+        setSavedSnapshot(JSON.stringify(saved))
         currentForm.current = saved
         setFormData(saved)
       }
@@ -227,6 +225,7 @@ export const SettingProvider = ({ children }: Props) => {
     }
 
     const saveSettings = async () => {
+      if (pendingSave.current !== undefined) return
       setSaving(true)
       setSaveError('')
       try {
@@ -255,6 +254,7 @@ export const SettingProvider = ({ children }: Props) => {
         }
         pendingSave.current = JSON.stringify({ ...formData, profiles })
         await globalThis.api.invoke('save-settings', model)
+        setSavedSnapshot(pendingSave.current)
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
       } finally {

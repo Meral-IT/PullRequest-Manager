@@ -16,6 +16,11 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })()`)
   const name = () => run('document.querySelector(\'input[name="integrationName"]\').value')
+  const status = (text) =>
+    waitForRenderer(
+      window,
+      `Array.from(document.querySelectorAll('[role=status]')).some(node => node.textContent === ${JSON.stringify(text)})`
+    )
   const dialog = () => waitForRenderer(window, '!!document.querySelector(\'[role="dialog"]\')')
   const home = () => waitForRenderer(window, "!!document.querySelector('.zerodata')")
   const enter = async () => {
@@ -46,7 +51,9 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
   })(window)
   try {
     await enter()
+    await status('Saved')
     await edit('Unsaved name')
+    await status('Unsaved changes')
     await click('Appearance')
     await waitForRenderer(window, "document.body.innerText.includes('Theme')")
     await enter()
@@ -93,6 +100,7 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
       window,
       "document.querySelector('[role=alert]')?.textContent.includes('Synthetic save failure')"
     )
+    await status('Unable to save settings. Unsaved changes.')
     await click('Home')
     await dialog()
     await click('Stay')
@@ -103,18 +111,23 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
       window,
       "!document.querySelector('[role=alert]') && Array.from(document.querySelectorAll('button')).some(b => b.innerText === 'Save Settings')"
     )
+    await status('Saved')
     await click('Home')
     await home()
     await enter()
     assert.equal(await name(), 'Failed draft', 'Successful save becomes the clean snapshot')
     await edit('Submitted draft')
+    await status('Unsaved changes')
     saveMode = 'deferred'
     await click('Save Settings')
-    await waitForRenderer(window, "document.body.innerText.includes('Saving settings')")
+    await status('Saving settings')
+    await click('Saving settings')
+    assert.equal(saveCount, 3, 'Disabled save button cannot start a second pending save')
     await edit('Later draft')
     finishSave()
     await waitForRenderer(window, "!document.body.innerText.includes('Saving settings')")
     assert.equal(await name(), 'Later draft', 'Save completion preserves edits made while saving')
+    await status('Unsaved changes')
     await edit('synthetic-unsaved-PAT', 'azDoPat')
     await click('Home')
     await dialog()

@@ -14,6 +14,7 @@ import {
   SelectTabEvent,
   Tab,
   TabList,
+  Text,
   tokens,
 } from '@fluentui/react-components'
 import {
@@ -51,6 +52,12 @@ const useStyles = makeStyles({
     overflowY: 'auto',
   },
   bottom: { flexShrink: 0 },
+  saveRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: tokens.spacingHorizontalM,
+  },
   dangerButton: {
     backgroundColor: tokens.colorStatusDangerBackground3,
     ':hover': {
@@ -216,9 +223,20 @@ export default function SettingsComponent() {
               validationState={saveError ? 'error' : undefined}
               validationMessage={saveError ? <span role="alert">{saveError}</span> : undefined}
             >
-              <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
-                {buttonContent}
-              </Button>
+              <div className={styles.saveRow}>
+                <Text role="status" aria-atomic={true}>
+                  {saving
+                    ? 'Saving settings'
+                    : saveError
+                      ? 'Unable to save settings. Unsaved changes.'
+                      : dirty
+                        ? 'Unsaved changes'
+                        : 'Saved'}
+                </Text>
+                <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
+                  {buttonContent}
+                </Button>
+              </div>
             </Field>
           </div>
         }

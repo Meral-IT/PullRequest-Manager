@@ -1301,3 +1301,66 @@ test('confirmed profile deletion opens a remaining profile or the explicit new r
     )
   }
 })
+
+
+test('settings status follows successful snapshots through deferred saves, failures, and later edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  const view = await component('app/components/settings/settings.component.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const value = () => provider.render({}, 'SettingProvider').props.value
+  const status = () => {
+    view.setContext(value())
+    const content = elements(view.render(), (element) => element.props.mainContent)[0].props.mainContent
+    const node = elements(content, (element) => element.props.role === 'status')[0]
+    assert.ok(node, 'Save status stays visible in an accessible live region')
+    assert.equal(node.props['aria-atomic'], true)
+    return node.props.children
+  }
+  const edit = (name) => value().actions.updateIntegration('integration', { name })
+  let finish
+  let saves = 0
+  const invoke = provider.api.invoke
+  provider.api.invoke = (channel, ...args) => {
+    if (channel !== 'save-settings') return invoke(channel, ...args)
+    saves++
+    return new Promise((resolve, reject) => { finish = { resolve, reject, model: args[0] } })
+  }
+  assert.equal(status(), 'Saved')
+  edit('Submitted')
+  assert.equal(status(), 'Unsaved changes')
+  const action = value().actions.saveSettings
+  const saving = action()
+  await action()
+  assert.equal(saves, 1, 'Repeated save action cannot start another pending write')
+  assert.equal(status(), 'Saving settings')
+  provider.listeners.get('settings')(finish.model)
+  assert.equal(status(), 'Saving settings', 'Broadcast alone does not announce success')
+  assert.equal(value().dirty, true, 'Broadcast does not advance the successful snapshot before completion')
+  finish.resolve()
+  await saving
+  assert.equal(status(), 'Saved')
+  edit('Later')
+  assert.equal(status(), 'Unsaved changes')
+  const failed = value().actions.saveSettings()
+  assert.equal(status(), 'Saving settings')
+  finish.reject(new Error('Synthetic save failure'))
+  await failed
+  assert.equal(status(), 'Unable to save settings. Unsaved changes.')
+  assert.match(value().saveError, /Synthetic save failure/)
+  const retry = value().actions.saveSettings()
+  assert.equal(status(), 'Saving settings')
+  edit('Edited while saving')
+  provider.listeners.get('settings')(finish.model)
+  finish.resolve()
+  await retry
+  assert.equal(value().state.azDoIntegrations[0].name, 'Edited while saving')
+  assert.equal(status(), 'Unsaved changes')
+  const finalSave = value().actions.saveSettings()
+  finish.resolve()
+  await finalSave
+  assert.equal(status(), 'Saved', 'Successful completion marks its submitted snapshot without relying on a broadcast')
+  edit('Next edit')
+  assert.equal(status(), 'Unsaved changes')
+})
