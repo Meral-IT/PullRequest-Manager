@@ -228,7 +228,7 @@ export default function SettingsComponent() {
                   {saving
                     ? 'Saving settings'
                     : saveError
-                      ? 'Unable to save settings. Unsaved changes.'
+                      ? `Unable to save settings.${dirty ? ' Unsaved changes.' : ''}`
                       : dirty
                         ? 'Unsaved changes'
                         : 'Saved'}

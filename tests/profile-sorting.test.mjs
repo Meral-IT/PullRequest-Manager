@@ -1361,6 +1361,11 @@ test('settings status follows successful snapshots through deferred saves, failu
   finish.resolve()
   await finalSave
   assert.equal(status(), 'Saved', 'Successful completion marks its submitted snapshot without relying on a broadcast')
+  const cleanFailure = value().actions.saveSettings()
+  finish.reject(new Error('Synthetic clean save failure'))
+  await cleanFailure
+  assert.equal(value().dirty, false)
+  assert.equal(status(), 'Unable to save settings.', 'Failed save of a clean form does not announce unsaved changes')
   edit('Next edit')
   assert.equal(status(), 'Unsaved changes')
 })
