@@ -1351,3 +1351,121 @@ test('filter help explains blank behavior and links to the existing filter docum
   assert.equal(link.props.target, '_blank')
   assert.equal(link.props.rel, 'noreferrer')
 })
+
+test('filter preview counts cached PRs for blank and valid drafts without fetching on edits', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  const items = [{ isDraft: false }, { isDraft: true }, { isDraft: false }]
+  const preview = () =>
+    elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0]
+  const setFilter = (filter, filterValid = true) =>
+    view.setContext({
+      state: {
+        profiles: [
+          {
+            ...profile,
+            filter,
+            filterValid,
+            filterValidationMessage: filterValid ? 'Filter is valid.' : 'Invalid filter.',
+          },
+        ],
+      },
+      actions: {},
+    })
+  setFilter('')
+  assert.equal(preview().props.validationMessage.role, 'status')
+  assert.match(preview().props.validationMessage.children, /loading.*preview/i)
+  await view.flush()
+  view.listeners.get('pr-data')({ items, error: null })
+  for (const [filter, count] of [
+    ['', 3],
+    [' \n ', 3],
+    ['{"op":"AND","filters":[{"isDraft":false}]}', 2],
+    ['{"op":"OR","filters":[]}', 0],
+  ]) {
+    setFilter(filter)
+    assert.match(preview().props.validationMessage.children, new RegExp(`Matches ${count} currently loaded PRs`))
+    assert.equal(preview().props.validationState, 'success')
+    await view.flush()
+  }
+  setFilter('{unfinished', false)
+  assert.equal(preview().props.validationMessage.children, 'Invalid filter.')
+  assert.equal(preview().props.validationState, 'error')
+  setFilter('{"op":"AND","filters":[{"isDraft":false}]}')
+  view.listeners.get('pr-data')({ items: [{ isDraft: true }], error: null })
+  assert.match(preview().props.validationMessage.children, /Matches 0 currently loaded PRs/)
+  assert.deepEqual(
+    view.calls.map(([name]) => name),
+    ['get-pr-data']
+  )
+  view.unmount()
+  assert.equal(view.listenerCount('pr-data'), 0)
+})
+
+test('filter preview explains missing data and recovers on PR updates', async () => {
+  for (const snapshot of [
+    undefined,
+    { items: [], error: { message: 'Offline' } },
+    { items: [], error: null, integrations: [{ id: 'failed', error: { message: 'Denied' } }] },
+  ]) {
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    view.setContext({ state: { profiles: [{ ...profile, filter: '', filterValid: true }] }, actions: {} })
+    view.api.invoke = async () => snapshot
+    view.render()
+    await view.flush()
+    const message = () =>
+      elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0].props
+        .validationMessage.children
+    assert.match(message(), /preview unavailable/i)
+    view.listeners.get('pr-data')({ items: [], error: null })
+    assert.match(message(), /Matches 0 currently loaded PRs/)
+    view.unmount()
+  }
+})
+
+test('filter preview ignores stale startup snapshots and completions from a previous mount', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setContext({ state: { profiles: [{ ...profile, filter: '', filterValid: true }] }, actions: {} })
+  const snapshot = Promise.withResolvers()
+  view.api.invoke = () => snapshot.promise
+  view.render()
+  await view.flush()
+  view.listeners.get('pr-data')({ items: [{ isDraft: false }], error: null })
+  snapshot.resolve({ items: [], error: null })
+  await view.flush()
+  const message = () =>
+    elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0].props
+      .validationMessage.children
+  assert.match(message(), /Matches 1 currently loaded PRs/)
+  const old = Promise.withResolvers()
+  view.unmount()
+  view.api.invoke = () => old.promise
+  view.render()
+  await view.flush()
+  view.unmount()
+  view.api.invoke = async () => ({ items: [{ isDraft: true }, { isDraft: false }], error: null })
+  view.render()
+  await view.flush()
+  old.resolve({ items: [], error: null })
+  await view.flush()
+  assert.match(message(), /Matches 2 currently loaded PRs/)
+  view.unmount()
+})
+
+test('filter preview reports loading snapshots and rejected reads without changing filter validity', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setContext({ state: { profiles: [{ ...profile, filter: '', filterValid: true }] }, actions: {} })
+  view.api.invoke = async () => {
+    throw new Error('IPC unavailable')
+  }
+  view.render()
+  await view.flush()
+  const field = () =>
+    elements(view.render(), (element) => element.type === 'Field' && element.props.validationMessage)[0]
+  assert.match(field().props.validationMessage.children, /preview unavailable/i)
+  view.listeners.get('pr-data')({ items: [], error: null, isLoading: true })
+  assert.match(field().props.validationMessage.children, /loading.*preview/i)
+  assert.equal(field().props.validationState, 'success')
+  view.listeners.get('pr-data')({ items: [], error: null, isLoading: false })
+  assert.match(field().props.validationMessage.children, /Matches 0 currently loaded PRs/)
+  view.unmount()
+})

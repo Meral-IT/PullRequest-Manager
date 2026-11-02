@@ -1805,6 +1805,28 @@ async function runSmokeTest() {
       `)
       return window.webContents.executeJavaScript('globalThis.copiedFilter')
     }
+    const previewStatus = `document.querySelector('#profile-filter-panel .fui-Field__validationMessage')`
+    window.webContents.send('pr-data', { items: [{ isDraft: false }, { isDraft: true }], error: null })
+    await pasteFilter('')
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Matches 2 currently loaded PRs')`)
+    assert.equal(await window.webContents.executeJavaScript(`${previewStatus}.getAttribute('role')`), 'status')
+    await pasteFilter('{"op":"AND","filters":[{"isDraft":false}]}')
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Matches 1 currently loaded PRs')`)
+    await settleLayout(window)
+    await capture(window, 'profile-filter-preview')
+    await pasteFilter('{"op":"OR","filters":[]}')
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Matches 0 currently loaded PRs')`)
+    assert.equal(await window.webContents.executeJavaScript(`${previewStatus}.getAttribute('role')`), 'status')
+    await pasteFilter('{unfinished')
+    await waitForRenderer(window, `${previewStatus}?.getAttribute('role') === 'alert'`)
+    assert.equal(await window.webContents.executeJavaScript(`${previewStatus}.textContent.includes('Matches')`), false)
+    await pasteFilter('')
+    window.webContents.send('pr-data', { items: [], error: null, isLoading: true })
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Loading PR preview')`)
+    window.webContents.send('pr-data', { items: [], error: { message: 'Offline' } })
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Preview unavailable')`)
+    window.webContents.send('pr-data', prData)
+    await waitForRenderer(window, `${previewStatus}?.textContent.includes('Matches 0 currently loaded PRs')`)
     assert.equal(await window.webContents.executeJavaScript(`!!${exampleButton}`), true, 'Filter example action exists')
     assert.equal(
       await window.webContents.executeJavaScript(
