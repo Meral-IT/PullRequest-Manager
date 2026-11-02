@@ -1924,7 +1924,8 @@ test('later-page row actions keep their PR and repository targets', async () => 
   const grid = gridIn(tree)
   const item = grid.props.items[0]
   const actions = grid.props.columns.find((column) => column.columnId === 'actions').renderCell(item)
-  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  const trigger = elements(actions, (element) => element.type === 'Button')[0]
+  await trigger.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
   tree = view.render(props)
   const menuItem = (label) =>
     elements(tree, (element) => element.type === 'MenuItem' && element.props.children === label)[0]
@@ -1933,7 +1934,7 @@ test('later-page row actions keep their PR and repository targets', async () => 
     view.calls.find(([name]) => name === 'open-in-vscode'),
     ['open-in-vscode', 'repo-101']
   )
-  await actions.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
+  await trigger.props.onClick({ preventDefault: () => undefined, currentTarget: { focus: () => undefined } })
   tree = view.render(props)
   menuItem('Approve').props.onClick()
   assert.deepEqual(
