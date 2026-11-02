@@ -6,8 +6,8 @@ export async function checkSettingsNavigation(window, settings, waitForRenderer,
   const original = structuredClone(settings)
   const run = (code) => window.webContents.executeJavaScript(code)
   const click = (text) =>
-    run(`Array.from(document.querySelectorAll('button, [role="menuitem"]'))
-    .find(button => button.innerText.split('\\n')[0] === ${JSON.stringify(text)}).click()`)
+    run(String.raw`Array.from(document.querySelectorAll('button, [role="menuitem"]'))
+    .find(button => button.innerText.split('\n')[0] === ${JSON.stringify(text)}).click()`)
   const integration = () => waitForRenderer(window, '!!document.querySelector(\'input[name="integrationName"]\')')
   const edit = (value, name = 'integrationName') =>
     run(`(() => {
