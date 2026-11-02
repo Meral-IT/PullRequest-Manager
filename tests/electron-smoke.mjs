@@ -1922,15 +1922,14 @@ async function runSmokeTest() {
     )
     window.webContents.send('settings', { ...settings, profiles: [hiddenDefault] })
     await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
-    for (const [theme, width, height] of [
-      ['light', 900, 670],
-      ['dark', 360, 450],
-    ]) {
+    async function checkNoVisibleProfilesTheme(theme, width, height) {
       window.webContents.send('theme-changed', theme)
       window.setContentSize(width, height)
       await checkZeroDataLayout(window)
       await capture(window, `no-visible-profiles-${theme}`)
     }
+    await checkNoVisibleProfilesTheme('light', 900, 670)
+    await checkNoVisibleProfilesTheme('dark', 360, 450)
     await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })

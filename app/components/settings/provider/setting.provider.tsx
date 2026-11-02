@@ -176,17 +176,19 @@ export const SettingProvider = ({ children }: Props) => {
 
         setFormData((prevFormData) => ({
           ...prevFormData,
-          profiles: prevFormData.profiles.map((profile) =>
-            profile.id === profileId
-              ? {
-                  ...profile,
-                  [e.target.name]: value,
-                  ...(e.target.name === 'filter' && typeof value === 'string' ? getProfileFilterValidation(value) : {}),
-                }
-              : e.target.name === 'isDefault' && value === true
-                ? { ...profile, isDefault: false }
-                : profile
-          ),
+          profiles: prevFormData.profiles.map((profile) => {
+            if (profile.id === profileId) {
+              return {
+                ...profile,
+                [e.target.name]: value,
+                ...(e.target.name === 'filter' && typeof value === 'string' ? getProfileFilterValidation(value) : {}),
+              }
+            }
+            if (e.target.name === 'isDefault' && value === true) {
+              return { ...profile, isDefault: false }
+            }
+            return profile
+          }),
         }))
         return
       }
