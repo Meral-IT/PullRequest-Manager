@@ -62,6 +62,32 @@ async function settleLayout(window) {
       .map(animation => animation.finished.catch(() => {})))`)
 }
 
+async function checkProfileCreation(window, button, expected) {
+  await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
+  await waitForRenderer(window, "document.body.innerText.includes('New empty profile')")
+  await window.webContents.executeJavaScript(
+    `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
+  )
+  await waitForRenderer(window, `document.querySelector('input[name="label"]')?.value === ${JSON.stringify(expected)}`)
+  assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('[role=tab][aria-selected=true]')).some(tab => tab.innerText === document.querySelector('input[name=label]').value)"
+    ),
+    true,
+    'Created profile is selected in the settings sidebar'
+  )
+}
+
+async function deleteSelectedProfile(window) {
+  await clickElement(window, 'button', 'Delete profile')
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('button')).some(button => button.innerText === 'Yes, delete profile')"
+  )
+  await clickElement(window, 'button', 'Yes, delete profile')
+}
+
 async function selectProfileTab(window, tab) {
   await window.webContents.executeJavaScript(`document.getElementById('profile-${tab}-tab').click()`)
   await waitForRenderer(window, `!document.getElementById('profile-${tab}-panel').hidden`)
@@ -1909,7 +1935,7 @@ async function runSmokeTest() {
         { value: 'descending', disabled: false },
       ]
     )
-    for (const value of ['details', 'creationDate', '']) {
+    const checkSortSelection = async (value) => {
       await window.webContents.executeJavaScript(`(() => {
         const select = document.querySelector('select')
         select.value = ${JSON.stringify(value)}
@@ -1918,16 +1944,28 @@ async function runSmokeTest() {
       await waitForRenderer(window, `document.querySelectorAll('select')[1].disabled === ${!value}`)
       await checkProfileLayout(window)
     }
+    await checkSortSelection('details')
+    await checkSortSelection('creationDate')
+    await checkSortSelection('')
     await capture(window, 'profile-general')
     await selectProfileTab(window, 'filter')
     await checkProfileLayout(window)
-    const resizeLayouts = []
-    for (const height of [670, 900, 450, 350, 670]) {
+    const checkFilterPanelHeight = async (height) => {
       window.setContentSize(900, height)
       await settleLayout(window)
-      await checkProfileLayout(window)
-      resizeLayouts.push(
-        await window.webContents.executeJavaScript(`(() => {
+      await checkProfileLayout(window, height !== 350)
+      if (height === 350) {
+        const reachable = await window.webContents.executeJavaScript(`(() => {
+          const panel = document.getElementById('profile-filter-panel')
+          panel.scrollTop = panel.scrollHeight
+          const field = panel.querySelector('.fui-Field').getBoundingClientRect()
+          const reachable = field.bottom <= panel.getBoundingClientRect().bottom + 1
+          panel.scrollTop = 0
+          return reachable
+        })()`)
+        assert.equal(reachable, true, 'Short windows can scroll to filter validation while Save stays visible')
+      }
+      const layout = await window.webContents.executeJavaScript(`(() => {
         const rect = element => {
           const { top, bottom, height } = element.getBoundingClientRect()
           return { top, bottom, height, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }
@@ -1942,9 +1980,16 @@ async function runSmokeTest() {
           save: rect(buttons.find(button => button.innerText === 'Save Settings')),
         }
       })()`)
-      )
       if (height === 350) await capture(window, 'profile-short')
+      return layout
     }
+    const resizeLayouts = [
+      await checkFilterPanelHeight(670),
+      await checkFilterPanelHeight(900),
+      await checkFilterPanelHeight(450),
+      await checkFilterPanelHeight(350),
+      await checkFilterPanelHeight(670),
+    ]
     assert.ok(resizeLayouts[2].editor.height < resizeLayouts[1].editor.height, JSON.stringify(resizeLayouts))
     assert.ok(
       Math.abs(resizeLayouts[4].editor.height - resizeLayouts[0].editor.height) <= 1,
@@ -1962,6 +2007,51 @@ async function runSmokeTest() {
       navigator.clipboard.readText = async () => ${JSON.stringify(text)}
       Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
     `)
+    const exampleButton = `Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Insert example')`
+    const copyFilter = async () => {
+      await window.webContents.executeJavaScript(`
+        navigator.clipboard.writeText = async text => { globalThis.copiedFilter = text }
+        Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Copy filter').click()
+      `)
+      return window.webContents.executeJavaScript('globalThis.copiedFilter')
+    }
+    assert.equal(await window.webContents.executeJavaScript(`!!${exampleButton}`), true, 'Filter example action exists')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `document.getElementById('profile-filter-help').textContent.includes('all pull requests')`
+      ),
+      true,
+      'Blank-filter behavior is explained beside the editor'
+    )
+    assert.deepEqual(
+      await window.webContents.executeJavaScript(`(() => {
+        const link = document.querySelector('#profile-filter-panel a')
+        return { href: link.href, target: link.target, rel: link.rel }
+      })()`),
+      {
+        href: 'https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters',
+        target: '_blank',
+        rel: 'noreferrer',
+      }
+    )
+    const checkBlankFilterExample = async (blank) => {
+      await pasteFilter(blank)
+      await waitForRenderer(window, `!${exampleButton}.disabled`)
+      await window.webContents.executeJavaScript(`${exampleButton}.click()`)
+      await waitForRenderer(window, `${exampleButton}.disabled && document.body.innerText.includes('Filter is valid.')`)
+      assert.deepEqual(JSON.parse(await copyFilter()), { op: 'AND', filters: [{ isDraft: false }] })
+    }
+    await checkBlankFilterExample('')
+    await checkBlankFilterExample(' \n\t ')
+    const checkExistingFilterPreserved = async (draft) => {
+      await pasteFilter(draft)
+      await waitForRenderer(window, `${exampleButton}.disabled`)
+      await window.webContents.executeJavaScript(`${exampleButton}.click()`)
+      assert.equal(await copyFilter(), draft, 'Example action preserves nonempty drafts, including invalid JSON')
+    }
+    await checkExistingFilterPreserved('{"op":"AND","filters":[]}')
+    await checkExistingFilterPreserved('{unfinished draft')
+    await capture(window, 'profile-filter-help')
     await window.webContents.executeJavaScript(
       'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
     )
@@ -2081,16 +2171,15 @@ async function runSmokeTest() {
       true
     )
     await capture(window, 'profile-new')
-    for (const [button, expected] of [
-      ['Duplicate', 'All (copy)'],
-      ['New empty profile', 'New profile'],
-    ]) {
-      await window.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
-      )
-      await waitForRenderer(window, `document.body.innerText.includes(${JSON.stringify(expected)})`)
-    }
+    await checkProfileCreation(window, 'Duplicate', 'All (copy)')
+    await checkProfileCreation(window, 'New empty profile', 'New profile')
+    await deleteSelectedProfile(window)
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/builtin:all' && document.querySelector('input[name=label]')?.value === 'All'"
+    )
     window.webContents.send('settings', { ...settings, profiles: [] })
+    await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
     await waitForRenderer(window, "document.querySelector('select').disabled")
     assert.equal(
       await window.webContents.executeJavaScript(
@@ -2102,12 +2191,18 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'New empty profile').click()"
     )
-    await waitForRenderer(window, "!document.querySelector('select').disabled")
+    await waitForRenderer(window, "document.querySelector('input[name=label]')?.value === 'New profile'")
+    assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+    await deleteSelectedProfile(window)
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/new' && document.querySelector('select')?.disabled"
+    )
     assert.equal(
       await window.webContents.executeJavaScript(
         "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Duplicate').disabled"
       ),
-      false
+      true
     )
 
     window.webContents.send('settings', settings)

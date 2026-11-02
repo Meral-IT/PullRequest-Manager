@@ -6,6 +6,7 @@ import {
   Checkbox,
   Field,
   Input,
+  Link,
   makeStyles,
   mergeClasses,
   Popover,
@@ -20,7 +21,7 @@ import {
 } from '@fluentui/react-components'
 import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
 import { lazy, Suspense, useContext, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
 
 const FilterEditor = lazy(() => import('./filter-editor.component'))
@@ -143,6 +144,7 @@ const useStyles = makeStyles({
 })
 
 function NewProfile() {
+  const navigate = useNavigate()
   const { state, actions } = useContext(SettingsContext)
   const styles = useStyles()
   const [duplicateProfile, setDuplicateProfile] = useState(state.profiles.length > 0 ? state.profiles[0].id : '')
@@ -157,7 +159,7 @@ function NewProfile() {
         className={styles.createButton}
         appearance="primary"
         icon={<AddFilled />}
-        onClick={() => actions.addProfile()}
+        onClick={() => navigate(`/settings/profiles/${actions.addProfile()}`)}
       >
         New empty profile
       </Button>
@@ -179,7 +181,11 @@ function NewProfile() {
         <Button
           disabled={!duplicateSource}
           icon={<CopyRegular />}
-          onClick={() => duplicateSource && actions.duplicateProfile(duplicateSource.id)}
+          onClick={() => {
+            if (!duplicateSource) return
+            const id = actions.duplicateProfile(duplicateSource.id)
+            if (id) navigate(`/settings/profiles/${id}`)
+          }}
         >
           Duplicate
         </Button>
@@ -189,6 +195,7 @@ function NewProfile() {
 }
 
 const DeleteButtonPopOverContent = () => {
+  const navigate = useNavigate()
   const { profileId } = useParams()
   const { state, actions } = useContext(SettingsContext)
 
@@ -201,7 +208,14 @@ const DeleteButtonPopOverContent = () => {
     <div>
       <Body1Stronger>Do you really want to delete this profile?</Body1Stronger>
       <br />
-      <Button icon={<BinRecycleRegular />} onClick={() => actions.deleteProfile(profile.id)}>
+      <Button
+        icon={<BinRecycleRegular />}
+        onClick={() => {
+          actions.deleteProfile(profile.id)
+          const remaining = state.profiles.find((item) => item.id !== profile.id)
+          navigate(`/settings/profiles/${remaining?.id ?? 'new'}`)
+        }}
+      >
         Yes, delete profile
       </Button>
     </div>
@@ -379,8 +393,36 @@ export default function ProfileSettings() {
         className={mergeClasses(styles.panel, styles.filterPanel)}
         tabIndex={0}
       >
+        <Caption1 id="profile-filter-help" className={styles.hint}>
+          Leave the filter blank to include all pull requests. Empty the editor to insert a non-draft PR example.
+        </Caption1>
         <div className={styles.toolbar}>
           <div className={styles.options}>
+            <Link
+              href="https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Filter documentation
+            </Link>
+            <Button
+              size="small"
+              appearance="subtle"
+              aria-describedby="profile-filter-help"
+              disabled={Boolean(profile.filter?.trim())}
+              onClick={() => {
+                if (profile.filter?.trim()) return
+                actions.onChangeHandler({
+                  profileId: profile.id,
+                  target: {
+                    name: 'filter',
+                    value: JSON.stringify({ op: 'AND', filters: [{ isDraft: false }] }, null, 2),
+                  },
+                })
+              }}
+            >
+              Insert example
+            </Button>
             <Button
               size="small"
               appearance="subtle"

@@ -393,7 +393,10 @@ test('integration repair actions open their own settings and keep legacy setting
   const buttons = (props) => elements(banner.render(props), (element) => element.type === 'Button')
   buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/integrations/second'])
-  assert.equal(buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'], 'Second connection: Azure DevOps settings')
+  assert.equal(
+    buttons({ access, integrationId: 'second', name: 'Second connection' })[0].props['aria-label'],
+    'Second connection: Azure DevOps settings'
+  )
   buttons({ access })[0].props.onClick()
   assert.deepEqual(banner.calls.at(-1), ['navigate', '/settings/azure-devops'])
 
@@ -973,10 +976,7 @@ test('release notes date only the current release when its actual release date i
   const dialog = elements(view.render(), (element) => element.type === 'Dialog')[0]
   const headings = elements(dialog, (element) => element.type === 'h2')
   const currentRelease = elements(headings[0], (element) => element.type === 'span')
-  assert.equal(
-    currentRelease[1].props.children.join(''),
-    ` - ${new Date('2026-10-30T10:00:00Z').toLocaleDateString()}`
-  )
+  assert.equal(currentRelease[1].props.children.join(''), ` - ${new Date('2026-10-30T10:00:00Z').toLocaleDateString()}`)
   assert.equal(elements(headings[1], (element) => element.type === 'span').length, 1)
 })
 
@@ -1525,4 +1525,134 @@ test('visible bulk approval names its matching scope and uses the active profile
   assert.equal(bulk().props.disabled, true)
   elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'disabled' })
   assert.equal(bulk(), undefined)
+})
+
+test('profile creation returns IDs and opens the new draft without saving other edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  value.actions.onChangeHandler({ profileId: 'test', target: { name: 'label', value: 'Unsaved source' } })
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setParams({ profileId: 'new' })
+  for (const label of ['New empty profile', 'Duplicate']) {
+    value = provider.render({}, 'SettingProvider').props.value
+    view.setContext(value)
+    const tree = view.render().type()
+    elements(tree, (element) => element.type === 'Button' && element.props.children === label)[0].props.onClick()
+    value = provider.render({}, 'SettingProvider').props.value
+    const created = value.state.profiles.at(-1)
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${created.id}`])
+    assert.equal(created.isDefault, false)
+    assert.equal(value.state.profiles[0].label, 'Unsaved source')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+    if (label === 'Duplicate') assert.equal(created.label, 'Unsaved source (copy)')
+  }
+})
+
+test('profile actions return their created IDs and missing duplicate sources leave the draft unchanged', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  for (const action of [() => value.actions.addProfile(), () => value.actions.duplicateProfile('test')]) {
+    const id = action()
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.equal(typeof id, 'string')
+    assert.equal(id, value.state.profiles.at(-1).id)
+  }
+  const before = value.state
+  assert.equal(value.actions.duplicateProfile('missing'), undefined)
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value.state, before)
+})
+
+test('confirmed profile deletion opens a remaining profile or the explicit new route and keeps the draft', async () => {
+  for (const profiles of [[profile], [profile, { ...profile, id: 'remaining', label: 'Remaining' }]]) {
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings({ ...settings, profiles })
+    provider.render({}, 'SettingProvider')
+    await provider.flush()
+    let value = provider.render({}, 'SettingProvider').props.value
+    value.actions.onChangeHandler({ target: { name: 'repositoriesRootDirectory', value: '/unsaved' } })
+    value = provider.render({}, 'SettingProvider').props.value
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    view.setContext(value)
+    const tree = view.render()
+    const deleteButton = elements(tree, (element) => element.type?.name === 'DeleteProfileButton')[0].type()
+    assert.equal(view.calls.length, 0, 'Opening the confirmation does not navigate or delete')
+    assert.equal(value.state.profiles.length, profiles.length)
+    const confirmation = elements(
+      deleteButton,
+      (element) => element.type?.name === 'DeleteButtonPopOverContent'
+    )[0].type()
+    elements(confirmation, (element) => element.type === 'Button')[0].props.onClick()
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${profiles[1]?.id ?? 'new'}`])
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.deepEqual(
+      value.state.profiles.map((item) => item.id),
+      profiles.slice(1).map((item) => item.id)
+    )
+    assert.equal(value.state.repositoriesRootDirectory, '/unsaved')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+  }
+})
+
+test('filter example fills only blank drafts with a valid unsaved filter', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  for (const draft of ['', ' \n\t ', '{"op":"AND","filters":[]}', '{unfinished draft']) {
+    let value = provider.render({}, 'SettingProvider').props.value
+    value.actions.onChangeHandler({ profileId: 'test', target: { name: 'filter', value: draft } })
+    value = provider.render({}, 'SettingProvider').props.value
+    view.setContext(value)
+    const button = elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props.children === 'Insert example'
+    )[0]
+    assert.ok(button, 'Filter example action exists')
+    assert.equal(button.props.disabled, Boolean(draft.trim()))
+    assert.equal(button.props['aria-describedby'], 'profile-filter-help')
+    button.props.onClick()
+    value = provider.render({}, 'SettingProvider').props.value
+    if (draft.trim()) assert.equal(value.state.profiles[0].filter, draft)
+    else {
+      assert.deepEqual(JSON.parse(value.state.profiles[0].filter), { op: 'AND', filters: [{ isDraft: false }] })
+      assert.equal(value.state.profiles[0].filterValid, true)
+      assert.equal(value.dirty, true)
+    }
+  }
+  assert.equal(
+    provider.calls.some(([name]) => name === 'save-settings'),
+    false
+  )
+})
+
+test('filter help explains blank behavior and links to the existing filter documentation', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setContext({ state: { profiles: [profile] }, actions: {} })
+  const tree = view.render()
+  const help = elements(tree, (element) => element.props?.id === 'profile-filter-help')[0]
+  assert.ok(help, 'Filter help exists beside the editor')
+  assert.match(help.props.children, /blank.*all pull requests/i)
+  assert.match(help.props.children, /empty.*example/i)
+  const link = elements(tree, (element) => element.type === 'Link')[0]
+  assert.equal(
+    link.props.href,
+    'https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters'
+  )
+  assert.equal(link.props.target, '_blank')
+  assert.equal(link.props.rel, 'noreferrer')
 })

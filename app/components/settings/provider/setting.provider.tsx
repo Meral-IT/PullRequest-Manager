@@ -285,6 +285,7 @@ export const SettingProvider = ({ children }: Props) => {
         ...prevFormData,
         profiles: [...prevFormData.profiles, newProfile],
       }))
+      return newProfile.id
     }
 
     const handleAddProfile = () => {
@@ -302,6 +303,7 @@ export const SettingProvider = ({ children }: Props) => {
         ...prevFormData,
         profiles: [...prevFormData.profiles, newProfile],
       }))
+      return newProfile.id
     }
 
     const selectIntegration = (id: string) => {
