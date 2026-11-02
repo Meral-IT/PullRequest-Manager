@@ -16,7 +16,8 @@ if (!process.versions.electron) {
     assert.equal(result.status ?? 1, 0, 'Electron unload decisions must pass')
   })
 } else {
-  try {
+  let exitCode = 1
+  await test('native unload decisions preserve drafts unless Leave is chosen', async () => {
     const { registerSettingsUnloadProtection } = await import('../lib/window/settings-unload.ts')
     const originalDialog = electron.dialog.showMessageBoxSync
     let unload
@@ -50,9 +51,7 @@ if (!process.versions.electron) {
     } finally {
       electron.dialog.showMessageBoxSync = originalDialog
     }
-    electron.app.exit(0)
-  } catch (error) {
-    console.error(error)
-    electron.app.exit(1)
-  }
+    exitCode = 0
+  })
+  electron.app.exit(exitCode)
 }
