@@ -1082,3 +1082,142 @@ test('settings startup retains access diagnostics when PR events precede connect
     assert.equal(provider.render({}, 'SettingProvider').props.value.azDoAccess, access)
   }
 })
+
+test('overview initially selects a visible default or the first visible profile without relying on builtin All', async () => {
+  for (const [profiles, expected] of [
+    [
+      [
+        { ...profile, id: 'builtin:all', isDefault: true, visible: false },
+        { ...profile, id: 'review' },
+      ],
+      'review',
+    ],
+    [[{ ...profile, id: 'review' }], 'review'],
+    [
+      [
+        { ...profile, id: 'first' },
+        { ...profile, id: 'default', isDefault: true },
+      ],
+      'default',
+    ],
+    [
+      [
+        { ...profile, id: 'hidden', isDefault: true, visible: false },
+        { ...profile, id: 'first', isDefault: true },
+        { ...profile, id: 'second', isDefault: true },
+      ],
+      'first',
+    ],
+  ]) {
+    const view = await component('app/pages/pull-requests/pull-requests.tsx')
+    view.setSettings({ ...settings, profiles })
+    view.render()
+    await view.flush()
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type === 'TabList')[0].props.selectedValue, expected)
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList')[0]?.key, expected)
+  }
+})
+
+test('live settings retain a visible choice and replace hidden or deleted selections in priority order', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const all = { ...profile, id: 'builtin:all', isDefault: true }
+  const review = { ...profile, id: 'review' }
+  const fallback = { ...profile, id: 'fallback' }
+  view.setSettings({ ...settings, profiles: [all, review, fallback] })
+  view.render()
+  await view.flush()
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'review' })
+  for (const [profiles, expected] of [
+    [[all, review, { ...fallback, isDefault: true }], 'review'],
+    [[all, { ...review, visible: false }, fallback], 'builtin:all'],
+    [[review, { ...fallback, isDefault: true }], 'fallback'],
+    [[review], 'review'],
+  ]) {
+    view.listeners.get('settings')({ ...settings, profiles })
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type === 'TabList')[0].props.selectedValue, expected)
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList')[0]?.key, expected)
+  }
+})
+
+test('overview with hidden or deleted profiles offers profile management and recovers when a profile becomes visible', async () => {
+  for (const profiles of [[], [{ ...profile, isDefault: true, visible: false }]]) {
+    const view = await component('app/pages/pull-requests/pull-requests.tsx')
+    view.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
+    view.render()
+    await view.flush()
+    view.listeners.get('settings')({ ...settings, profiles })
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList').length, 0)
+    const empty = elements(tree, (element) => element.type?.name === 'ZeroData')[0]
+    assert.equal(empty?.props.primaryText, 'No visible profiles')
+    assert.equal(empty.props.actionText, 'Manage profiles')
+    assert.equal(empty.props.actionHref, profiles.length ? '/settings/profiles/test' : '/settings/profiles/new')
+    assert.equal(elements(tree, (element) => element.type === 'TabList').length, 0)
+    view.listeners.get('settings')({ ...settings, profiles: [profile] })
+    assert.equal(elements(view.render(), (element) => element.type === 'TabList')[0].props.selectedValue, 'test')
+  }
+})
+
+test('setting a default clears other defaults immutably and unrelated edits preserve them', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({
+    ...settings,
+    profiles: [
+      { ...profile, id: 'one', isDefault: true },
+      { ...profile, id: 'two', isDefault: false },
+      { ...profile, id: 'legacy', isDefault: true },
+    ],
+  })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  const before = value.state
+  for (const item of before.profiles) Object.freeze(item)
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'isDefault', value: true } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, true, false]
+  )
+  assert.deepEqual(
+    before.profiles.map((item) => item.isDefault),
+    [true, false, true]
+  )
+  const updated = value.state
+  for (const item of updated.profiles) Object.freeze(item)
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'label', value: 'Renamed' } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, true, false]
+  )
+  assert.equal(updated.profiles[1].label, 'Test')
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'isDefault', value: false } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, false, false]
+  )
+})
+
+test('duplicating a default profile preserves its settings but does not create another default', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true, filter: { op: 'AND', filters: [] } }] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  value.actions.duplicateProfile('test')
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.equal(value.state.profiles[0].isDefault, true)
+  assert.equal(value.state.profiles[1].isDefault, false)
+  assert.notEqual(value.state.profiles[1].id, 'test')
+  assert.equal(value.state.profiles[1].visible, true)
+  assert.equal(value.state.profiles[1].filter, value.state.profiles[0].filter)
+  await value.actions.saveSettings()
+  assert.deepEqual(
+    provider.calls.find(([name]) => name === 'save-settings')[1].profiles.map((item) => item.isDefault),
+    [true, false]
+  )
+})
