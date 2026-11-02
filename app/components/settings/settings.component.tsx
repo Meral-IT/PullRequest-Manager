@@ -14,6 +14,7 @@ import {
   SelectTabEvent,
   Tab,
   TabList,
+  Text,
   tokens,
 } from '@fluentui/react-components'
 import {
@@ -51,6 +52,12 @@ const useStyles = makeStyles({
     overflowY: 'auto',
   },
   bottom: { flexShrink: 0 },
+  saveRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: tokens.spacingHorizontalM,
+  },
   dangerButton: {
     backgroundColor: tokens.colorStatusDangerBackground3,
     ':hover': {
@@ -98,6 +105,16 @@ export default function SettingsComponent() {
   }
   if (['/settings/azure-devops', '/settings/integrations'].includes(loc.pathname)) {
     pathName = `/settings/integrations/${selectedIntegrationId}`
+  }
+
+  let saveStatus = 'Saved'
+  if (saving) {
+    saveStatus = 'Saving settings'
+  } else if (saveError) {
+    saveStatus = 'Unable to save settings.'
+    if (dirty) saveStatus += ' Unsaved changes.'
+  } else if (dirty) {
+    saveStatus = 'Unsaved changes'
   }
 
   let buttonContent: string
@@ -216,9 +233,14 @@ export default function SettingsComponent() {
               validationState={saveError ? 'error' : undefined}
               validationMessage={saveError ? <span role="alert">{saveError}</span> : undefined}
             >
-              <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
-                {buttonContent}
-              </Button>
+              <div className={styles.saveRow}>
+                <Text role="status" aria-atomic={true}>
+                  {saveStatus}
+                </Text>
+                <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
+                  {buttonContent}
+                </Button>
+              </div>
             </Field>
           </div>
         }
