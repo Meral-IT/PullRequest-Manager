@@ -1,4 +1,5 @@
 import { registerWindowIPC } from '@/lib/window/ipcEvents'
+import { registerSettingsUnloadProtection } from '../window/settings-unload'
 import appIcon from '@/resources/icon.png?asset'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
@@ -60,6 +61,7 @@ export function createAppWindow(): BrowserWindow {
 
   // Register IPC events for the main window.
   registerWindowIPC(mainWindow)
+  registerSettingsUnloadProtection(mainWindow)
 
   mainWindow.on('ready-to-show', async () => {
     try {

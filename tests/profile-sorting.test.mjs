@@ -154,6 +154,8 @@ async function component(entry) {
         return {
           useParams: () => params,
           useLocation: () => ({ pathname }),
+          useBlocker: () => ({ state: 'unblocked' }),
+          useBeforeUnload: () => {},
           useNavigate: () => (path) => calls.push(['navigate', path]),
         }
       return load(name)
@@ -337,6 +339,7 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   const context = {
     state,
     selectedIntegrationId: 'integration',
+    dirty: false,
     actions: {
       selectIntegration: (id) => selected.push(id),
       addIntegration: () => {

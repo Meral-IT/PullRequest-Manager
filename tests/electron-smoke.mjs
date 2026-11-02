@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { validateSmokeProfilePath, withSmokeProfile } from './smoke-profile-path.mjs'
+import { checkSettingsNavigation } from './settings-navigation-smoke.mjs'
 
 if (!process.versions.electron) {
   const result = withSmokeProfile((userData) =>
@@ -1412,6 +1413,7 @@ async function runSmokeTest() {
     await checkPlatform(process.platform)
     await checkTitlebarLayout(window, windowPlatform, 480)
     await checkTitlebarMenus(window)
+    await checkSettingsNavigation(window, settings, waitForRenderer, settleLayout)
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
 
