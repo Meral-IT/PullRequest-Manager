@@ -744,7 +744,7 @@ async function checkPrSearch(window, settings) {
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
-  const titleList = `Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent.replace(/^#\\d+ /, ''))`
+  const titleList = String.raw`Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent.replace(/^#\d+ /, ''))`
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
@@ -816,7 +816,7 @@ async function checkPrSearch(window, settings) {
     ),
     ['#1 Fix invoice rounding', '#2 Update dashboard']
   )
-  for (const showSourceInformation of [false, true]) {
+  const checkSourceInformation = async (showSourceInformation) => {
     settings.appearance.showSourceInformation = showSourceInformation
     window.webContents.send('settings', settings)
     await waitForRenderer(
@@ -828,6 +828,8 @@ async function checkPrSearch(window, settings) {
       '#1 Fix invoice rounding'
     )
   }
+  await checkSourceInformation(false)
+  await checkSourceInformation(true)
   await settleLayout(window)
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })

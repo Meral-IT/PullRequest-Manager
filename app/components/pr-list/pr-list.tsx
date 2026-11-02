@@ -21,6 +21,7 @@ import {
   DataGrid,
   DataGridBody,
   DataGridCell,
+  DataGridCellFocusMode,
   DataGridHeader,
   DataGridHeaderCell,
   DataGridRow,
@@ -643,19 +644,15 @@ export default function PrList(props: Readonly<Props>) {
         <DataGridBody<PullRequest>>
           {({ item, rowId }) => (
             <DataGridRow<PullRequest> key={rowId} onContextMenu={(e) => openContextMenu(e, item, true)}>
-              {({ renderCell, columnId }) => (
-                <DataGridCell
-                  focusMode={
-                    columnId === 'actions'
-                      ? 'none'
-                      : columnId === 'details' || columnId === 'statusChecks'
-                        ? 'group'
-                        : 'cell'
-                  }
-                >
-                  {renderCell(item)}
-                </DataGridCell>
-              )}
+              {({ renderCell, columnId }) => {
+                let focusMode: DataGridCellFocusMode = 'cell'
+                if (columnId === 'actions') {
+                  focusMode = 'none'
+                } else if (columnId === 'details' || columnId === 'statusChecks') {
+                  focusMode = 'group'
+                }
+                return <DataGridCell focusMode={focusMode}>{renderCell(item)}</DataGridCell>
+              }}
             </DataGridRow>
           )}
         </DataGridBody>

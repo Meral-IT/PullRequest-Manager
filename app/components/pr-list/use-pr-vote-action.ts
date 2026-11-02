@@ -17,10 +17,10 @@ export function usePrVoteAction() {
         action === 'approve' ? 'approve-prs' : 'reset-pr-feedback',
         action === 'approve' ? items : items[0]
       )
-      setNotice({
-        message: pullRequestActionMessage(result, action),
-        intent: result.failed ? 'error' : result.skipped ? 'warning' : 'success',
-      })
+      let intent: 'success' | 'warning' | 'error' = 'success'
+      if (result.failed) intent = 'error'
+      else if (result.skipped) intent = 'warning'
+      setNotice({ message: pullRequestActionMessage(result, action), intent })
     } catch {
       setNotice({
         message: 'Unable to update pull request votes. Check your connection and try again.',
