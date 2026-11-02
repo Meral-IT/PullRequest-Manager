@@ -53,6 +53,10 @@ skipped, and failed counts; partial failures leave the remaining PRs available. 
 an action is pending to prevent repeated votes. Tray approvals report the same outcomes in a native notification. Keyboard users can navigate the grid with arrow
 keys, press **Enter** in a title cell to reach its link, and activate links or buttons with **Enter**.
 
+PR titles start with their number (for example, **#1234 This is the PR title**). Under **Settings → Appearance**,
+use **Show source information** to show or hide organization and project names in row details. It is enabled
+by default; repository and branch details remain visible either way. Select **Save Settings** to apply the change.
+
 You can manage multiple connections under **Settings → Integrations** in the left navigation. Select a connection to
 edit it, or choose **Add Integration**, give the new connection a name, and enter its organization URL, project name or ID, and PAT. Refresh intervals, smart approval,
 validation, and scope acknowledgements apply to each connection separately. Smart approval only includes PRs

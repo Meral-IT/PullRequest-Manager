@@ -720,6 +720,8 @@ async function checkPrSearch(window, settings) {
       repository,
       repositoryId: 'repo',
       projectId: 'project',
+      organization: 'North',
+      project: 'Finance',
       branch: 'feature',
       targetBranch: 'main',
       description,
@@ -742,7 +744,7 @@ async function checkPrSearch(window, settings) {
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
-  const titleList = `Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent)`
+  const titleList = String.raw`Array.from(document.querySelectorAll('.pr-title .fui-Text')).map(element => element.textContent.replace(/^#\d+ /, ''))`
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
@@ -808,6 +810,26 @@ async function checkPrSearch(window, settings) {
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('.pr-title a')).map(link => link.textContent)`
+    ),
+    ['#1 Fix invoice rounding', '#2 Update dashboard']
+  )
+  const checkSourceInformation = async (showSourceInformation) => {
+    settings.appearance.showSourceInformation = showSourceInformation
+    window.webContents.send('settings', settings)
+    await waitForRenderer(
+      window,
+      `document.querySelector('.pr-title').textContent.includes('North/Finance') === ${showSourceInformation}`
+    )
+    assert.equal(
+      await window.webContents.executeJavaScript(`document.querySelector('.pr-title a').textContent`),
+      '#1 Fix invoice rounding'
+    )
+  }
+  await checkSourceInformation(false)
+  await checkSourceInformation(true)
   await settleLayout(window)
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
@@ -990,7 +1012,7 @@ async function checkPrSearch(window, settings) {
       link.closest('[role=gridcell]').focus()
       return { text: link.textContent, href: link.href }
     })()`),
-    { text: 'Fix invoice rounding', href: 'https://example.com/pr/1' }
+    { text: '#1 Fix invoice rounding', href: 'https://example.com/pr/1' }
   )
   await press('Enter')
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${titleLink}`), true)

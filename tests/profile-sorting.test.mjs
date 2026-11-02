@@ -242,6 +242,27 @@ const settings = {
   profiles: [profile],
 }
 
+test('source information toggle loads legacy defaults and saves either choice', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  const appearance = await component('app/components/settings/appearance/appearance-settings.component.tsx')
+  provider.setSettings(settings)
+  const value = () => provider.render({}, 'SettingProvider').props.value
+  value()
+  await provider.flush()
+  assert.equal(value().state.appearanceShowSourceInformation, true)
+  for (const checked of [false, true]) {
+    appearance.setContext(value())
+    const toggle = elements(appearance.render(), (element) => element.type === 'Switch')[0]
+    assert.equal(toggle.props.checked, !checked)
+    toggle.props.onChange({}, { checked })
+    await value().actions.saveSettings()
+    const saved = provider.calls.filter(([name]) => name === 'save-settings').at(-1)[1]
+    assert.equal(saved.appearance.showSourceInformation, checked)
+    provider.listeners.get('settings')(saved)
+    assert.equal(value().state.appearanceShowSourceInformation, checked)
+  }
+})
+
 test('profile sorting and explicit manual sorting survive load, duplication, and save', async () => {
   const provider = await component('app/components/settings/provider/setting.provider.tsx')
   const sorting = { sortColumn: 'creationDate', sortDirection: 'descending' }
@@ -1174,12 +1195,65 @@ test('settings startup retains access diagnostics when PR events precede connect
   }
 })
 
+test('PR details distinguish identical queues by organization, project, and number with full title tooltips', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  view.setSettings(settings)
+  const title = 'Fix invoice rounding across multiple currencies and regional payment processing systems'
+  const data = ['North', 'South'].map((organization) => ({
+    id: 12,
+    details: {
+      label: title,
+      number: 42,
+      organization,
+      project: 'Finance',
+      repository: 'Billing',
+      branch: 'refs/heads/feature',
+      targetBranch: 'refs/heads/main',
+    },
+    urls: { web: `https://dev.azure.com/${organization}/Finance/_git/Billing/pullrequest/42` },
+  }))
+  const grid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+  const details = grid.props.columns.find((column) => column.columnId === 'details')
+  for (const [index, organization] of ['North', 'South'].entries()) {
+    const cell = details.renderCell(data[index])
+    const layout = elements(cell, (element) => element.type === 'TableCellLayout')[0]
+    assert.equal(layout.props.description, `${organization}/Finance · Billing · feature → main`)
+    assert.equal(elements(cell, (element) => element.type === 'Text')[0].props.children, `#42 ${title}`)
+    const tooltip = elements(cell, (element) => element.type === 'Tooltip')[0]
+    assert.ok(tooltip.props.content.includes(title), 'Truncated titles remain readable in full')
+    assert.ok(
+      tooltip.props.content.includes(`${organization}/Finance`),
+      'Source remains available when details truncate'
+    )
+    assert.ok(tooltip.props.content.includes('#42'), 'Use the display PR number rather than the internal id')
+    assert.equal(tooltip.props.relationship, 'description')
+  }
+  const legacy = { ...data[0], details: { ...data[0].details, organization: undefined, project: undefined } }
+  const legacyLayout = elements(details.renderCell(legacy), (element) => element.type === 'TableCellLayout')[0]
+  assert.equal(legacyLayout.props.description, 'Billing · feature → main')
+  await view.flush()
+  for (const showSourceInformation of [false, true]) {
+    view.listeners.get('settings')({ ...settings, appearance: { ...settings.appearance, showSourceInformation } })
+    const updatedGrid = elements(view.render({ data }), (element) => element.type === 'DataGrid')[0]
+    const cell = updatedGrid.props.columns.find((column) => column.columnId === 'details').renderCell(data[0])
+    assert.equal(
+      elements(cell, (element) => element.type === 'TableCellLayout')[0].props.description,
+      showSourceInformation ? 'North/Finance · Billing · feature → main' : 'Billing · feature → main'
+    )
+    assert.equal(elements(cell, (element) => element.type === 'Text')[0].props.children, `#42 ${title}`)
+    assert.equal(
+      elements(cell, (element) => element.type === 'Tooltip')[0].props.content.includes('North/Finance'),
+      showSourceInformation
+    )
+  }
+})
+
 test('PR title links open the intended URL and expose launch failures', async () => {
   const view = await component('app/components/pr-list/pr-list.tsx')
   view.setSettings(settings)
   const item = {
     id: 12,
-    details: { label: 'Fix invoice', repository: 'Billing', branch: 'feature', targetBranch: 'main' },
+    details: { number: 42, label: 'Fix invoice', repository: 'Billing', branch: 'feature', targetBranch: 'main' },
     urls: { web: 'https://example.com/pr/12' },
   }
   const data = [item]
@@ -1188,7 +1262,7 @@ test('PR title links open the intended URL and expose launch failures', async ()
   const link = elements(cell, (element) => element.type === 'Link')[0]
   assert.ok(link, 'The PR title must be a semantic link')
   assert.equal(link.props.href, 'https://example.com/pr/12')
-  assert.equal(link.props.children.props.children, 'Fix invoice')
+  assert.equal(link.props.children.props.children, '#42 Fix invoice')
   let prevented = false
   await link.props.onClick({
     preventDefault() {

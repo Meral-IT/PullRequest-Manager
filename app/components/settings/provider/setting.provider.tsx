@@ -56,6 +56,7 @@ const convertSettings = (settings: SettingsModel): SettingStateProps => {
     email: '',
     azDoIntegrations: settings.azDoIntegrations,
     appearanceTableSize: settings.appearance.tableSize,
+    appearanceShowSourceInformation: settings.appearance.showSourceInformation ?? true,
     profiles: settings.profiles.map(convertProfiles),
   }
 }
@@ -82,6 +83,7 @@ export const SettingProvider = ({ children }: Props) => {
     azDoIntegrations: [],
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
+    appearanceShowSourceInformation: true,
     profiles: [],
   })
   const currentForm = useRef(formData)
@@ -247,6 +249,7 @@ export const SettingProvider = ({ children }: Props) => {
           appearance: {
             theme: formData.appearanceTheme,
             tableSize: formData.appearanceTableSize,
+            showSourceInformation: formData.appearanceShowSourceInformation,
           },
           profiles: profiles.map(convertProfilesToModel),
         }
