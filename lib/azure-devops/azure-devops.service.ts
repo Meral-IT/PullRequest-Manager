@@ -615,9 +615,10 @@ export class AzureDevOpsService {
       log.debug('Completed to fetch data')
     } catch (error) {
       log.error('Failed to fetch data', getAzureDevOpsAccessFailure(error).message)
-      const statusCode = error instanceof Error ? ((error as AzError).statusCode ?? 0) : 0
+      const failure = error instanceof Error ? error : new Error(String(error))
+      const statusCode = (failure as AzError).statusCode ?? 0
       data.error = {
-        message: (error instanceof Error ? error.message : String(error)).replaceAll(settings.pat, '[redacted]'),
+        message: failure.message.replaceAll(settings.pat, '[redacted]'),
         details: getAzureDevOpsAccessFailure(error).message,
         type: statusCode === 401 ? ErrorType.Authentication : ErrorType.Unknown,
         actionText: 'DevOps Settings',
