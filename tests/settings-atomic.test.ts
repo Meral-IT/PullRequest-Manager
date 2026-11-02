@@ -12,14 +12,15 @@ import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import type * as Settings from '../lib/main/settings'
-import type { SettingsModel } from '../lib/models/settings.model'
+import type { AzDoIntegration, SettingsModel } from '../lib/models/settings.model'
 
-const original: SettingsModel = {
+const original: SettingsModel & { integrations: AzDoIntegration[] } = {
   general: { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
-  azDoIntegrations: [
+  integrations: [
     {
       id: 'integration',
       name: 'Test',
+      type: 'azure-devops',
       organizationUrl: '',
       project: 'original',
       pat: '',
@@ -70,14 +71,38 @@ function settingsModule(directory: string, overrides: Partial<typeof fs> = {}, p
   return { ...result.exports, effects: () => effects }
 }
 
+test('untyped Azure integration arrays migrate to typed integrations without losing encrypted tokens', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-provider-migration-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const file = path.join(directory, 'settings.json')
+  await fs.writeFile(
+    file,
+    JSON.stringify({
+      ...original,
+      integrations: undefined,
+      azDoIntegrations: [
+        { ...original.integrations[0], type: undefined, pat: Buffer.from('encrypted:legacy').toString('base64url') },
+      ],
+    })
+  )
+  const loaded = await settingsModule(directory).loadSettings()
+  assert.equal(loaded.integrations[0].type, 'azure-devops')
+  assert.equal(loaded.integrations[0].id, 'integration')
+  assert.equal(loaded.integrations[0].pat, 'legacy')
+  const disk = JSON.parse(await fs.readFile(file, 'utf8'))
+  assert.equal(disk.azDoIntegrations, undefined)
+  assert.equal(disk.integrations[0].pat.includes('legacy'), false)
+})
+
 test('legacy Azure DevOps settings migrate automatically with encrypted PAT and stable identity', async (t) => {
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-migration-'))
   t.after(() => fs.rm(directory, { recursive: true, force: true }))
   const file = path.join(directory, 'settings.json')
   const legacy = {
     ...original,
-    azDoIntegrations: undefined,
+    integrations: undefined,
     azDo: {
+      type: 'azure-devops',
       organizationUrl: 'https://dev.azure.com/example',
       project: 'Platform',
       pat: Buffer.from('encrypted:secret').toString('base64url'),
@@ -88,7 +113,7 @@ test('legacy Azure DevOps settings migrate automatically with encrypted PAT and 
   }
   await fs.writeFile(file, JSON.stringify(legacy))
   const settings = await settingsModule(directory).loadSettings()
-  const integration = settings.azDoIntegrations[0]
+  const integration = settings.integrations[0]
   assert.ok(integration.id)
   assert.equal(integration.pat, 'secret')
   assert.equal(integration.updateInterval, 42)
@@ -96,8 +121,8 @@ test('legacy Azure DevOps settings migrate automatically with encrypted PAT and 
   assert.equal(integration.acknowledgedScopeRequirements, 'reviewed')
   const disk = JSON.parse(await fs.readFile(file, 'utf8'))
   assert.equal(disk.azDo, undefined)
-  assert.notEqual(disk.azDoIntegrations[0].pat, 'secret')
-  assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].id, integration.id)
+  assert.notEqual(disk.integrations[0].pat, 'secret')
+  assert.equal((await settingsModule(directory).loadSettings()).integrations[0].id, integration.id)
 })
 
 test('migration accepts refresh intervals saved as strings by the previous settings form', async (t) => {
@@ -112,12 +137,12 @@ test('migration accepts refresh intervals saved as strings by the previous setti
   ] as const) {
     const legacy = {
       ...original,
-      azDoIntegrations: undefined,
-      azDo: { ...original.azDoIntegrations[0], updateInterval: interval },
+      integrations: undefined,
+      azDo: { ...original.integrations[0], updateInterval: interval },
     }
     await fs.writeFile(path.join(directory, 'settings.json'), JSON.stringify(legacy))
     const loaded = await settingsModule(directory).loadSettings()
-    assert.equal(loaded.azDoIntegrations[0].updateInterval, expected)
+    assert.equal(loaded.integrations[0].updateInterval, expected)
   }
 })
 
@@ -127,23 +152,23 @@ test('multiple integrations round-trip encrypted tokens and deleting all does no
   const store = settingsModule(directory)
   const input = {
     ...original,
-    azDoIntegrations: ['first', 'second'].map((id) => ({ ...original.azDoIntegrations[0], id, pat: `${id}-secret` })),
+    integrations: ['first', 'second'].map((id) => ({ ...original.integrations[0], id, pat: `${id}-secret` })),
   }
   await store.saveSettings(input)
   const bytes = await fs.readFile(path.join(directory, 'settings.json'), 'utf8')
   assert.equal(bytes.includes('first-secret'), false)
   assert.equal(bytes.includes('second-secret'), false)
   const loaded = await settingsModule(directory).loadSettings()
-  assert.equal(loaded.azDoIntegrations[0].pat, 'first-secret')
-  assert.equal(loaded.azDoIntegrations[1].pat, 'second-secret')
-  assert.equal(input.azDoIntegrations[0].pat, 'first-secret')
+  assert.equal(loaded.integrations[0].pat, 'first-secret')
+  assert.equal(loaded.integrations[1].pat, 'second-secret')
+  assert.equal(input.integrations[0].pat, 'first-secret')
   await assert.rejects(
-    store.saveSettings({ ...input, azDoIntegrations: [input.azDoIntegrations[0], input.azDoIntegrations[0]] }),
+    store.saveSettings({ ...input, integrations: [input.integrations[0], input.integrations[0]] }),
     /unique IDs/
   )
   assert.equal(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'), bytes)
-  await store.saveSettings({ ...input, azDoIntegrations: [] })
-  assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations.length, 0)
+  await store.saveSettings({ ...input, integrations: [] })
+  assert.equal((await settingsModule(directory).loadSettings()).integrations.length, 0)
 })
 
 test('migration preserves invalid profile filters for repair and leaves legacy bytes intact on write failure', async (t) => {
@@ -152,7 +177,7 @@ test('migration preserves invalid profile filters for repair and leaves legacy b
   const file = path.join(directory, 'settings.json')
   const legacy = {
     ...original,
-    azDoIntegrations: undefined,
+    integrations: undefined,
     azDo: { project: 'Legacy' },
     profiles: [{ ...original.profiles[0], filter: { op: 'INVALID' } }],
   }
@@ -166,8 +191,8 @@ test('migration preserves invalid profile filters for repair and leaves legacy b
   await assert.rejects(failing.loadSettings(), /Migration rename failed/)
   assert.equal(await fs.readFile(file, 'utf8'), bytes)
   const loaded = await settingsModule(directory).loadSettings()
-  assert.equal(loaded.azDoIntegrations[0].project, 'Legacy')
-  assert.equal(loaded.azDoIntegrations[0].pat, '')
+  assert.equal(loaded.integrations[0].project, 'Legacy')
+  assert.equal(loaded.integrations[0].pat, '')
   assert.deepEqual(JSON.parse(JSON.stringify(loaded.profiles[0].filter)), { op: 'INVALID' })
 })
 
@@ -228,7 +253,7 @@ for (const failure of ['partial write', 'file flush', 'rename', 'directory flush
       )
       const cached = await store.loadSettings()
       await assert.rejects(
-        store.saveSettings({ ...original, azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'failed' }] }),
+        store.saveSettings({ ...original, integrations: [{ ...original.integrations[0], project: 'failed' }] }),
         (error) => error === expected
       )
       assert.equal(await fs.readFile(file, 'utf8'), before)
@@ -237,9 +262,9 @@ for (const failure of ['partial write', 'file flush', 'rename', 'directory flush
       assert.deepEqual(await fs.readdir(directory), ['settings.json'])
       await store.saveSettings({
         ...original,
-        azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'recovered' }],
+        integrations: [{ ...original.integrations[0], project: 'recovered' }],
       })
-      assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project, 'recovered')
+      assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).integrations[0].project, 'recovered')
     }
   )
 }
@@ -286,14 +311,14 @@ test(
       'darwin'
     )
     await store.loadSettings()
-    const input = { ...original, azDoIntegrations: [{ ...original.azDoIntegrations[0], pat: 'test-secret' }] }
+    const input = { ...original, integrations: [{ ...original.integrations[0], pat: 'test-secret' }] }
     await store.saveSettings(input)
     assert.deepEqual(operations, ['write+flush', 'replace', 'directory flush'])
     const saved = await fs.readFile(file, 'utf8')
     assert.ok(!saved.includes('test-secret'))
-    assert.equal(input.azDoIntegrations[0].pat, 'test-secret')
+    assert.equal(input.integrations[0].pat, 'test-secret')
     if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
-    assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].pat, 'test-secret')
+    assert.equal((await settingsModule(directory).loadSettings()).integrations[0].pat, 'test-secret')
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   }
 )
@@ -307,7 +332,7 @@ test('initial reads share the save queue and remove an orphan stage without chan
   const store = settingsModule(directory)
   const reads = await Promise.all([store.loadSettings(), store.loadSettings(), store.loadSettings()])
   assert.ok(reads.every((value) => value === reads[0]))
-  assert.equal(reads[0].azDoIntegrations[0].project, 'original')
+  assert.equal(reads[0].integrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   assert.equal(store.effects(), 0)
 })
@@ -345,7 +370,7 @@ test(
     await assert.rejects(store.saveSettings(original), /directory flush failed/)
     assert.deepEqual(await fs.readdir(directory), [])
     await store.saveSettings(original)
-    assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
+    assert.equal((await store.loadSettings()).integrations[0].project, 'original')
   }
 )
 
@@ -363,7 +388,7 @@ test('Windows flushes staged files without attempting an unsupported directory h
     'win32'
   )
   await store.saveSettings(original)
-  assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
+  assert.equal((await store.loadSettings()).integrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
 })
 
@@ -395,11 +420,8 @@ for (const phase of ['before', 'after']) {
     child.kill('SIGKILL')
     await exited
     const restarted = await settingsModule(directory).loadSettings()
-    assert.equal(restarted.azDoIntegrations[0].project, phase === 'before' ? 'original' : 'replacement')
-    assert.equal(
-      JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project,
-      restarted.azDoIntegrations[0].project
-    )
+    assert.equal(restarted.integrations[0].project, phase === 'before' ? 'original' : 'replacement')
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).integrations[0].project, restarted.integrations[0].project)
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   })
 }
@@ -441,7 +463,7 @@ test(
     await assert.rejects(
       store.saveSettings({
         ...original,
-        azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'replacement' }],
+        integrations: [{ ...original.integrations[0], project: 'replacement' }],
       }),
       (error: unknown) => {
         const failure = error as AggregateError
@@ -455,9 +477,9 @@ test(
     )
     assert.equal(await fs.readFile(`${file}.rollback`, 'utf8'), before)
     assert.equal((await fs.stat(`${file}.rollback`)).mode & 0o777, 0o600)
-    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).azDoIntegrations[0].project, 'replacement')
-    assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
-    assert.equal((await settingsModule(directory).loadSettings()).azDoIntegrations[0].project, 'original')
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).integrations[0].project, 'replacement')
+    assert.equal((await store.loadSettings()).integrations[0].project, 'original')
+    assert.equal((await settingsModule(directory).loadSettings()).integrations[0].project, 'original')
     assert.equal(await fs.readFile(file, 'utf8'), before)
     assert.deepEqual(await fs.readdir(directory), ['settings.json'])
   }
@@ -496,7 +518,7 @@ for (const recovery of [
   {},
   {
     ...original,
-    azDoIntegrations: [{ ...original.azDoIntegrations[0], pat: Buffer.from('corrupt').toString('base64url') }],
+    integrations: [{ ...original.integrations[0], pat: Buffer.from('corrupt').toString('base64url') }],
   },
 ]) {
   test('unusable recovery settings never replace a complete settings file', async (t) => {
@@ -519,7 +541,7 @@ test('recovery is flushed before replacing settings and never reports success on
   const file = path.join(directory, 'settings.json')
   const originalBytes = JSON.stringify({
     ...original,
-    azDoIntegrations: [{ ...original.azDoIntegrations[0], project: 'new' }],
+    integrations: [{ ...original.integrations[0], project: 'new' }],
   })
   await fs.writeFile(file, originalBytes)
   await fs.writeFile(`${file}.rollback`, JSON.stringify(original), { mode: 0o600 })
@@ -551,6 +573,53 @@ test('recovery is flushed before replacing settings and never reports success on
   })
   await assert.rejects(store.loadSettings(), /Recovery flush failed/)
   assert.equal(await fs.readFile(file, 'utf8'), originalBytes)
-  assert.equal((await store.loadSettings()).azDoIntegrations[0].project, 'original')
+  assert.equal((await store.loadSettings()).integrations[0].project, 'original')
   assert.deepEqual(await fs.readdir(directory), ['settings.json'])
+})
+
+test('mixed providers round-trip encrypted PATs, normalize repositories and reject unknown types atomically', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-mixed-providers-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const store = settingsModule(directory)
+  const input: SettingsModel = {
+    ...original,
+    integrations: [
+      { ...original.integrations[0], pat: 'azure-secret' },
+      {
+        type: 'github',
+        id: 'github',
+        name: 'GitHub',
+        pat: 'github-secret',
+        repositories: [' Acme/Widget ', 'acme/widget', ''],
+        updateInterval: 180,
+        intelligentApproval: true,
+      },
+    ],
+  }
+  await store.saveSettings(input)
+  const file = path.join(directory, 'settings.json')
+  const bytes = await fs.readFile(file, 'utf8')
+  assert.equal(bytes.includes('azure-secret'), false)
+  assert.equal(bytes.includes('github-secret'), false)
+  const reloaded = await settingsModule(directory).loadSettings()
+  assert.deepEqual(
+    Array.from(reloaded.integrations, (item) => item.pat),
+    ['azure-secret', 'github-secret']
+  )
+  assert.deepEqual(Array.from(reloaded.integrations[1].repositories!), ['acme/widget'])
+  assert.equal(input.integrations[1].repositories![0], ' Acme/Widget ')
+  await assert.rejects(
+    store.saveSettings({ ...input, integrations: [{ ...input.integrations[1], type: 'unknown' } as never] }),
+    /Unknown integration type/
+  )
+  await assert.rejects(
+    store.saveSettings({
+      ...input,
+      integrations: [
+        { ...input.integrations[1], type: 'github', repositories: ['https://attacker.invalid/repo'] } as never,
+      ],
+    }),
+    /owner\/repository/
+  )
+  assert.equal(await fs.readFile(file, 'utf8'), bytes)
 })

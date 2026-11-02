@@ -10,6 +10,7 @@ import RouterListener from './components/router-listener/router-listener.compone
 import AppearanceSettings from './components/settings/appearance/appearance-settings.component'
 import AzureDevOpsSettings from './components/settings/azdo/settings-azdo.component'
 import GeneralSettings from './components/settings/general/general-settings.component'
+import IntegrationSettings from './components/settings/integration-settings.component'
 import ProfileSettings from './components/settings/profiles/settings-profiles.component'
 import Settings from './pages/settings/settings.page'
 
@@ -26,7 +27,7 @@ ReactDOM.createRoot(document.getElementById('app')!).render(
               <Route path="general" element={<GeneralSettings />} />
               <Route path="appearance" element={<AppearanceSettings />} />
               <Route path="azure-devops" element={<AzureDevOpsSettings />} />
-              <Route path="integrations/:integrationId?" element={<AzureDevOpsSettings />} />
+              <Route path="integrations/:integrationId?" element={<IntegrationSettings />} />
               <Route path="profiles/:profileId" element={<ProfileSettings />} />
             </Route>
           </Routes>

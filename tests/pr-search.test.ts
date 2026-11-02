@@ -5,6 +5,7 @@ import { matchesPullRequestSearch } from '../lib/tools/pr-search'
 
 const pr = {
   id: 1,
+  provider: 'azure-devops',
   author: { id: 'author-id', label: 'Ada Lovelace' },
   lastUpdated: { label: '', timestamp: 0 },
   details: {
@@ -43,7 +44,12 @@ test('blank search includes every PR and missing descriptions are safe', () => {
 })
 
 test('search treats punctuation as literal text and includes the end of long descriptions', () => {
-  for (const [query, expected] of [['[rounding]', true], ['Payment.Service', true], ['.*', false], ['[', true]] as const) {
+  for (const [query, expected] of [
+    ['[rounding]', true],
+    ['Payment.Service', true],
+    ['.*', false],
+    ['[', true],
+  ] as const) {
     assert.equal(matchesPullRequestSearch(pr, query), expected, query)
   }
   const longDescription = { ...pr, details: { ...pr.details, description: `${'x'.repeat(500)} final paragraph` } }

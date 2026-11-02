@@ -1,5 +1,6 @@
 import { PrProfile } from '@/lib/models/pr-profile'
-import { AzDoIntegration, TableSize } from '@/lib/models/settings.model'
+import { Integration, IntegrationType, TableSize } from '@/lib/models/settings.model'
+import type { GitHubAccess, GitHubValidationResult } from '@/lib/models/github-access'
 import { createContext } from 'react'
 import type { AzureDevOpsAccess, AzureDevOpsValidationResult } from '@/lib/models/azure-devops-access'
 
@@ -25,7 +26,7 @@ export interface SettingStateProps {
   email: string
   appearanceTheme: 'system' | 'light' | 'dark'
   appearanceTableSize: TableSize
-  azDoIntegrations: AzDoIntegration[]
+  integrations: Integration[]
   profiles: SettingStatePrProfile[]
 }
 
@@ -35,10 +36,11 @@ export interface SettingPageProps {
     getInitialSettings: () => Promise<SettingStateProps>
     onChangeHandler: any
     validateAzDo: () => Promise<void>
-    addIntegration: () => string
+    validateGitHub: () => Promise<void>
+    addIntegration: (type?: IntegrationType) => string
     deleteIntegration: (id: string) => void
     selectIntegration: (id: string) => void
-    updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => void
+    updateIntegration: (id: string, changes: Partial<Integration>) => void
     saveSettings: any
     deleteProfile: (id: string) => void
     addProfile: () => void
@@ -50,6 +52,9 @@ export interface SettingPageProps {
   validatingAzDo: boolean
   azDoAccess?: AzureDevOpsAccess
   azDoValidation?: AzureDevOpsValidationResult
+  validatingGitHub: boolean
+  githubAccess?: GitHubAccess
+  githubValidation?: GitHubValidationResult
 }
 
 export const SettingsContext = createContext<SettingPageProps>({
@@ -62,13 +67,14 @@ export const SettingsContext = createContext<SettingPageProps>({
     appearanceTableSize: TableSize.Small,
     name: '',
     email: '',
-    azDoIntegrations: [],
+    integrations: [],
     profiles: [],
   },
   actions: {
     getInitialSettings: () => Promise.resolve({} as SettingStateProps),
     onChangeHandler: () => {},
     validateAzDo: async () => {},
+    validateGitHub: async () => {},
     addIntegration: () => '',
     deleteIntegration: () => {},
     selectIntegration: () => {},
@@ -82,4 +88,5 @@ export const SettingsContext = createContext<SettingPageProps>({
   saving: false,
   saveError: '',
   validatingAzDo: false,
+  validatingGitHub: false,
 })

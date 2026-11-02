@@ -1,5 +1,6 @@
 import { PrVote } from './pr-vote.js'
 import { User } from './user.model.js'
+import type { IntegrationType } from './settings.model.js'
 
 export type LastUpdatedCell = {
   label: string
@@ -73,7 +74,14 @@ export type ReviewerState = {
 
 export type PullRequest = {
   id: number
+  provider: IntegrationType
   integrationId?: string
+  integrationRevision?: string
+  headCommitId?: string
+  canApprove?: boolean
+  canResetFeedback?: boolean
+  reviewersUnavailable?: boolean
+  checksUnavailable?: boolean
   author: User
   creationDate?: Date
   lastUpdated: LastUpdatedCell
@@ -88,6 +96,7 @@ export type PullRequest = {
 
 export function pullRequestKey(pr: PullRequest): string {
   return JSON.stringify([
+    pr.provider ?? 'azure-devops',
     pr.details.organizationId ||
       pr.details.organizationUrl?.replace(/\/$/, '').toLowerCase() ||
       pr.integrationId ||

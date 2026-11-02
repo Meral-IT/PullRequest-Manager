@@ -6,11 +6,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { AzureDevOpsIntegrationsService } from '../azure-devops/azure-devops-integrations.service'
+import { IntegrationsService } from '../integrations/integrations.service'
 import { NotificationService } from '../main/notification.service'
 import { acknowledgeAzureDevOpsRequirements, loadSettings, saveSettings } from '../main/settings'
 import { PullRequestUpdateManager } from '../main/update'
 import { PullRequest } from '../models/pull-request.model'
+import { GitHubIntegration } from '../models/settings.model'
+import { createGitHubAccess } from '../models/github-access'
 import {
   AzureDevOpsConnection,
   createAzureDevOpsAccess,
@@ -88,8 +90,8 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     // Load the settings from the store
     const settings = await saveSettings(data)
     NotificationService.getInstance().setSettings(settings.general, settings.profiles)
-    AzureDevOpsIntegrationsService.getInstance().setConfiguration(settings.azDoIntegrations)
-    AzureDevOpsIntegrationsService.getInstance()
+    IntegrationsService.getInstance().setConfiguration(settings.integrations)
+    IntegrationsService.getInstance()
       .updateDataImmediately()
       .catch((error) => {
         log.error('Failed to refresh after saving settings', getAzureDevOpsAccessFailure(error).message)
@@ -101,7 +103,7 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
 
   handleIPC('validate-azure-devops', async (_e, arg: AzureDevOpsConnection & { integrationId: string }) => {
     try {
-      return await AzureDevOpsIntegrationsService.getInstance().validateConnection(arg, arg.integrationId)
+      return await IntegrationsService.getInstance().validateConnection(arg, arg.integrationId)
     } catch (error) {
       const failure = getAzureDevOpsAccessFailure(error)
       const access = createAzureDevOpsAccess()
@@ -110,15 +112,23 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
     }
   })
 
+  handleIPC('validate-github', async (_e, connection: GitHubIntegration) => {
+    try {
+      return await IntegrationsService.getInstance().validateGitHubConnection(connection)
+    } catch {
+      return { userDisplayName: null, error: 'Enter a valid GitHub connection.', access: createGitHubAccess() }
+    }
+  })
+
   handleIPC(
     'acknowledge-azure-devops-requirements',
     async (_e, arg: { requirementsFingerprint: string; connectionRevision: number; integrationId: string }) => {
-      const service = AzureDevOpsIntegrationsService.getInstance()
+      const service = IntegrationsService.getInstance()
       if (!service.canAcknowledgeAccess(arg.requirementsFingerprint, arg.connectionRevision, arg.integrationId))
         return false
       const settings = await loadSettings()
-      const integration = settings.azDoIntegrations.find((item) => item.id === arg.integrationId)
-      if (!integration) return false
+      const integration = settings.integrations.find((item) => item.id === arg.integrationId)
+      if (integration?.type !== 'azure-devops') return false
       const saved = await acknowledgeAzureDevOpsRequirements(
         arg.requirementsFingerprint,
         integration,
@@ -133,19 +143,19 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   )
 
   handleIPC('get-pr-data', (_e) => {
-    return AzureDevOpsIntegrationsService.getInstance().getPullRequests()
+    return IntegrationsService.getInstance().getPullRequests()
   })
 
   handleIPC('update-pr-data', (_e) => {
-    return AzureDevOpsIntegrationsService.getInstance().updateDataImmediately()
+    return IntegrationsService.getInstance().updateDataImmediately()
   })
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
-    await AzureDevOpsIntegrationsService.getInstance().approvePullRequests(data)
+    await IntegrationsService.getInstance().approvePullRequests(data)
   })
 
   handleIPC('reset-pr-feedback', async (_e, pr: PullRequest) => {
-    await AzureDevOpsIntegrationsService.getInstance().resetPullRequestFeedback(pr)
+    await IntegrationsService.getInstance().resetPullRequestFeedback(pr)
   })
 
   handleIPC('check-vscode-installed', async () => {

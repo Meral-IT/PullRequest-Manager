@@ -65,9 +65,9 @@ function PullRequestErrors(error: Readonly<ErrorDetail>) {
 function IntegrationNotices({ data }: Readonly<{ data: PullRequestData }>) {
   const navigate = useNavigate()
   if (!data.integrations) return <AzureDevOpsAccessBanner access={data.access} />
-  return data.integrations.map(({ id, name, access, error }) => (
+  return data.integrations.map(({ id, name, type, access, error }) => (
     <Fragment key={id}>
-      <AzureDevOpsAccessBanner access={access} integrationId={id} name={name} />
+      {type !== 'github' && <AzureDevOpsAccessBanner access={access} integrationId={id} name={name} />}
       {error && (
         <MessageBar intent="error" role="alert" layout="multiline">
           <MessageBarBody>

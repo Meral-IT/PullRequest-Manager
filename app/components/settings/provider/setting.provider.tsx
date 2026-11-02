@@ -1,13 +1,19 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
-import { AzDoIntegration, SettingsModel, TableSize } from '@/lib/models/settings.model'
+import {
+  Integration,
+  IntegrationType,
+  SettingsModel,
+  TableSize,
+  sameIntegrationConnection,
+} from '@/lib/models/settings.model'
+import { GitHubAccess, GitHubValidationResult, createGitHubAccess } from '@/lib/models/github-access'
 import { ChangeEvent, ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
   AzureDevOpsValidationResult,
   createAzureDevOpsAccess,
   getAzureDevOpsAccessFailure,
-  sameAzureDevOpsConnection,
 } from '@/lib/models/azure-devops-access'
 import type { PullRequestData } from '@/lib/models/pr-data'
 import { SettingPageProps, SettingsContext, SettingStateProps, SettingStatePrProfile } from '../context'
@@ -54,7 +60,7 @@ const convertSettings = (settings: SettingsModel): SettingStateProps => {
     appearanceTheme: settings.appearance.theme,
     name: '',
     email: '',
-    azDoIntegrations: settings.azDoIntegrations,
+    integrations: settings.integrations,
     appearanceTableSize: settings.appearance.tableSize,
     profiles: settings.profiles.map(convertProfiles),
   }
@@ -66,8 +72,11 @@ export const SettingProvider = ({ children }: Props) => {
   const [validatingAzDo, setValidatingAzDo] = useState(false)
   const [azDoAccess, setAzDoAccess] = useState<AzureDevOpsAccess>()
   const [azDoValidation, setAzDoValidation] = useState<AzureDevOpsValidationResult>()
+  const [validatingGitHub, setValidatingGitHub] = useState(false)
+  const [githubAccess, setGithubAccess] = useState<GitHubAccess>()
+  const [githubValidation, setGithubValidation] = useState<GitHubValidationResult>()
   const validationRequest = useRef(0)
-  const savedConnections = useRef<AzDoIntegration[]>([])
+  const savedConnections = useRef<Integration[]>([])
   const latestData = useRef<PullRequestData | undefined>(undefined)
   const [selectedIntegrationId, setSelectedIntegrationId] = useState('')
   const selectedId = useRef(selectedIntegrationId)
@@ -79,7 +88,7 @@ export const SettingProvider = ({ children }: Props) => {
     repositoriesRootDirectory: '',
     name: '',
     email: '',
-    azDoIntegrations: [],
+    integrations: [],
     appearanceTheme: 'system',
     appearanceTableSize: TableSize.Small,
     profiles: [],
@@ -92,26 +101,32 @@ export const SettingProvider = ({ children }: Props) => {
     setValidatingAzDo(false)
     setAzDoValidation(undefined)
     setAzDoAccess(undefined)
+    setValidatingGitHub(false)
+    setGithubValidation(undefined)
+    setGithubAccess(undefined)
   }, [])
 
   const receiveAccess = useCallback((data: PullRequestData) => {
     latestData.current = data
-    const current = currentForm.current.azDoIntegrations.find((item) => item.id === selectedId.current)
+    const current = currentForm.current.integrations.find((item) => item.id === selectedId.current)
     const saved = savedConnections.current.find((item) => item.id === selectedId.current)
-    if (current && saved && sameAzureDevOpsConnection(current, saved))
-      setAzDoAccess(data.integrations?.find((item) => item.id === current.id)?.access)
+    if (current && saved && sameIntegrationConnection(current, saved)) {
+      const status = data.integrations?.find((item) => item.id === current.id)
+      if (current.type === 'azure-devops' && status?.type !== 'github') setAzDoAccess(status?.access)
+      if (current.type === 'github' && status?.type === 'github') setGithubAccess(status.access)
+    }
   }, [])
 
   const receiveSettings = useCallback(
     (settings: SettingsModel) => {
       const initial = savedConnections.current.length === 0
-      const previous = currentForm.current.azDoIntegrations.find((item) => item.id === selectedId.current)
-      const next = settings.azDoIntegrations.find((item) => item.id === selectedId.current)
-      if (!previous || !next || !sameAzureDevOpsConnection(previous, next)) resetValidation()
-      savedConnections.current = settings.azDoIntegrations
+      const previous = currentForm.current.integrations.find((item) => item.id === selectedId.current)
+      const next = settings.integrations.find((item) => item.id === selectedId.current)
+      if (!previous || !next || !sameIntegrationConnection(previous, next)) resetValidation()
+      savedConnections.current = settings.integrations
       currentForm.current = convertSettings(settings)
       setFormData(currentForm.current)
-      selectedId.current = next?.id ?? settings.azDoIntegrations[0]?.id ?? ''
+      selectedId.current = next?.id ?? settings.integrations[0]?.id ?? ''
       setSelectedIntegrationId(selectedId.current)
       if (initial && latestData.current) receiveAccess(latestData.current)
     },
@@ -197,8 +212,8 @@ export const SettingProvider = ({ children }: Props) => {
     }
 
     const validateAzDo = async () => {
-      const integration = formData.azDoIntegrations.find((item) => item.id === selectedIntegrationId)
-      if (!integration) return
+      const integration = formData.integrations.find((item) => item.id === selectedIntegrationId)
+      if (integration?.type !== 'azure-devops') return
       const request = ++validationRequest.current
       setValidatingAzDo(true)
       try {
@@ -223,6 +238,28 @@ export const SettingProvider = ({ children }: Props) => {
       }
     }
 
+    const validateGitHub = async () => {
+      const integration = formData.integrations.find((item) => item.id === selectedIntegrationId)
+      if (integration?.type !== 'github') return
+      const request = ++validationRequest.current
+      setValidatingGitHub(true)
+      try {
+        const response: GitHubValidationResult = await globalThis.api.invoke('validate-github', integration)
+        if (request !== validationRequest.current) return
+        setGithubValidation(response)
+        setGithubAccess(response.access)
+      } catch {
+        if (request === validationRequest.current)
+          setGithubValidation({
+            userDisplayName: null,
+            error: 'Unable to validate GitHub access. Please try again.',
+            access: createGitHubAccess(),
+          })
+      } finally {
+        if (request === validationRequest.current) setValidatingGitHub(false)
+      }
+    }
+
     const saveSettings = async () => {
       setSaving(true)
       setSaveError('')
@@ -243,7 +280,7 @@ export const SettingProvider = ({ children }: Props) => {
             notificationSound: formData.notificationSound,
             repositoriesRootDirectory: formData.repositoriesRootDirectory,
           },
-          azDoIntegrations: formData.azDoIntegrations,
+          integrations: formData.integrations,
           appearance: {
             theme: formData.appearanceTheme,
             tableSize: formData.appearanceTableSize,
@@ -303,8 +340,8 @@ export const SettingProvider = ({ children }: Props) => {
       if (latestData.current) receiveAccess(latestData.current)
     }
 
-    const updateIntegrations = (integrations: AzDoIntegration[]) => {
-      currentForm.current = { ...currentForm.current, azDoIntegrations: integrations }
+    const updateIntegrations = (integrations: Integration[]) => {
+      currentForm.current = { ...currentForm.current, integrations: integrations }
       setFormData(currentForm.current)
       setSaveError('')
     }
@@ -317,29 +354,34 @@ export const SettingProvider = ({ children }: Props) => {
         },
         onChangeHandler: handleChange,
         validateAzDo,
+        validateGitHub,
         selectIntegration,
-        addIntegration: () => {
-          const integration: AzDoIntegration = {
+        addIntegration: (type: IntegrationType = 'azure-devops') => {
+          const base = {
             id: crypto.randomUUID(),
             name: 'New integration',
-            organizationUrl: '',
-            project: '',
             pat: '',
             updateInterval: 180,
             intelligentApproval: true,
           }
-          updateIntegrations([...currentForm.current.azDoIntegrations, integration])
+          const integration: Integration =
+            type === 'github'
+              ? { ...base, type, repositories: [] }
+              : { ...base, type, organizationUrl: '', project: '' }
+          updateIntegrations([...currentForm.current.integrations, integration])
           selectIntegration(integration.id)
           return integration.id
         },
         deleteIntegration: (id: string) => {
-          updateIntegrations(currentForm.current.azDoIntegrations.filter((item) => item.id !== id))
-          if (selectedId.current === id) selectIntegration(currentForm.current.azDoIntegrations[0]?.id ?? '')
+          updateIntegrations(currentForm.current.integrations.filter((item) => item.id !== id))
+          if (selectedId.current === id) selectIntegration(currentForm.current.integrations[0]?.id ?? '')
         },
-        updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => {
-          if (['organizationUrl', 'project', 'pat'].some((field) => field in changes)) resetValidation()
+        updateIntegration: (id: string, changes: Partial<Integration>) => {
+          if (['organizationUrl', 'project', 'pat', 'repositories'].some((field) => field in changes)) resetValidation()
           updateIntegrations(
-            currentForm.current.azDoIntegrations.map((item) => (item.id === id ? { ...item, ...changes } : item))
+            currentForm.current.integrations.map((item) =>
+              item.id === id ? ({ ...item, ...changes, type: item.type } as Integration) : item
+            )
           )
         },
         saveSettings,
@@ -353,6 +395,9 @@ export const SettingProvider = ({ children }: Props) => {
       validatingAzDo: validatingAzDo,
       azDoAccess,
       azDoValidation,
+      validatingGitHub,
+      githubAccess,
+      githubValidation,
     }
   }, [
     formData,
@@ -361,6 +406,9 @@ export const SettingProvider = ({ children }: Props) => {
     validatingAzDo,
     azDoAccess,
     azDoValidation,
+    validatingGitHub,
+    githubAccess,
+    githubValidation,
     selectedIntegrationId,
     resetValidation,
     receiveAccess,

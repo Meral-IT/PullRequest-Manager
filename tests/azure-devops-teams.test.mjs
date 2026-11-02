@@ -37,7 +37,7 @@ const { output } = await build({
         id === entry
           ? `
       export { AzureDevOpsService } from '../lib/azure-devops/azure-devops.service'
-      export { AzureDevOpsIntegrationsService } from '../lib/azure-devops/azure-devops-integrations.service'
+      export { IntegrationsService } from '../lib/integrations/integrations.service'
       export { FilterEvaluator } from '../lib/models/ui-filter.model'
       export { defaultProfiles } from '../lib/models/pr-profile'
       export * from '../lib/models/azure-devops-access'
@@ -74,9 +74,10 @@ runInThisContext(`(function(require, module, exports) { ${output[0].code}\n})`)(
   compiled,
   compiled.exports
 )
-const { AzureDevOpsService, AzureDevOpsIntegrationsService, FilterEvaluator, defaultProfiles } = compiled.exports
+const { AzureDevOpsService, IntegrationsService, FilterEvaluator, defaultProfiles } = compiled.exports
 
 const settings = {
+  type: 'azure-devops',
   organizationUrl: 'https://dev.azure.com/example',
   project: 'project',
   pat: 'test-token',
@@ -150,13 +151,14 @@ test('API duplicates are consolidated and organization/project metadata is prese
 })
 
 test('integrations consolidate overlapping PRs, preserve cross-organization IDs, and route votes once', async () => {
-  const manager = new AzureDevOpsIntegrationsService()
+  const manager = new IntegrationsService()
   const integrations = ['first', 'overlap', 'other-org'].map((id) => ({
     ...settings,
     id,
     name: id,
     updateInterval: 180,
     intelligentApproval: false,
+    type: 'azure-devops',
     organizationUrl: `https://dev.azure.com/${id === 'other-org' ? 'other' : 'example'}`,
   }))
   manager.setConfiguration(integrations)
@@ -195,7 +197,7 @@ test('integrations consolidate overlapping PRs, preserve cross-organization IDs,
 })
 
 test('one failing integration leaves other results available and reports its own access status', async () => {
-  const manager = new AzureDevOpsIntegrationsService()
+  const manager = new IntegrationsService()
   manager.setConfiguration(['healthy', 'expired'].map((id) => ({ ...settings, id, name: id, updateInterval: 180 })))
   for (const [id, { service }] of manager.services) {
     const api = apiFixture({ prs: [pullRequest(1, me.id)] })
@@ -223,7 +225,7 @@ test('one failing integration leaves other results available and reports its own
 })
 
 test('removing an integration during refresh discards its late results and stops polling', async () => {
-  const manager = new AzureDevOpsIntegrationsService()
+  const manager = new IntegrationsService()
   manager.setConfiguration([{ ...settings, id: 'removed', name: 'Removed', updateInterval: 180 }])
   const service = manager.services.get('removed').service
   const api = apiFixture({ prs: [pullRequest(1, me.id)] })
@@ -245,7 +247,7 @@ test('removing an integration during refresh discards its late results and stops
 })
 
 test('recreating an integration cannot accept an acknowledgement from its previous connection', () => {
-  const manager = new AzureDevOpsIntegrationsService()
+  const manager = new IntegrationsService()
   const input = [{ ...settings, id: 'recreated', name: 'Connection', updateInterval: 180 }]
   manager.setConfiguration(input)
   const access = manager.getPullRequests().integrations[0].access

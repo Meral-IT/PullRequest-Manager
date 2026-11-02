@@ -590,6 +590,7 @@ export class AzureDevOpsService {
       : decodeURIComponent(url.pathname.split('/').findLast(Boolean) ?? url.hostname)
     return {
       id: pr.pullRequestId,
+      provider: 'azure-devops',
       author: {
         id: pr.createdBy?.id ?? '',
         label: pr.createdBy?.displayName ?? '',

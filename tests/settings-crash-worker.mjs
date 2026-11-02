@@ -36,7 +36,7 @@ try {
   const current = await settings.loadSettings()
   await settings.saveSettings({
     ...current,
-    azDoIntegrations: [{ ...current.azDoIntegrations[0], project: 'replacement' }],
+    integrations: [{ ...current.integrations[0], project: 'replacement' }],
   })
   throw new Error('Crash-test phase was never reached')
 } catch (error) {

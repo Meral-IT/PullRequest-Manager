@@ -53,15 +53,21 @@ export default function AzureDevOpsSettings() {
   const { state, actions, selectedIntegrationId, validatingAzDo, azDoAccess, azDoValidation } = useSettings()
   const { integrationId } = useParams()
   const navigate = useNavigate()
-  const integration = state.azDoIntegrations.find((item) => item.id === selectedIntegrationId)
+  const integration = state.integrations.find(
+    (item) => item.id === selectedIntegrationId && item.type === 'azure-devops'
+  )
   useEffect(() => {
+    if (!integrationId && !integration) {
+      const first = state.integrations.find((item) => item.type === 'azure-devops')
+      if (first) actions.selectIntegration(first.id)
+    }
     if (
       integrationId &&
       integrationId !== selectedIntegrationId &&
-      state.azDoIntegrations.some((item) => item.id === integrationId)
+      state.integrations.some((item) => item.id === integrationId)
     )
       actions.selectIntegration(integrationId)
-  }, [integrationId, selectedIntegrationId, state.azDoIntegrations, actions])
+  }, [integrationId, selectedIntegrationId, state.integrations, actions, integration])
   const stackClassName = useStackClassName()
   const access = azDoAccess ?? createAzureDevOpsAccess()
   let validationLabel = 'Validate connection'
@@ -194,7 +200,7 @@ export default function AzureDevOpsSettings() {
           </Field>
           <Button
             onClick={() => {
-              const next = state.azDoIntegrations.find((item) => item.id !== integration.id)
+              const next = state.integrations.find((item) => item.id !== integration.id)
               actions.deleteIntegration(integration.id)
               navigate(next ? `/settings/integrations/${next.id}` : '/settings/integrations')
             }}
