@@ -60,6 +60,32 @@ async function settleLayout(window) {
       .map(animation => animation.finished.catch(() => {})))`)
 }
 
+async function checkProfileCreation(window, button, expected) {
+  await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
+  await waitForRenderer(window, "document.body.innerText.includes('New empty profile')")
+  await window.webContents.executeJavaScript(
+    `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
+  )
+  await waitForRenderer(window, `document.querySelector('input[name="label"]')?.value === ${JSON.stringify(expected)}`)
+  assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('[role=tab][aria-selected=true]')).some(tab => tab.innerText === document.querySelector('input[name=label]').value)"
+    ),
+    true,
+    'Created profile is selected in the settings sidebar'
+  )
+}
+
+async function deleteSelectedProfile(window) {
+  await clickElement(window, 'button', 'Delete profile')
+  await waitForRenderer(
+    window,
+    "Array.from(document.querySelectorAll('button')).some(button => button.innerText === 'Yes, delete profile')"
+  )
+  await clickElement(window, 'button', 'Yes, delete profile')
+}
+
 async function selectProfileTab(window, tab) {
   await window.webContents.executeJavaScript(`document.getElementById('profile-${tab}-tab').click()`)
   await waitForRenderer(window, `!document.getElementById('profile-${tab}-panel').hidden`)
@@ -1908,33 +1934,9 @@ async function runSmokeTest() {
       true
     )
     await capture(window, 'profile-new')
-    for (const [button, expected] of [
-      ['Duplicate', 'All (copy)'],
-      ['New empty profile', 'New profile'],
-    ]) {
-      await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
-      await waitForRenderer(window, "document.body.innerText.includes('New empty profile')")
-      await window.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
-      )
-      await waitForRenderer(
-        window,
-        `document.querySelector('input[name="label"]')?.value === ${JSON.stringify(expected)}`
-      )
-      assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
-      assert.equal(
-        await window.webContents.executeJavaScript(
-          "Array.from(document.querySelectorAll('[role=tab][aria-selected=true]')).some(tab => tab.innerText === document.querySelector('input[name=label]').value)"
-        ),
-        true,
-        'Created profile is selected in the settings sidebar'
-      )
-    }
-    for (const label of ['Delete profile', 'Yes, delete profile']) {
-      await window.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
-      )
-    }
+    await checkProfileCreation(window, 'Duplicate', 'All (copy)')
+    await checkProfileCreation(window, 'New empty profile', 'New profile')
+    await deleteSelectedProfile(window)
     await waitForRenderer(
       window,
       "location.hash === '#/settings/profiles/builtin:all' && document.querySelector('input[name=label]')?.value === 'All'"
@@ -1954,11 +1956,7 @@ async function runSmokeTest() {
     )
     await waitForRenderer(window, "document.querySelector('input[name=label]')?.value === 'New profile'")
     assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
-    for (const label of ['Delete profile', 'Yes, delete profile']) {
-      await window.webContents.executeJavaScript(
-        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
-      )
-    }
+    await deleteSelectedProfile(window)
     await waitForRenderer(
       window,
       "location.hash === '#/settings/profiles/new' && document.querySelector('select')?.disabled"
