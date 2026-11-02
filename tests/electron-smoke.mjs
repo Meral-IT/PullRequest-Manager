@@ -40,12 +40,14 @@ function waitForRenderer(window, condition, description = condition) {
       if (ready()) {
         observer.disconnect()
         document.removeEventListener('focusin', check)
+        globalThis.removeEventListener('popstate', check)
         resolve()
       }
     }
     const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
     document.addEventListener('focusin', check)
+    globalThis.addEventListener('popstate', check)
   })`)
 }
 
@@ -326,7 +328,7 @@ async function checkUpdateNotification(window, settings, updates) {
     `document.activeElement === ${panel}.querySelector('[aria-label="Dismiss update notification"]')`,
     'Update dismiss button receives keyboard focus'
   )
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, `!${panel}`)
   updates.publish({ status: 'available', info })
   await expectState('available')
@@ -339,7 +341,7 @@ async function checkUpdateNotification(window, settings, updates) {
     'Update available'
   )
   await window.webContents.executeJavaScript("document.querySelector('.window-titlebar-update').focus()")
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await expectState('downloading')
   await waitForRenderer(window, "!document.querySelector('.window-titlebar-update')")
   assert.equal(updates.downloads, 1)
@@ -370,7 +372,7 @@ async function checkUpdateNotification(window, settings, updates) {
   await capture(window, 'update-ready-light')
   await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
   const checkReadyKeyboardDismissal = async (key) => {
-    pressKey(window, key)
+    await pressKey(window, key)
     await settleLayout(window)
     assert.equal(
       await window.webContents.executeJavaScript(`!!${panel}`),
@@ -425,7 +427,7 @@ async function checkUpdateNotification(window, settings, updates) {
   updates.publish({ status: 'ready', info })
   await expectState('ready')
   await window.webContents.executeJavaScript(`${panel}.querySelector('button').focus()`)
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await expectState('installing')
   assert.equal(updates.installs, 1, 'Keyboard activation explicitly starts installation')
   assert.equal(
@@ -650,14 +652,23 @@ async function clickElement(window, selector, text) {
   window.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
 }
 
-function pressKey(window, keyCode) {
-  window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+async function pressKey(window, keyCode, modifiers = []) {
+  await focusWindow(window)
+  const nativeButton = await window.webContents.executeJavaScript(`(() => {
+    globalThis.smokeKeyUp = new Promise(resolve => window.addEventListener('keyup', () => resolve(), { once: true, capture: true }))
+    return document.activeElement?.tagName === 'BUTTON'
+  })()`)
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
   // Native buttons activate Enter on keypress, which Electron sends as a separate char event.
-  if (keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
-  window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+  if (keyCode === 'Enter' && nativeButton) window.webContents.sendInputEvent({ type: 'char', keyCode: '\r' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+  pendingStep = `native ${keyCode} keyup`
+  await window.webContents.executeJavaScript('globalThis.smokeKeyUp')
+  await settleLayout(window)
 }
 
 async function focusWindow(window) {
+  if (window.isFocused() && (await window.webContents.executeJavaScript('document.hasFocus()'))) return
   app.focus({ steal: true })
   window.focus()
   pendingStep = 'smoke test window focus'
@@ -671,24 +682,24 @@ async function checkTitlebarMenus(window) {
   await focusWindow(window)
   await clickElement(window, '.window-titlebar button', 'File')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'File menu opens by mouse')
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
   await waitForRenderer(window, 'document.activeElement.innerText === "File"', 'Escape returns focus to File')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'File')
 
-  pressKey(window, 'Tab')
+  await pressKey(window, 'Tab')
   await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Tab moves focus to Edit')
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.innerText'), 'Edit')
-  pressKey(window, 'Enter')
+  await pressKey(window, 'Enter')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu opens by Enter')
-  pressKey(window, 'Escape')
+  await pressKey(window, 'Escape')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
   await waitForRenderer(window, 'document.activeElement.innerText === "Edit"', 'Escape returns focus to Edit')
-  pressKey(window, 'Space')
+  await pressKey(window, 'Space')
   await waitForRenderer(window, '!!document.querySelector(\'[role="menuitem"]\')', 'Edit menu reopens by Space')
   await clickElement(window, '.window-content', '')
   await waitForRenderer(window, '!document.querySelector(\'[role="menu"]\')')
-  pressKey(window, 'Alt')
+  await pressKey(window, 'Alt')
   assert.equal(
     await window.webContents.executeJavaScript(
       'document.querySelectorAll(\'.window-titlebar [aria-haspopup="menu"]\').length'
@@ -739,6 +750,7 @@ async function checkTitlebarMenus(window) {
 }
 
 async function checkPrSearch(window, settings) {
+  await focusWindow(window)
   const originalProfiles = settings.profiles
   settings.profiles = [
     {
@@ -780,6 +792,12 @@ async function checkPrSearch(window, settings) {
     pr(1, 'Fix invoice rounding', 'Ada Lovelace', 'Payments', `${'x'.repeat(500)} final paragraph`),
     pr(3, 'Draft invoice', 'Ada Lovelace', 'Payments', '', true),
   ]
+  prs[0].evaluations = [0, 1, 2, 3, 4, 5].map((status) => ({
+    id: String(status),
+    status,
+    displayName: `Policy ${status}`,
+    config: { type: { id: 'build', displayName: 'Build', url: '' } },
+  }))
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
@@ -787,8 +805,7 @@ async function checkPrSearch(window, settings) {
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: [modifier] })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers: [modifier] })
+    await pressKey(window, 'F', [modifier])
     await waitForRenderer(window, `${input} && document.activeElement === ${input}`)
   }
   const search = async (query, titles) => {
@@ -808,10 +825,7 @@ async function checkPrSearch(window, settings) {
       `Array.from(document.querySelectorAll('[role="tab"]')).find(tab => tab.textContent.startsWith(${JSON.stringify(label)})).click()`
     )
   const toggleFilters = () => window.webContents.executeJavaScript(`${filterButton}.click()`)
-  const escape = async () => {
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-  }
+  const escape = () => pressKey(window, 'Escape')
   const visibleOptions = `Array.from(document.querySelectorAll('[role="listbox"]')).find(list => list.getBoundingClientRect().height > 0)?.querySelectorAll('[role="option"]')`
   const openDropdown = async (label) => {
     await window.webContents.executeJavaScript(`(() => {
@@ -833,13 +847,66 @@ async function checkPrSearch(window, settings) {
   ipcMain.handle('approve-prs', (_event, items) => {
     approvals.push(items.map((item) => item.id))
   })
+  let rejectUrl = false
   ipcMain.handle('web-open-url', (_event, url) => {
+    if (rejectUrl) throw new Error('Browser launch failed. Try again.')
     openedUrls.push(url)
   })
+  const resets = []
+  ipcMain.handle('reset-pr-feedback', (_event, item) => resets.push(item.id))
   ipcMain.handle('find-solution-files', () => [])
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
+  await settleLayout(window)
+  await pressKey(window, 'Tab')
+  const policySummary = '[role="img"][aria-label="2 failed, 2 pending, 1 approved, 1 not applicable"]'
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`(() => {
+      const summary = document.querySelector('${policySummary}')
+      const cells = Array.from(document.querySelectorAll('[role="gridcell"]'))
+      summary.closest('[role="row"]').querySelectorAll('[role="gridcell"]')[2].focus()
+      return {
+        inCell: !!summary.closest('[role="gridcell"]'),
+        emptyChecks: cells.some(cell => cell.textContent === 'No checks'),
+        emptyReviewers: cells.some(cell => cell.textContent === 'No reviewers'),
+      }
+    })()`),
+    { inCell: true, emptyChecks: true, emptyReviewers: true }
+  )
+  const policyKey = (keyCode) => pressKey(window, keyCode)
+  await policyKey('Right')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `document.activeElement === document.querySelector('${policySummary}').closest('[role="gridcell"]')`
+    ),
+    true,
+    'Arrow navigation reaches the status gridcell'
+  )
+  await focusWindow(window)
+  await policyKey('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('${policySummary}')`),
+    true,
+    'Enter reaches the policy tooltip summary from its gridcell'
+  )
+  const policyTooltip = `document.getElementById(document.querySelector('${policySummary}').getAttribute('aria-describedby'))`
+  await waitForRenderer(window, `${policyTooltip}?.getBoundingClientRect().height > 10`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${policyTooltip}.textContent`),
+    'Policy 0: Queued.Policy 1: Running.Policy 2: Approved.Policy 3: Rejected.Policy 4: Not applicable.Policy 5: Broken.'
+  )
+  await capture(window, 'policy-status-mixed')
+  await policyKey('Escape')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `document.activeElement === document.querySelector('${policySummary}').closest('[role="gridcell"]')`
+    ),
+    true,
+    'Escape returns focus from the summary to the status gridcell'
+  )
+  await window.webContents.executeJavaScript(`${filterButton}.focus()`)
+  await settleLayout(window)
   assert.equal(
     await window.webContents.executeJavaScript(`!!${filterButton}`),
     true,
@@ -941,13 +1008,123 @@ async function checkPrSearch(window, settings) {
     'invoice',
     'Outside clicks preserve search'
   )
-  await window.webContents.executeJavaScript("document.querySelector('.pr-title').click()")
+  await window.webContents.executeJavaScript("document.querySelector('.pr-title a').click()")
   assert.deepEqual(openedUrls, ['https://example.com/pr/1'])
   assert.equal(
     await window.webContents.executeJavaScript(`${input}?.value`),
     'invoice',
     'Opening a PR preserves search'
   )
+
+  await focusWindow(window)
+  const titleLink = `document.querySelector('.pr-title a')`
+  const rowActions = `document.querySelector('button[aria-label="Actions for PR 1: Fix invoice rounding"]')`
+  assert.equal(
+    await window.webContents.executeJavaScript(`(() => {
+      const button = ${rowActions}
+      const cell = button.closest('[role=gridcell]')
+      const style = getComputedStyle(cell)
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      return document.querySelector('[role=columnheader]:last-child').textContent === '' &&
+        Math.abs(cell.getBoundingClientRect().width - button.getBoundingClientRect().width - padding) <= 1
+    })()`),
+    true,
+    'The actions column has no header title and fits only its icon button and cell padding'
+  )
+  const bulkActions = `document.querySelector('button[aria-label="Approve all matching PRs in All (1)"]')`
+  const rowMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent === 'Approve')`
+  const bulkMenu = `Array.from(document.querySelectorAll('[role=menuitem]')).find(item => item.textContent.includes('Approve all'))`
+  const press = (keyCode) => pressKey(window, keyCode)
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`(() => {
+      const link = ${titleLink}
+      link.closest('[role=gridcell]').focus()
+      return { text: link.textContent, href: link.href }
+    })()`),
+    { text: 'Fix invoice rounding', href: 'https://example.com/pr/1' }
+  )
+  await press('Enter')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${titleLink}`), true)
+  await press('Enter')
+  assert.deepEqual(openedUrls, ['https://example.com/pr/1', 'https://example.com/pr/1'])
+  rejectUrl = true
+  await press('Enter')
+  await waitForRenderer(
+    window,
+    `document.querySelector('[role=alert]')?.textContent.includes('Browser launch failed. Try again.')`
+  )
+  rejectUrl = false
+  await window.webContents.executeJavaScript(
+    `${rowActions}.closest('[role=row]').querySelectorAll('[role=gridcell]')[3].focus()`
+  )
+  await press('Right')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${rowActions}`), true)
+  await press('Space')
+  await waitForRenderer(window, `${rowMenu} === document.activeElement`, 'row menu focus attempt 1')
+  await press('Escape')
+  await waitForRenderer(window, `!${rowMenu} && document.activeElement === ${rowActions}`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}.value`),
+    'invoice',
+    'Row menu Escape preserves filters'
+  )
+  await press('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${rowMenu} === document.activeElement`),
+    true,
+    'reopen after Escape'
+  )
+  await press('Enter')
+  await waitForRenderer(window, `!${rowMenu} && document.activeElement === ${rowActions}`)
+  assert.deepEqual(approvals, [[1]], 'Keyboard row approval targets the displayed PR')
+  await press('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`${rowMenu} === document.activeElement`),
+    true,
+    'reopen after approval'
+  )
+  await press('Down')
+  assert.equal(await window.webContents.executeJavaScript('document.activeElement.textContent'), 'Reset feedback')
+  await press('Enter')
+  assert.deepEqual(resets, [1], 'Keyboard row reset targets the same PR')
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${rowActions}`), true)
+  await window.webContents.executeJavaScript(
+    `${titleLink}.focus(); ${titleLink}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`
+  )
+  await waitForRenderer(window, `${rowMenu} === document.activeElement`, 'Context accelerator focuses row actions')
+  await press('Escape')
+  await waitForRenderer(
+    window,
+    `!${rowMenu} && document.activeElement === ${titleLink}`,
+    'Context menu Escape restores the originating PR link'
+  )
+  assert.equal(await window.webContents.executeJavaScript(`${input}.value`), 'invoice')
+  await window.webContents.executeJavaScript(`${bulkActions}.focus()`)
+  await press('Enter')
+  await waitForRenderer(window, `${bulkMenu} === document.activeElement`)
+  assert.match(await window.webContents.executeJavaScript(`${bulkMenu}.textContent`), /matching PRs in All \(1\)/)
+  await press('Escape')
+  await waitForRenderer(window, `!${bulkMenu} && document.activeElement === ${bulkActions}`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${input}.value`),
+    'invoice',
+    'Bulk menu Escape preserves filters'
+  )
+  await press('Space')
+  await waitForRenderer(window, `${bulkMenu} === document.activeElement`)
+  await press('Enter')
+  assert.deepEqual(approvals, [[1], [1]], 'Visible bulk approval uses the filtered matching scope')
+  await capture(window, 'pr-actions-light')
+  settings.appearance.theme = 'dark'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'dark')
+  await settleLayout(window)
+  await capture(window, 'pr-actions-dark')
+  settings.appearance.theme = 'light'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'light')
+  await settleLayout(window)
+  approvals.length = 0
 
   await window.webContents.executeJavaScript(
     "document.querySelector('.pr-title').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))"
@@ -1473,15 +1650,14 @@ async function runSmokeTest() {
     )
     window.webContents.send('settings', { ...settings, profiles: [hiddenDefault] })
     await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
-    for (const [theme, width, height] of [
-      ['light', 900, 670],
-      ['dark', 360, 450],
-    ]) {
+    async function checkNoVisibleProfilesTheme(theme, width, height) {
       window.webContents.send('theme-changed', theme)
       window.setContentSize(width, height)
       await checkZeroDataLayout(window)
       await capture(window, `no-visible-profiles-${theme}`)
     }
+    await checkNoVisibleProfilesTheme('light', 900, 670)
+    await checkNoVisibleProfilesTheme('dark', 360, 450)
     await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
@@ -1879,25 +2055,22 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
     )
-    const editorKey = (keyCode, modifiers = []) => {
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-    }
-    editorKey('A', [process.platform === 'darwin' ? 'meta' : 'control'])
+    const editorKey = (keyCode, modifiers = []) => pressKey(window, keyCode, modifiers)
+    await editorKey('A', [process.platform === 'darwin' ? 'meta' : 'control'])
     await window.webContents.insertText('{"fi')
-    editorKey('Space', ['control'])
+    await editorKey('Space', ['control'])
     await waitForRenderer(
       window,
       "Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).some(row => row.textContent.includes('filters'))",
       'Monaco JSON schema completion'
     )
-    editorKey('Enter')
+    await editorKey('Enter')
     await waitForRenderer(
       window,
       "document.querySelector('.monaco-editor .view-lines').textContent.includes('filters')",
       'Monaco inserts the selected schema completion'
     )
-    editorKey('Escape')
+    await editorKey('Escape')
     await pasteFilter('{"op":"AND","filters":[{"isDraft":"false"}]}')
     await waitForRenderer(
       window,

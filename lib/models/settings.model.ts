@@ -7,6 +7,7 @@ export interface AzDoSettings {
   updateInterval: number
   intelligentApproval: boolean
   acknowledgedScopeRequirements?: string
+  verifiedVoteRequirements?: string
 }
 
 export interface AzDoIntegration extends AzDoSettings {

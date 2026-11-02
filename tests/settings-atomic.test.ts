@@ -13,6 +13,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import type * as Settings from '../lib/main/settings'
 import type { SettingsModel } from '../lib/models/settings.model'
+import { AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT } from '../lib/models/azure-devops-access'
 
 const original: SettingsModel = {
   general: { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
@@ -37,7 +38,7 @@ function settingsModule(directory: string, overrides: Partial<typeof fs> = {}, p
   }).outputText
   const localRequire = createRequire(path.join(__dirname, '../lib/main/settings.js'))
   const result = {
-    exports: {} as Pick<typeof Settings, 'saveSettings' | 'loadSettings'>,
+    exports: {} as Pick<typeof Settings, 'saveSettings' | 'loadSettings' | 'saveAzureDevOpsVoteVerification'>,
   }
   let effects = 0
   runInNewContext(source, {
@@ -69,6 +70,118 @@ function settingsModule(directory: string, overrides: Partial<typeof fs> = {}, p
   })
   return { ...result.exports, effects: () => effects }
 }
+
+test('write verification survives disk reload and stale forms cannot erase or restore it', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-vote-verification-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const store = settingsModule(directory)
+  const saved = await store.saveSettings({
+    ...original,
+    azDoIntegrations: ['first', 'second'].map((id) => ({ ...original.azDoIntegrations[0], id })),
+  })
+  const connection = saved.azDoIntegrations[0]
+  await store.saveAzureDevOpsVoteVerification('first', connection, true)
+  const readDisk = async () => JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'))
+  assert.equal((await readDisk()).azDoIntegrations[0].verifiedVoteRequirements, AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT)
+  assert.equal((await readDisk()).azDoIntegrations[1].verifiedVoteRequirements, undefined)
+  await store.saveSettings(saved)
+  const restarted = settingsModule(directory)
+  const restored = await restarted.loadSettings()
+  assert.equal((await readDisk()).azDoIntegrations[0].verifiedVoteRequirements, AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT)
+  const effects = restarted.effects()
+  await restarted.saveAzureDevOpsVoteVerification('first', connection, false)
+  await restarted.saveSettings(restored)
+  assert.equal((await readDisk()).azDoIntegrations[0].verifiedVoteRequirements, undefined)
+  assert.equal(restarted.effects(), effects + 2, 'Only the ordinary settings save triggers app/tray effects')
+})
+
+test('verification writes skip unchanged markers and reject changed or deleted connections', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-vote-connection-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  let writes = 0
+  const store = settingsModule(directory, {
+    writeFile: async (...args) => {
+      writes++
+      return fs.writeFile(...args)
+    },
+  })
+  for (const field of ['organizationUrl', 'project', 'pat'] as const) {
+    const saved = await store.saveSettings(original)
+    const connection = saved.azDoIntegrations[0]
+    await store.saveAzureDevOpsVoteVerification('integration', connection, true)
+    const before = writes
+    await store.saveAzureDevOpsVoteVerification('integration', connection, true)
+    assert.equal(writes, before, 'Already persisted markers must not rewrite the file')
+    await store.saveSettings({ ...saved, azDoIntegrations: [{ ...connection, [field]: `changed-${field}` }] })
+    assert.equal(await store.saveAzureDevOpsVoteVerification('integration', connection, true), false)
+    const disk = JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'))
+    assert.equal(disk.azDoIntegrations[0].verifiedVoteRequirements, undefined, field)
+  }
+  const saved = await store.loadSettings()
+  await store.saveSettings({ ...saved, azDoIntegrations: [] })
+  assert.equal(await store.saveAzureDevOpsVoteVerification('integration', saved.azDoIntegrations[0], true), false)
+  const forged = {
+    ...original,
+    azDoIntegrations: [
+      { ...original.azDoIntegrations[0], verifiedVoteRequirements: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT },
+    ],
+  }
+  await store.saveSettings(forged)
+  const disk = JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'))
+  assert.equal(disk.azDoIntegrations[0].verifiedVoteRequirements, undefined, 'Forms cannot invent verification')
+})
+
+test('verification writes serialize with credential changes and failed writes leave disk and cache unchanged', async (t) => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-vote-queue-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  let beforeWrite: (() => Promise<void>) | undefined
+  const store = settingsModule(directory, {
+    writeFile: async (...args) => {
+      const hook = beforeWrite
+      beforeWrite = undefined
+      await hook?.()
+      return fs.writeFile(...args)
+    },
+  })
+  for (const verificationFirst of [true, false]) {
+    const saved = await store.saveSettings(original)
+    const connection = saved.azDoIntegrations[0]
+    let release!: () => void
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    beforeWrite = () => {
+      started()
+      return waiting
+    }
+    const verify = () => store.saveAzureDevOpsVoteVerification('integration', connection, true)
+    const change = () =>
+      store.saveSettings({ ...saved, azDoIntegrations: [{ ...connection, pat: `replacement-${verificationFirst}` }] })
+    const first = verificationFirst ? verify() : change()
+    await writing
+    const second = verificationFirst ? change() : verify()
+    release()
+    const results = await Promise.all([first, second])
+    if (!verificationFirst) assert.equal(results[1], false)
+    const disk = JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'))
+    assert.equal(disk.azDoIntegrations[0].verifiedVoteRequirements, undefined)
+  }
+  const cached = await store.loadSettings()
+  const before = await fs.readFile(path.join(directory, 'settings.json'), 'utf8')
+  beforeWrite = async () => {
+    throw new Error('Disk full')
+  }
+  await assert.rejects(
+    store.saveAzureDevOpsVoteVerification('integration', cached.azDoIntegrations[0], true),
+    /Disk full/
+  )
+  assert.equal(await fs.readFile(path.join(directory, 'settings.json'), 'utf8'), before)
+  assert.strictEqual(await store.loadSettings(), cached)
+})
 
 test('legacy Azure DevOps settings migrate automatically with encrypted PAT and stable identity', async (t) => {
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'pr-migration-'))
