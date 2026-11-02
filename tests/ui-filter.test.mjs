@@ -119,3 +119,49 @@ test('empty reviewer filters require a matching current-user reviewer', () => {
     [1, 2, 3, 4, 5, 6, 8]
   )
 })
+
+test('false user and required-reviewer flags match false or absent properties', () => {
+  const cases = [
+    {
+      flag: 'isMySelf',
+      filter: (value) => ({ author: { op: 'AND', filters: [{ isMySelf: value }] } }),
+      values: [true, false, undefined],
+    },
+    {
+      flag: 'isBot',
+      filter: (value) => ({ author: { op: 'AND', filters: [{ isBot: value }] } }),
+      values: [true, false, undefined],
+    },
+    {
+      flag: 'isRequired',
+      filter: (value) => ({ reviewers: { op: 'AND', filters: [{ isRequired: value }] } }),
+      values: [true, false, undefined],
+    },
+  ]
+
+  for (const { flag, filter, values } of cases) {
+    const prs = values.map((value, index) => {
+      const pr = pullRequest(index + 1, PrVote.NoVote)
+      if (flag === 'isRequired') {
+        pr.reviewers[0].isRequired = value
+      } else {
+        pr.author[flag] = value
+      }
+      return pr
+    })
+    for (const [value, expected] of [
+      [true, [1]],
+      [false, [2, 3]],
+    ]) {
+      const booleanFilter = { op: 'AND', filters: [filter(value)] }
+      for (const input of [booleanFilter, JSON.stringify(booleanFilter)]) {
+        assert.deepEqual(FilterEvaluator.evaluate(prs, input).map((pr) => pr.id), expected, flag)
+      }
+      assert.deepEqual(
+        prs.filter((pr) => FilterEvaluator.evaluateProfiles(pr, [booleanFilter])).map((pr) => pr.id),
+        expected,
+        flag
+      )
+    }
+  }
+})
