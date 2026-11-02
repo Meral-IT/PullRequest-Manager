@@ -107,6 +107,16 @@ export default function SettingsComponent() {
     pathName = `/settings/integrations/${selectedIntegrationId}`
   }
 
+  let saveStatus = 'Saved'
+  if (saving) {
+    saveStatus = 'Saving settings'
+  } else if (saveError) {
+    saveStatus = 'Unable to save settings.'
+    if (dirty) saveStatus += ' Unsaved changes.'
+  } else if (dirty) {
+    saveStatus = 'Unsaved changes'
+  }
+
   let buttonContent: string
   if (saving) {
     buttonContent = 'Saving settings'
@@ -225,13 +235,7 @@ export default function SettingsComponent() {
             >
               <div className={styles.saveRow}>
                 <Text role="status" aria-atomic={true}>
-                  {saving
-                    ? 'Saving settings'
-                    : saveError
-                      ? `Unable to save settings.${dirty ? ' Unsaved changes.' : ''}`
-                      : dirty
-                        ? 'Unsaved changes'
-                        : 'Saved'}
+                  {saveStatus}
                 </Text>
                 <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
                   {buttonContent}
