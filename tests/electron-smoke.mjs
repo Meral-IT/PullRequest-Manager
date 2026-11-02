@@ -1868,7 +1868,18 @@ async function runSmokeTest() {
     for (const height of [670, 900, 450, 350, 670]) {
       window.setContentSize(900, height)
       await settleLayout(window)
-      await checkProfileLayout(window)
+      await checkProfileLayout(window, height !== 350)
+      if (height === 350) {
+        const reachable = await window.webContents.executeJavaScript(`(() => {
+          const panel = document.getElementById('profile-filter-panel')
+          panel.scrollTop = panel.scrollHeight
+          const field = panel.querySelector('.fui-Field').getBoundingClientRect()
+          const reachable = field.bottom <= panel.getBoundingClientRect().bottom + 1
+          panel.scrollTop = 0
+          return reachable
+        })()`)
+        assert.equal(reachable, true, 'Short windows can scroll to filter validation while Save stays visible')
+      }
       resizeLayouts.push(
         await window.webContents.executeJavaScript(`(() => {
         const rect = element => {
@@ -1905,6 +1916,47 @@ async function runSmokeTest() {
       navigator.clipboard.readText = async () => ${JSON.stringify(text)}
       Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
     `)
+    const exampleButton = `Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Insert example')`
+    const copyFilter = async () => {
+      await window.webContents.executeJavaScript(`
+        navigator.clipboard.writeText = async text => { globalThis.copiedFilter = text }
+        Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Copy filter').click()
+      `)
+      return window.webContents.executeJavaScript('globalThis.copiedFilter')
+    }
+    assert.equal(await window.webContents.executeJavaScript(`!!${exampleButton}`), true, 'Filter example action exists')
+    assert.equal(
+      await window.webContents.executeJavaScript(
+        `document.getElementById('profile-filter-help').textContent.includes('all pull requests')`
+      ),
+      true,
+      'Blank-filter behavior is explained beside the editor'
+    )
+    assert.deepEqual(
+      await window.webContents.executeJavaScript(`(() => {
+        const link = document.querySelector('#profile-filter-panel a')
+        return { href: link.href, target: link.target, rel: link.rel }
+      })()`),
+      {
+        href: 'https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters',
+        target: '_blank',
+        rel: 'noreferrer',
+      }
+    )
+    for (const blank of ['', ' \n\t ']) {
+      await pasteFilter(blank)
+      await waitForRenderer(window, `!${exampleButton}.disabled`)
+      await window.webContents.executeJavaScript(`${exampleButton}.click()`)
+      await waitForRenderer(window, `${exampleButton}.disabled && document.body.innerText.includes('Filter is valid.')`)
+      assert.deepEqual(JSON.parse(await copyFilter()), { op: 'AND', filters: [{ isDraft: false }] })
+    }
+    for (const draft of ['{"op":"AND","filters":[]}', '{unfinished draft']) {
+      await pasteFilter(draft)
+      await waitForRenderer(window, `${exampleButton}.disabled`)
+      await window.webContents.executeJavaScript(`${exampleButton}.click()`)
+      assert.equal(await copyFilter(), draft, 'Example action preserves nonempty drafts, including invalid JSON')
+    }
+    await capture(window, 'profile-filter-help')
     await window.webContents.executeJavaScript(
       'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
     )

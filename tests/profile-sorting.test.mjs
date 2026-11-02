@@ -1512,3 +1512,53 @@ test('integration removal requires confirmation, preserves canceled credentials,
     )
   }
 })
+
+test('filter example fills only blank drafts with a valid unsaved filter', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  for (const draft of ['', ' \n\t ', '{"op":"AND","filters":[]}', '{unfinished draft']) {
+    let value = provider.render({}, 'SettingProvider').props.value
+    value.actions.onChangeHandler({ profileId: 'test', target: { name: 'filter', value: draft } })
+    value = provider.render({}, 'SettingProvider').props.value
+    view.setContext(value)
+    const button = elements(
+      view.render(),
+      (element) => element.type === 'Button' && element.props.children === 'Insert example'
+    )[0]
+    assert.ok(button, 'Filter example action exists')
+    assert.equal(button.props.disabled, Boolean(draft.trim()))
+    assert.equal(button.props['aria-describedby'], 'profile-filter-help')
+    button.props.onClick()
+    value = provider.render({}, 'SettingProvider').props.value
+    if (draft.trim()) assert.equal(value.state.profiles[0].filter, draft)
+    else {
+      assert.deepEqual(JSON.parse(value.state.profiles[0].filter), { op: 'AND', filters: [{ isDraft: false }] })
+      assert.equal(value.state.profiles[0].filterValid, true)
+      assert.equal(value.dirty, true)
+    }
+  }
+  assert.equal(
+    provider.calls.some(([name]) => name === 'save-settings'),
+    false
+  )
+})
+
+test('filter help explains blank behavior and links to the existing filter documentation', async () => {
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setContext({ state: { profiles: [profile] }, actions: {} })
+  const tree = view.render()
+  const help = elements(tree, (element) => element.props?.id === 'profile-filter-help')[0]
+  assert.ok(help, 'Filter help exists beside the editor')
+  assert.match(help.props.children, /blank.*all pull requests/i)
+  assert.match(help.props.children, /empty.*example/i)
+  const link = elements(tree, (element) => element.type === 'Link')[0]
+  assert.equal(
+    link.props.href,
+    'https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters'
+  )
+  assert.equal(link.props.target, '_blank')
+  assert.equal(link.props.rel, 'noreferrer')
+})
