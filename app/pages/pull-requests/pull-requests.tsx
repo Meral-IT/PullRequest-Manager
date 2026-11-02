@@ -336,12 +336,18 @@ export default function PullRequestsOverview() {
         })),
     [pullRequests.items, profiles]
   )
-  const active = profileData.find((detail) => detail.profile.id === selectedValue)
-  const visible = useMemo(
+  const searchedProfiles = useMemo(
     () =>
-      (active?.filtered ?? []).filter((pr) => matchesPullRequestSearch(pr, searchQuery, createdBy?.id, targetBranch)),
-    [active?.filtered, searchQuery, createdBy?.id, targetBranch]
+      profileData.map((detail) => ({
+        ...detail,
+        matching: hasFilters
+          ? detail.filtered.filter((pr) => matchesPullRequestSearch(pr, searchQuery, createdBy?.id, targetBranch))
+          : detail.filtered,
+      })),
+    [profileData, hasFilters, searchQuery, createdBy?.id, targetBranch]
   )
+  const active = searchedProfiles.find((detail) => detail.profile.id === selectedValue)
+  const visible = active?.matching ?? []
 
   if (pullRequests.error) {
     return (
@@ -373,20 +379,14 @@ export default function PullRequestsOverview() {
     bulkTriggerRef.current?.focus()
   }
 
-  const details = profileData.map(({ profile, filtered }) => {
-    const badge = <CounterBadge>{filtered.length}</CounterBadge>
+  const details = searchedProfiles.map(({ profile, filtered, matching }) => {
+    const badge = <CounterBadge>{hasFilters ? `${matching.length} of ${filtered.length}` : filtered.length}</CounterBadge>
 
     const onProfileHeaderMenu = profile.enableAcceptAll
       ? (e: React.MouseEvent<HTMLElement>) => {
           if (e.type === 'auxclick' && e.button !== 1) return
           e.preventDefault()
-          onHeaderMenu(
-            e.currentTarget,
-            profile.id === selectedValue
-              ? visible
-              : filtered.filter((pr) => matchesPullRequestSearch(pr, searchQuery, createdBy?.id, targetBranch)),
-            profile.label
-          )
+          onHeaderMenu(e.currentTarget, matching, profile.label)
         }
       : undefined
 
@@ -408,7 +408,13 @@ export default function PullRequestsOverview() {
           imagePath={emptyImage}
         />
       ) : (
-        <PrList key={profile.id} data={visible} sorting={profile.sorting} voteAction={voteAction} />
+        <PrList
+          key={profile.id}
+          data={visible}
+          sorting={profile.sorting}
+          voteAction={voteAction}
+          searchQuery={searchQuery}
+        />
       ))
 
     return {
