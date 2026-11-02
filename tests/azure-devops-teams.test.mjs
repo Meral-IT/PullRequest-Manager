@@ -5,6 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInThisContext } from 'node:vm'
 import { build } from 'rolldown'
+import { stopProfilePolling } from '../scripts/profile/lifecycle.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const load = createRequire(import.meta.url)
@@ -785,4 +786,56 @@ test('policy enrichment attaches each response without per-result array searches
   api.getPolicyApi = async () => ({ getPolicyEvaluations: async (_project, artifact) => [{ evaluationId: artifact }] })
   await AzureDevOpsService.enrichPolicyEvaluations(api, settings, { items })
   assert.equal(items[999].evaluations[0].id, 'vstfs:///CodeReview/CodeReviewId/project/999')
+})
+
+test('profiler stops the manager so saved settings cannot restart manual-cycle polling', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  const integrations = [{ ...settings, id: 'fixture', name: 'Fixture', updateInterval: 0.01 }]
+  manager.setConfiguration(integrations)
+  const service = manager.services.get('fixture').service
+  service.initializeApi = () => apiFixture()
+  try {
+    manager.start()
+    await stopProfilePolling(manager)
+    manager.setConfiguration(integrations)
+    assert.equal(service.active, false)
+    assert.equal(service.pollTimer, undefined)
+    await manager.updateDataImmediately()
+    assert.equal(loading.active, 0)
+  } finally {
+    manager.stop()
+    await service.refresh?.promise
+  }
+})
+
+test('profiler stopping periodic polling drains its current refresh before measuring resources', async () => {
+  const manager = new AzureDevOpsIntegrationsService()
+  manager.setConfiguration([{ ...settings, id: 'fixture', name: 'Fixture', updateInterval: 0.01 }])
+  const service = manager.services.get('fixture').service
+  const release = Promise.withResolvers()
+  const api = apiFixture()
+  api.connect = async () => {
+    await release.promise
+    return { authenticatedUser: me }
+  }
+  service.initializeApi = () => api
+  try {
+    manager.start()
+    const draining = stopProfilePolling(manager)
+    let settled = false
+    draining.then(() => {
+      settled = true
+    })
+    await new Promise(setImmediate)
+    assert.equal(settled, false, 'stopping must await the in-flight synthetic request')
+    release.resolve()
+    await draining
+    assert.equal(loading.active, 0)
+    assert.equal(service.active, false)
+    assert.equal(service.pollTimer, undefined)
+  } finally {
+    release.resolve()
+    manager.stop()
+    await service.refresh?.promise
+  }
 })
