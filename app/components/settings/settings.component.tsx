@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
-  DialogTrigger,
   Divider,
   Field,
   makeStyles,
@@ -15,6 +14,7 @@ import {
   SelectTabEvent,
   Tab,
   TabList,
+  Text,
   tokens,
 } from '@fluentui/react-components'
 import {
@@ -25,8 +25,8 @@ import {
   SettingsFilled,
   WarningRegular,
 } from '@fluentui/react-icons'
-import { useContext, useState } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useContext } from 'react'
+import { Outlet, useBeforeUnload, useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import SplitContainer from '../split-container/split-container.component'
 import AzureDevOpsIcon from './azdo/azure-devops-icon'
 import { SettingsContext } from './context'
@@ -52,6 +52,12 @@ const useStyles = makeStyles({
     overflowY: 'auto',
   },
   bottom: { flexShrink: 0 },
+  saveRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: tokens.spacingHorizontalM,
+  },
   dangerButton: {
     backgroundColor: tokens.colorStatusDangerBackground3,
     ':hover': {
@@ -76,7 +82,7 @@ export default function SettingsComponent() {
     return useContext(SettingsContext)
   }
 
-  const { actions, saving, saveError, state, selectedIntegrationId } = useSettings()
+  const { actions, dirty, saving, saveError, state, selectedIntegrationId } = useSettings()
 
   const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
     if (data.value === '/settings/integrations/new') {
@@ -109,15 +115,18 @@ export default function SettingsComponent() {
   } else {
     buttonContent = 'Invalid Profile(s)'
   }
-  const [open, setOpen] = useState(false)
-  const [loadError, setLoadError] = useState('')
+  const blocker = useBlocker(({ nextLocation }) => dirty && !/^\/settings(?:\/|$)/.test(nextLocation.pathname))
+  useBeforeUnload((event) => {
+    if (dirty) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+  })
   const unsavedChangesDialog = (
     <Dialog
-      // this controls the dialog open state
-      open={open}
+      open={blocker.state === 'blocked'}
       onOpenChange={(_, data) => {
-        // it is the users responsibility to react accordingly to the open state change
-        setOpen(data.open)
+        if (!data.open && blocker.state === 'blocked') blocker.reset()
       }}
     >
       <DialogSurface>
@@ -127,44 +136,22 @@ export default function SettingsComponent() {
             <p>You have unsaved changes. Are you sure you want to leave?</p>
             <p>Any unsaved changes will be lost.</p>
           </DialogContent>
-
           <DialogActions>
-            <Button
-              appearance="secondary"
-              onClick={() => {
-                setOpen(false)
-              }}
-            >
+            <Button appearance="secondary" onClick={() => blocker.state === 'blocked' && blocker.reset()}>
               Stay
             </Button>
-            {/* DialogTrigger inside of a Dialog still works properly */}
-            <DialogTrigger disableButtonEnhancement>
-              <Button
-                className={styles.dangerButton}
-                appearance="secondary"
-                onClick={() => {
-                  setOpen(false)
-                  nav('/')
-                }}
-              >
-                Leave
-              </Button>
-            </DialogTrigger>
+            <Button
+              className={styles.dangerButton}
+              appearance="secondary"
+              onClick={() => blocker.state === 'blocked' && blocker.proceed()}
+            >
+              Leave
+            </Button>
           </DialogActions>
         </DialogBody>
       </DialogSurface>
     </Dialog>
   )
-  const onHomeClick = async () => {
-    setLoadError('')
-    try {
-      const hasUnsavedChanges = JSON.stringify(state) !== JSON.stringify(await actions.getInitialSettings())
-      if (hasUnsavedChanges) setOpen(true)
-      else nav('/')
-    } catch {
-      setLoadError('Unable to check for unsaved changes. Please try again.')
-    }
-  }
 
   const profiles = state.profiles.map((profile) => {
     const profileUri = `/settings/profiles/${profile.id}`
@@ -185,7 +172,7 @@ export default function SettingsComponent() {
       <SplitContainer
         sidebarContent={
           <div className={styles.gap}>
-            <Button icon={<HomeFilled />} className={styles.fullWidth} onClick={onHomeClick}>
+            <Button icon={<HomeFilled />} className={styles.fullWidth} onClick={() => nav('/')}>
               Home
             </Button>
 
@@ -237,14 +224,23 @@ export default function SettingsComponent() {
             </div>
             <Field
               className={styles.bottom}
-              validationState={saveError || loadError ? 'error' : undefined}
-              validationMessage={
-                saveError || loadError ? <span role="alert">{saveError || loadError}</span> : undefined
-              }
+              validationState={saveError ? 'error' : undefined}
+              validationMessage={saveError ? <span role="alert">{saveError}</span> : undefined}
             >
-              <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
-                {buttonContent}
-              </Button>
+              <div className={styles.saveRow}>
+                <Text role="status" aria-atomic={true}>
+                  {saving
+                    ? 'Saving settings'
+                    : saveError
+                      ? `Unable to save settings.${dirty ? ' Unsaved changes.' : ''}`
+                      : dirty
+                        ? 'Unsaved changes'
+                        : 'Saved'}
+                </Text>
+                <Button onClick={actions.saveSettings} appearance="primary" disabled={saving || !isValid}>
+                  {buttonContent}
+                </Button>
+              </div>
             </Field>
           </div>
         }

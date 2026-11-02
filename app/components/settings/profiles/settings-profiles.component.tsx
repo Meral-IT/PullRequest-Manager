@@ -20,7 +20,7 @@ import {
 } from '@fluentui/react-components'
 import { AddFilled, BinRecycleRegular, ClipboardPasteFilled, CopyRegular } from '@fluentui/react-icons'
 import { lazy, Suspense, useContext, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { SettingsContext } from '../context'
 
 const FilterEditor = lazy(() => import('./filter-editor.component'))
@@ -143,6 +143,7 @@ const useStyles = makeStyles({
 })
 
 function NewProfile() {
+  const navigate = useNavigate()
   const { state, actions } = useContext(SettingsContext)
   const styles = useStyles()
   const [duplicateProfile, setDuplicateProfile] = useState(state.profiles.length > 0 ? state.profiles[0].id : '')
@@ -157,7 +158,7 @@ function NewProfile() {
         className={styles.createButton}
         appearance="primary"
         icon={<AddFilled />}
-        onClick={() => actions.addProfile()}
+        onClick={() => navigate(`/settings/profiles/${actions.addProfile()}`)}
       >
         New empty profile
       </Button>
@@ -179,7 +180,11 @@ function NewProfile() {
         <Button
           disabled={!duplicateSource}
           icon={<CopyRegular />}
-          onClick={() => duplicateSource && actions.duplicateProfile(duplicateSource.id)}
+          onClick={() => {
+            if (!duplicateSource) return
+            const id = actions.duplicateProfile(duplicateSource.id)
+            if (id) navigate(`/settings/profiles/${id}`)
+          }}
         >
           Duplicate
         </Button>
@@ -189,6 +194,7 @@ function NewProfile() {
 }
 
 const DeleteButtonPopOverContent = () => {
+  const navigate = useNavigate()
   const { profileId } = useParams()
   const { state, actions } = useContext(SettingsContext)
 
@@ -201,7 +207,14 @@ const DeleteButtonPopOverContent = () => {
     <div>
       <Body1Stronger>Do you really want to delete this profile?</Body1Stronger>
       <br />
-      <Button icon={<BinRecycleRegular />} onClick={() => actions.deleteProfile(profile.id)}>
+      <Button
+        icon={<BinRecycleRegular />}
+        onClick={() => {
+          actions.deleteProfile(profile.id)
+          const remaining = state.profiles.find((item) => item.id !== profile.id)
+          navigate(`/settings/profiles/${remaining?.id ?? 'new'}`)
+        }}
+      >
         Yes, delete profile
       </Button>
     </div>

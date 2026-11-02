@@ -32,7 +32,6 @@ export interface SettingStateProps {
 export interface SettingPageProps {
   state: SettingStateProps
   actions: {
-    getInitialSettings: () => Promise<SettingStateProps>
     onChangeHandler: any
     validateAzDo: () => Promise<void>
     addIntegration: () => string
@@ -41,10 +40,11 @@ export interface SettingPageProps {
     updateIntegration: (id: string, changes: Partial<AzDoIntegration>) => void
     saveSettings: any
     deleteProfile: (id: string) => void
-    addProfile: () => void
-    duplicateProfile: (id: string) => void
+    addProfile: () => string
+    duplicateProfile: (id: string) => string | undefined
   }
   selectedIntegrationId: string
+  dirty: boolean
   saving: boolean
   saveError: string
   validatingAzDo: boolean
@@ -66,7 +66,6 @@ export const SettingsContext = createContext<SettingPageProps>({
     profiles: [],
   },
   actions: {
-    getInitialSettings: () => Promise.resolve({} as SettingStateProps),
     onChangeHandler: () => {},
     validateAzDo: async () => {},
     addIntegration: () => '',
@@ -75,10 +74,11 @@ export const SettingsContext = createContext<SettingPageProps>({
     updateIntegration: () => {},
     saveSettings: () => {},
     deleteProfile: () => {},
-    addProfile: () => {},
-    duplicateProfile: () => {},
+    addProfile: () => '',
+    duplicateProfile: () => undefined,
   },
   selectedIntegrationId: '',
+  dirty: false,
   saving: false,
   saveError: '',
   validatingAzDo: false,

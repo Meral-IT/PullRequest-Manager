@@ -1,7 +1,7 @@
 import { PrProfile } from '@/lib/models/pr-profile'
 import { parseProfileFilter } from '@/lib/models/profile-filter.schema'
 import { AzDoIntegration, SettingsModel, TableSize } from '@/lib/models/settings.model'
-import { ChangeEvent, ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import {
   AzureDevOpsAccess,
   AzureDevOpsValidationResult,
@@ -87,6 +87,9 @@ export const SettingProvider = ({ children }: Props) => {
   const currentForm = useRef(formData)
   currentForm.current = formData
 
+  const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(formData))
+  const pendingSave = useRef<string | undefined>(undefined)
+
   const resetValidation = useCallback(() => {
     validationRequest.current++
     setValidatingAzDo(false)
@@ -109,8 +112,12 @@ export const SettingProvider = ({ children }: Props) => {
       const next = settings.azDoIntegrations.find((item) => item.id === selectedId.current)
       if (!previous || !next || !sameAzureDevOpsConnection(previous, next)) resetValidation()
       savedConnections.current = settings.azDoIntegrations
-      currentForm.current = convertSettings(settings)
-      setFormData(currentForm.current)
+      const saved = convertSettings(settings)
+      if (pendingSave.current === undefined) {
+        setSavedSnapshot(JSON.stringify(saved))
+        currentForm.current = saved
+        setFormData(saved)
+      }
       selectedId.current = next?.id ?? settings.azDoIntegrations[0]?.id ?? ''
       setSelectedIntegrationId(selectedId.current)
       if (initial && latestData.current) receiveAccess(latestData.current)
@@ -156,7 +163,7 @@ export const SettingProvider = ({ children }: Props) => {
   }, [receiveSettings, receiveAccess])
 
   const value = useMemo<SettingPageProps>(() => {
-    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const handleChange = (e: { profileId?: string; target: { name: string; value: unknown } }) => {
       setSaveError('')
       const { value } = e.target
 
@@ -167,14 +174,6 @@ export const SettingProvider = ({ children }: Props) => {
           return
         }
 
-        if (updatedProfile.isDefault) {
-          for (const profile of formData.profiles) {
-            if (profile.id !== profileId) {
-              profile.isDefault = false
-            }
-          }
-        }
-
         setFormData((prevFormData) => ({
           ...prevFormData,
           profiles: prevFormData.profiles.map((profile) =>
@@ -182,9 +181,11 @@ export const SettingProvider = ({ children }: Props) => {
               ? {
                   ...profile,
                   [e.target.name]: value,
-                  ...(e.target.name === 'filter' ? getProfileFilterValidation(value) : {}),
+                  ...(e.target.name === 'filter' && typeof value === 'string' ? getProfileFilterValidation(value) : {}),
                 }
-              : profile
+              : e.target.name === 'isDefault' && value === true
+                ? { ...profile, isDefault: false }
+                : profile
           ),
         }))
         return
@@ -224,6 +225,7 @@ export const SettingProvider = ({ children }: Props) => {
     }
 
     const saveSettings = async () => {
+      if (pendingSave.current !== undefined) return
       setSaving(true)
       setSaveError('')
       try {
@@ -250,10 +252,13 @@ export const SettingProvider = ({ children }: Props) => {
           },
           profiles: profiles.map(convertProfilesToModel),
         }
+        pendingSave.current = JSON.stringify({ ...formData, profiles })
         await globalThis.api.invoke('save-settings', model)
+        setSavedSnapshot(pendingSave.current)
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : 'Unable to save settings. Please try again.')
       } finally {
+        pendingSave.current = undefined
         setSaving(false)
       }
     }
@@ -272,11 +277,13 @@ export const SettingProvider = ({ children }: Props) => {
         ...profile,
         id: crypto.randomUUID(),
         label: `${profile.label} (copy)`,
+        isDefault: false,
       }
       setFormData((prevFormData) => ({
         ...prevFormData,
         profiles: [...prevFormData.profiles, newProfile],
       }))
+      return newProfile.id
     }
 
     const handleAddProfile = () => {
@@ -294,6 +301,7 @@ export const SettingProvider = ({ children }: Props) => {
         ...prevFormData,
         profiles: [...prevFormData.profiles, newProfile],
       }))
+      return newProfile.id
     }
 
     const selectIntegration = (id: string) => {
@@ -312,9 +320,6 @@ export const SettingProvider = ({ children }: Props) => {
     return {
       state: formData,
       actions: {
-        getInitialSettings: async () => {
-          return convertSettings(await globalThis.api.invoke('get-settings'))
-        },
         onChangeHandler: handleChange,
         validateAzDo,
         selectIntegration,
@@ -348,6 +353,7 @@ export const SettingProvider = ({ children }: Props) => {
         addProfile: handleAddProfile,
       },
       selectedIntegrationId,
+      dirty: JSON.stringify(formData) !== savedSnapshot,
       saving: saving,
       saveError,
       validatingAzDo: validatingAzDo,
@@ -356,6 +362,7 @@ export const SettingProvider = ({ children }: Props) => {
     }
   }, [
     formData,
+    savedSnapshot,
     saving,
     saveError,
     validatingAzDo,

@@ -8,6 +8,16 @@ import { IZeroDataItem, IZeroDataMultipleProps, IZeroDataProps, ZeroDataActionTy
 function RenderAction(item: Readonly<IZeroDataItem>) {
   const navigate = useNavigate()
   const { actionText, actionType, onActionClick, actionHref, actionButtonProps, renderAction } = item
+  const internalAction = actionHref?.startsWith('/') && !actionHref.startsWith('//')
+
+  const onActionClickWrapper = (ev: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
+    if (internalAction) ev.preventDefault()
+    if (onActionClick) {
+      onActionClick(ev, item)
+    } else if (internalAction && actionHref) {
+      navigate(actionHref)
+    }
+  }
 
   if (renderAction) {
     return renderAction()
@@ -17,13 +27,6 @@ function RenderAction(item: Readonly<IZeroDataItem>) {
   }
 
   if (actionType === ZeroDataActionType.button) {
-    const onActionClickWrapper = (ev: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
-      if (onActionClick) {
-        onActionClick(ev, item)
-      } else if (actionHref) {
-        navigate(actionHref)
-      }
-    }
     const buttonProps = {
       ...actionButtonProps,
       text: actionText,
@@ -40,7 +43,7 @@ function RenderAction(item: Readonly<IZeroDataItem>) {
     )
   }
   return (
-    <Link href={actionHref} {...item}>
+    <Link href={actionHref} {...item} onClick={onActionClickWrapper}>
       {actionText}
     </Link>
   )

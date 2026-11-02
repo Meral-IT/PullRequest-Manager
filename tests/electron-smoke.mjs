@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { validateSmokeProfilePath, withSmokeProfile } from './smoke-profile-path.mjs'
+import { checkSettingsNavigation } from './settings-navigation-smoke.mjs'
 
 if (!process.versions.electron) {
   const result = withSmokeProfile((userData) =>
@@ -504,7 +505,7 @@ async function checkZeroDataLayout(window, allowScroll = false) {
   return layout
 }
 
-async function checkSettingsError(window, type) {
+async function checkSettingsError(window, type, keyboard = false) {
   const error = {
     type,
     message: type === 'ConfigurationRequired' ? 'Configuration required' : 'Authentication required',
@@ -518,11 +519,32 @@ async function checkSettingsError(window, type) {
     `document.querySelector('.zerodata .primary')?.textContent === ${JSON.stringify(error.message)}`
   )
   await checkZeroDataLayout(window)
-  await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
-  await waitForRenderer(
-    window,
-    "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+  assert.equal(
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').getAttribute('href')"),
+    error.actionHref,
+    'ZeroData repair actions expose their internal route as a link'
   )
+  const nativeNavigations = []
+  const preventNativeNavigation = (event, url) => {
+    nativeNavigations.push(url)
+    event.preventDefault()
+  }
+  window.webContents.on('will-navigate', preventNativeNavigation)
+  try {
+    if (keyboard) {
+      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
+      pressKey(window, 'Enter')
+    } else {
+      await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/azure-devops' && document.body.innerText.includes('Organization URL')"
+    )
+    assert.deepEqual(nativeNavigations, [], 'ZeroData repair actions stay inside the hash router')
+  } finally {
+    window.webContents.off('will-navigate', preventNativeNavigation)
+  }
   await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
   await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
 }
@@ -1470,8 +1492,48 @@ async function runSmokeTest() {
     await checkPlatform(process.platform)
     await checkTitlebarLayout(window, windowPlatform, 480)
     await checkTitlebarMenus(window)
+    await checkSettingsNavigation(window, settings, waitForRenderer, settleLayout)
     assert.deepEqual(menuActions, ['web-actual-size'])
     await checkTitlebarLayout(window, windowPlatform, 900)
+
+    const hiddenDefault = { ...settings.profiles[0], visible: false }
+    const reviewProfile = { ...hiddenDefault, id: 'review', label: 'Review', isDefault: false, visible: true }
+    window.webContents.send('settings', { ...settings, profiles: [hiddenDefault, reviewProfile] })
+    await waitForRenderer(
+      window,
+      `document.querySelector('[role="tab"][aria-selected="true"]')?.innerText.includes('Review')`
+    )
+    window.webContents.send('settings', { ...settings, profiles: [hiddenDefault] })
+    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
+    for (const [theme, width, height] of [
+      ['light', 900, 670],
+      ['dark', 360, 450],
+    ]) {
+      window.webContents.send('theme-changed', theme)
+      window.setContentSize(width, height)
+      await checkZeroDataLayout(window)
+      await capture(window, `no-visible-profiles-${theme}`)
+    }
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').focus()")
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/builtin:all' && !!document.getElementById('profile-general-tab')"
+    )
+    await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
+    window.webContents.send('settings', { ...settings, profiles: [] })
+    await waitForRenderer(window, "document.querySelector('.zerodata .primary')?.textContent === 'No visible profiles'")
+    await window.webContents.executeJavaScript("document.querySelector('.zerodata .action').click()")
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/new' && document.body.innerText.includes('New empty profile')"
+    )
+    window.webContents.send('theme-changed', 'light')
+    window.webContents.send('settings', settings)
+    await window.webContents.executeJavaScript("location.hash = '#/'; void 0")
+    await waitForRenderer(window, "document.body.innerText.includes('Currently, no pull requests need your attention')")
 
     const emptyLayouts = []
     for (const [width, height] of [
@@ -1506,7 +1568,7 @@ async function runSmokeTest() {
     window.setContentSize(900, 670)
 
     await checkSettingsError(window, 'ConfigurationRequired')
-    await checkSettingsError(window, 'Authentication')
+    await checkSettingsError(window, 'Authentication', true)
 
     window.webContents.send('pr-data', {
       items: [],
@@ -1632,15 +1694,76 @@ async function runSmokeTest() {
     )
     await settleLayout(window)
     await capture(window, 'azdo-multiple-integrations')
-    await window.webContents.executeJavaScript(
-      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration').click()"
-    )
-    await waitForRenderer(
-      window,
-      'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 2'
+    for (const [name, remaining] of [
+      ['Second connection', 2],
+      ['Smoke integration', 1],
+    ]) {
+      const original = await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`)
+      const openRemoval = async () => {
+        await window.webContents.executeJavaScript(`(() => {
+          const button = Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration')
+          button.focus()
+          button.click()
+        })()`)
+        await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+        await waitForRenderer(window, 'document.activeElement?.innerText === "Cancel"')
+        assert.equal(
+          await window.webContents.executeJavaScript(
+            `document.querySelector('[role="dialog"]').innerText.includes(${JSON.stringify(name)})`
+          ),
+          true
+        )
+      }
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Cancel').click()`
+      )
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`({ hash: location.hash,
+        pat: document.querySelector('input[name="azDoPat"]').value,
+        project: document.querySelector('input[name="azDoProject"]').value })`),
+        original
+      )
+      await openRemoval()
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await waitForRenderer(window, `!document.querySelector('[role="dialog"]')`)
+      await waitForRenderer(window, 'document.activeElement?.innerText === "Remove integration"')
+      await openRemoval()
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Yes, remove integration').click()`
+      )
+      await waitForRenderer(
+        window,
+        `document.querySelectorAll('[role="tablist"][aria-label="Integrations"] [role="tab"]').length === ${remaining}`
+      )
+      await waitForRenderer(
+        window,
+        remaining === 2
+          ? 'document.activeElement?.name === "integrationName"'
+          : 'document.activeElement?.innerText.includes("No integrations configured")'
+      )
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[role="tablist"][aria-label="Integrations"] [aria-selected="true"]')?.innerText ?? null`
+        ),
+        remaining === 2 ? 'Smoke integration' : null
+      )
+    }
+    assert.equal(
+      await window.webContents.executeJavaScript('document.body.innerText.includes("Unsaved changes")'),
+      true
     )
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
+    )
+    await waitForRenderer(window, `!!document.querySelector('[role="dialog"]')`)
+    await window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('[role="dialog"] button')).find(b => b.innerText === 'Leave').click()`
     )
     await waitForRenderer(window, "location.hash === '#/' || location.hash === ''")
     await waitForRenderer(
@@ -1908,12 +2031,35 @@ async function runSmokeTest() {
       ['Duplicate', 'All (copy)'],
       ['New empty profile', 'New profile'],
     ]) {
+      await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
+      await waitForRenderer(window, "document.body.innerText.includes('New empty profile')")
       await window.webContents.executeJavaScript(
         `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(button)}).click()`
       )
-      await waitForRenderer(window, `document.body.innerText.includes(${JSON.stringify(expected)})`)
+      await waitForRenderer(
+        window,
+        `document.querySelector('input[name="label"]')?.value === ${JSON.stringify(expected)}`
+      )
+      assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          "Array.from(document.querySelectorAll('[role=tab][aria-selected=true]')).some(tab => tab.innerText === document.querySelector('input[name=label]').value)"
+        ),
+        true,
+        'Created profile is selected in the settings sidebar'
+      )
     }
+    for (const label of ['Delete profile', 'Yes, delete profile']) {
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
+      )
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/builtin:all' && document.querySelector('input[name=label]')?.value === 'All'"
+    )
     window.webContents.send('settings', { ...settings, profiles: [] })
+    await window.webContents.executeJavaScript("location.hash = '#/settings/profiles/new'; void 0")
     await waitForRenderer(window, "document.querySelector('select').disabled")
     assert.equal(
       await window.webContents.executeJavaScript(
@@ -1925,12 +2071,22 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'New empty profile').click()"
     )
-    await waitForRenderer(window, "!document.querySelector('select').disabled")
+    await waitForRenderer(window, "document.querySelector('input[name=label]')?.value === 'New profile'")
+    assert.notEqual(await window.webContents.executeJavaScript('location.hash'), '#/settings/profiles/new')
+    for (const label of ['Delete profile', 'Yes, delete profile']) {
+      await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('button')).find(button => button.innerText === ${JSON.stringify(label)}).click()`
+      )
+    }
+    await waitForRenderer(
+      window,
+      "location.hash === '#/settings/profiles/new' && document.querySelector('select')?.disabled"
+    )
     assert.equal(
       await window.webContents.executeJavaScript(
         "Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Duplicate').disabled"
       ),
-      false
+      true
     )
 
     window.webContents.send('settings', settings)

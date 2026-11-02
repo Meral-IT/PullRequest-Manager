@@ -5,11 +5,10 @@ function RouterListener() {
   const navigate = useNavigate()
   useEffect(() => {
     function handleIPCResponse(e) {
-      console.log('navigate event received', e)
       navigate(e.path)
     }
 
-    return globalThis.electron.ipcRenderer.on('navigate', handleIPCResponse)
+    return globalThis.api.receive('navigate', handleIPCResponse)
   }, [navigate])
 
   return null

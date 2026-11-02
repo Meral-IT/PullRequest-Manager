@@ -155,6 +155,8 @@ async function component(entry) {
         return {
           useParams: () => params,
           useLocation: () => ({ pathname }),
+          useBlocker: () => ({ state: 'unblocked' }),
+          useBeforeUnload: () => {},
           useNavigate: () => (path) => calls.push(['navigate', path]),
         }
       return load(name)
@@ -338,6 +340,7 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   const context = {
     state,
     selectedIntegrationId: 'integration',
+    dirty: false,
     actions: {
       selectIntegration: (id) => selected.push(id),
       addIntegration: () => {
@@ -1166,5 +1169,346 @@ test('settings startup retains access diagnostics when PR events precede connect
     initialSettings.resolve(settings)
     await provider.flush()
     assert.equal(provider.render({}, 'SettingProvider').props.value.azDoAccess, access)
+  }
+})
+
+test('overview initially selects a visible default or the first visible profile without relying on builtin All', async () => {
+  for (const [profiles, expected] of [
+    [
+      [
+        { ...profile, id: 'builtin:all', isDefault: true, visible: false },
+        { ...profile, id: 'review' },
+      ],
+      'review',
+    ],
+    [[{ ...profile, id: 'review' }], 'review'],
+    [
+      [
+        { ...profile, id: 'first' },
+        { ...profile, id: 'default', isDefault: true },
+      ],
+      'default',
+    ],
+    [
+      [
+        { ...profile, id: 'hidden', isDefault: true, visible: false },
+        { ...profile, id: 'first', isDefault: true },
+        { ...profile, id: 'second', isDefault: true },
+      ],
+      'first',
+    ],
+  ]) {
+    const view = await component('app/pages/pull-requests/pull-requests.tsx')
+    view.setSettings({ ...settings, profiles })
+    view.render()
+    await view.flush()
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type === 'TabList')[0].props.selectedValue, expected)
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList')[0]?.key, expected)
+  }
+})
+
+test('live settings retain a visible choice and replace hidden or deleted selections in priority order', async () => {
+  const view = await component('app/pages/pull-requests/pull-requests.tsx')
+  const all = { ...profile, id: 'builtin:all', isDefault: true }
+  const review = { ...profile, id: 'review' }
+  const fallback = { ...profile, id: 'fallback' }
+  view.setSettings({ ...settings, profiles: [all, review, fallback] })
+  view.render()
+  await view.flush()
+  elements(view.render(), (element) => element.type === 'TabList')[0].props.onTabSelect(null, { value: 'review' })
+  for (const [profiles, expected] of [
+    [[all, review, { ...fallback, isDefault: true }], 'review'],
+    [[all, { ...review, visible: false }, fallback], 'builtin:all'],
+    [[review, { ...fallback, isDefault: true }], 'fallback'],
+    [[review], 'review'],
+  ]) {
+    view.listeners.get('settings')({ ...settings, profiles })
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type === 'TabList')[0].props.selectedValue, expected)
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList')[0]?.key, expected)
+  }
+})
+
+test('overview with hidden or deleted profiles offers profile management and recovers when a profile becomes visible', async () => {
+  for (const profiles of [[], [{ ...profile, isDefault: true, visible: false }]]) {
+    const view = await component('app/pages/pull-requests/pull-requests.tsx')
+    view.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
+    view.render()
+    await view.flush()
+    view.listeners.get('settings')({ ...settings, profiles })
+    const tree = view.render()
+    assert.equal(elements(tree, (element) => element.type?.name === 'PrList').length, 0)
+    const empty = elements(tree, (element) => element.type?.name === 'ZeroData')[0]
+    assert.equal(empty?.props.primaryText, 'No visible profiles')
+    assert.equal(empty.props.actionText, 'Manage profiles')
+    assert.equal(empty.props.actionHref, profiles.length ? '/settings/profiles/test' : '/settings/profiles/new')
+    assert.equal(elements(tree, (element) => element.type === 'TabList').length, 0)
+    view.listeners.get('settings')({ ...settings, profiles: [profile] })
+    assert.equal(elements(view.render(), (element) => element.type === 'TabList')[0].props.selectedValue, 'test')
+  }
+})
+
+test('setting a default clears other defaults immutably and unrelated edits preserve them', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({
+    ...settings,
+    profiles: [
+      { ...profile, id: 'one', isDefault: true },
+      { ...profile, id: 'two', isDefault: false },
+      { ...profile, id: 'legacy', isDefault: true },
+    ],
+  })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  const before = value.state
+  for (const item of before.profiles) Object.freeze(item)
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'isDefault', value: true } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, true, false]
+  )
+  assert.deepEqual(
+    before.profiles.map((item) => item.isDefault),
+    [true, false, true]
+  )
+  const updated = value.state
+  for (const item of updated.profiles) Object.freeze(item)
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'label', value: 'Renamed' } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, true, false]
+  )
+  assert.equal(updated.profiles[1].label, 'Test')
+  value.actions.onChangeHandler({ profileId: 'two', target: { name: 'isDefault', value: false } })
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.deepEqual(
+    value.state.profiles.map((item) => item.isDefault),
+    [false, false, false]
+  )
+})
+
+test('duplicating a default profile preserves its settings but does not create another default', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true, filter: { op: 'AND', filters: [] } }] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  value.actions.duplicateProfile('test')
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.equal(value.state.profiles[0].isDefault, true)
+  assert.equal(value.state.profiles[1].isDefault, false)
+  assert.notEqual(value.state.profiles[1].id, 'test')
+  assert.equal(value.state.profiles[1].visible, true)
+  assert.equal(value.state.profiles[1].filter, value.state.profiles[0].filter)
+  await value.actions.saveSettings()
+  assert.deepEqual(
+    provider.calls.find(([name]) => name === 'save-settings')[1].profiles.map((item) => item.isDefault),
+    [true, false]
+  )
+})
+
+test('profile creation returns IDs and opens the new draft without saving other edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings({ ...settings, profiles: [{ ...profile, isDefault: true }] })
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  value.actions.onChangeHandler({ profileId: 'test', target: { name: 'label', value: 'Unsaved source' } })
+  const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+  view.setParams({ profileId: 'new' })
+  for (const label of ['New empty profile', 'Duplicate']) {
+    value = provider.render({}, 'SettingProvider').props.value
+    view.setContext(value)
+    const tree = view.render().type()
+    elements(tree, (element) => element.type === 'Button' && element.props.children === label)[0].props.onClick()
+    value = provider.render({}, 'SettingProvider').props.value
+    const created = value.state.profiles.at(-1)
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${created.id}`])
+    assert.equal(created.isDefault, false)
+    assert.equal(value.state.profiles[0].label, 'Unsaved source')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+    if (label === 'Duplicate') assert.equal(created.label, 'Unsaved source (copy)')
+  }
+})
+
+test('profile actions return their created IDs and missing duplicate sources leave the draft unchanged', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  for (const action of [() => value.actions.addProfile(), () => value.actions.duplicateProfile('test')]) {
+    const id = action()
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.equal(typeof id, 'string')
+    assert.equal(id, value.state.profiles.at(-1).id)
+  }
+  const before = value.state
+  assert.equal(value.actions.duplicateProfile('missing'), undefined)
+  assert.strictEqual(provider.render({}, 'SettingProvider').props.value.state, before)
+})
+
+test('confirmed profile deletion opens a remaining profile or the explicit new route and keeps the draft', async () => {
+  for (const profiles of [[profile], [profile, { ...profile, id: 'remaining', label: 'Remaining' }]]) {
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings({ ...settings, profiles })
+    provider.render({}, 'SettingProvider')
+    await provider.flush()
+    let value = provider.render({}, 'SettingProvider').props.value
+    value.actions.onChangeHandler({ target: { name: 'repositoriesRootDirectory', value: '/unsaved' } })
+    value = provider.render({}, 'SettingProvider').props.value
+    const view = await component('app/components/settings/profiles/settings-profiles.component.tsx')
+    view.setContext(value)
+    const tree = view.render()
+    const deleteButton = elements(tree, (element) => element.type?.name === 'DeleteProfileButton')[0].type()
+    assert.equal(view.calls.length, 0, 'Opening the confirmation does not navigate or delete')
+    assert.equal(value.state.profiles.length, profiles.length)
+    const confirmation = elements(
+      deleteButton,
+      (element) => element.type?.name === 'DeleteButtonPopOverContent'
+    )[0].type()
+    elements(confirmation, (element) => element.type === 'Button')[0].props.onClick()
+    assert.deepEqual(view.calls.at(-1), ['navigate', `/settings/profiles/${profiles[1]?.id ?? 'new'}`])
+    value = provider.render({}, 'SettingProvider').props.value
+    assert.deepEqual(
+      value.state.profiles.map((item) => item.id),
+      profiles.slice(1).map((item) => item.id)
+    )
+    assert.equal(value.state.repositoriesRootDirectory, '/unsaved')
+    assert.equal(value.dirty, true)
+    assert.equal(
+      provider.calls.some(([name]) => name === 'save-settings'),
+      false
+    )
+  }
+})
+
+
+test('settings status follows successful snapshots through deferred saves, failures, and later edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  const view = await component('app/components/settings/settings.component.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  const value = () => provider.render({}, 'SettingProvider').props.value
+  const status = () => {
+    view.setContext(value())
+    const content = elements(view.render(), (element) => element.props.mainContent)[0].props.mainContent
+    const node = elements(content, (element) => element.props.role === 'status')[0]
+    assert.ok(node, 'Save status stays visible in an accessible live region')
+    assert.equal(node.props['aria-atomic'], true)
+    return node.props.children
+  }
+  const edit = (name) => value().actions.updateIntegration('integration', { name })
+  let finish
+  let saves = 0
+  const invoke = provider.api.invoke
+  provider.api.invoke = (channel, ...args) => {
+    if (channel !== 'save-settings') return invoke(channel, ...args)
+    saves++
+    return new Promise((resolve, reject) => { finish = { resolve, reject, model: args[0] } })
+  }
+  assert.equal(status(), 'Saved')
+  edit('Submitted')
+  assert.equal(status(), 'Unsaved changes')
+  const action = value().actions.saveSettings
+  const saving = action()
+  await action()
+  assert.equal(saves, 1, 'Repeated save action cannot start another pending write')
+  assert.equal(status(), 'Saving settings')
+  provider.listeners.get('settings')(finish.model)
+  assert.equal(status(), 'Saving settings', 'Broadcast alone does not announce success')
+  assert.equal(value().dirty, true, 'Broadcast does not advance the successful snapshot before completion')
+  finish.resolve()
+  await saving
+  assert.equal(status(), 'Saved')
+  edit('Later')
+  assert.equal(status(), 'Unsaved changes')
+  const failed = value().actions.saveSettings()
+  assert.equal(status(), 'Saving settings')
+  finish.reject(new Error('Synthetic save failure'))
+  await failed
+  assert.equal(status(), 'Unable to save settings. Unsaved changes.')
+  assert.match(value().saveError, /Synthetic save failure/)
+  const retry = value().actions.saveSettings()
+  assert.equal(status(), 'Saving settings')
+  edit('Edited while saving')
+  provider.listeners.get('settings')(finish.model)
+  finish.resolve()
+  await retry
+  assert.equal(value().state.azDoIntegrations[0].name, 'Edited while saving')
+  assert.equal(status(), 'Unsaved changes')
+  const finalSave = value().actions.saveSettings()
+  finish.resolve()
+  await finalSave
+  assert.equal(status(), 'Saved', 'Successful completion marks its submitted snapshot without relying on a broadcast')
+  const cleanFailure = value().actions.saveSettings()
+  finish.reject(new Error('Synthetic clean save failure'))
+  await cleanFailure
+  assert.equal(value().dirty, false)
+  assert.equal(status(), 'Unable to save settings.', 'Failed save of a clean form does not announce unsaved changes')
+  edit('Next edit')
+  assert.equal(status(), 'Unsaved changes')
+})
+
+test('integration removal requires confirmation, preserves canceled credentials, and saves only on request', async () => {
+  for (const multiple of [false, true]) {
+    const integrations = [{ ...settings.azDoIntegrations[0], name: 'Named connection', pat: 'synthetic-token' }]
+    if (multiple) integrations.push({ ...integrations[0], id: 'remaining', name: 'Remaining' })
+    const provider = await component('app/components/settings/provider/setting.provider.tsx')
+    provider.setSettings({ ...settings, azDoIntegrations: integrations })
+    const value = () => provider.render({}, 'SettingProvider').props.value
+    value()
+    await provider.flush()
+    value().actions.updateIntegration('integration', { project: 'Unsaved project' })
+    const before = structuredClone(value().state)
+    const view = await component('app/components/settings/azdo/settings-azdo.component.tsx')
+    view.setParams({ integrationId: 'integration' })
+    const tree = () => {
+      view.setContext(value())
+      return view.render()
+    }
+    const button = (label) => elements(tree(), (node) => node.type === 'Button' && node.props.children === label)[0]
+    button('Remove integration').props.onClick?.()
+    assert.deepEqual(value().state, before, 'Opening confirmation must leave the entire draft intact')
+    const dialog = () => elements(tree(), (node) => node.type === 'Dialog')[0]
+    assert.equal(dialog().props.open, true)
+    assert.ok(elements(tree(), (node) => node.type === 'DialogContent')[0].props.children.includes('Named connection'))
+    button('Cancel').props.onClick()
+    assert.equal(dialog().props.open, false)
+    assert.deepEqual(value().state, before, 'Cancel retains the draft including credentials')
+    assert.equal(view.calls.length, 0)
+    button('Remove integration').props.onClick()
+    dialog().props.onOpenChange(null, { open: false })
+    assert.deepEqual(value().state, before, 'Escape/dismiss retains the draft too')
+    button('Remove integration').props.onClick()
+    button('Yes, remove integration').props.onClick()
+    assert.deepEqual(
+      value().state.azDoIntegrations.map((item) => item.id),
+      multiple ? ['remaining'] : []
+    )
+    assert.equal(value().selectedIntegrationId, multiple ? 'remaining' : '')
+    assert.deepEqual(view.calls.at(-1), [
+      'navigate',
+      multiple ? '/settings/integrations/remaining' : '/settings/integrations',
+    ])
+    assert.equal(value().dirty, true)
+    assert.equal(
+      provider.calls.some(([channel]) => channel === 'save-settings'),
+      false
+    )
+    await value().actions.saveSettings()
+    assert.deepEqual(
+      provider.calls.find(([channel]) => channel === 'save-settings')[1].azDoIntegrations.map((item) => item.id),
+      multiple ? ['remaining'] : []
+    )
   }
 })
