@@ -576,7 +576,11 @@ export default function PrList(props: Readonly<Props>) {
       >
         <DataGridHeader>
           <DataGridRow>
-            {({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}
+            {({ renderHeaderCell, columnId }) => (
+              <DataGridHeaderCell aria-label={columnId === 'actions' ? 'Actions' : undefined}>
+                {renderHeaderCell()}
+              </DataGridHeaderCell>
+            )}
           </DataGridRow>
         </DataGridHeader>
         <DataGridBody<PullRequest>>
