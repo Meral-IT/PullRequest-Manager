@@ -552,11 +552,9 @@ export class AzureDevOpsService {
       try {
         connectionData = await this.connect(api)
       } catch (error) {
+        for (const { id } of azureDevOpsRequirements) this.recordAccessFailure(access, id, error)
         // Merge the raw connection failure against live vote evidence when this refresh finishes.
-        for (const { id } of azureDevOpsRequirements) {
-          if (id === 'vote') access.features.vote = getAzureDevOpsAccessFailure(error)
-          else this.recordAccessFailure(access, id, error)
-        }
+        access.features.vote = getAzureDevOpsAccessFailure(error)
         throw error
       }
       data.myself = connectionData.authenticatedUser
