@@ -6,5 +6,8 @@ export type PullRequestActionResult = {
 }
 
 export function pullRequestActionMessage(result: PullRequestActionResult, action: 'approve' | 'reset'): string {
-  return `${result.succeeded} ${action === 'approve' ? 'approved' : result.succeeded === 1 ? 'vote reset' : 'votes reset'}, ${result.skipped} skipped, ${result.failed} failed.${result.error ? ` ${result.error}` : ''}`
+  let successLabel = 'approved'
+  if (action === 'reset') successLabel = result.succeeded === 1 ? 'vote reset' : 'votes reset'
+  const error = result.error ? ` ${result.error}` : ''
+  return `${result.succeeded} ${successLabel}, ${result.skipped} skipped, ${result.failed} failed.${error}`
 }
