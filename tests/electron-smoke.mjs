@@ -708,6 +708,7 @@ async function checkPrSearch(window, settings) {
   ]
   const pr = (id, title, author, repository, description, isDraft = false) => ({
     id,
+    provider: 'azure-devops',
     author: { id: author, label: author },
     isDraft,
     mergeStatus: 0,
@@ -732,6 +733,10 @@ async function checkPrSearch(window, settings) {
     pr(1, 'Fix invoice rounding', 'Ada Lovelace', 'Payments', `${'x'.repeat(500)} final paragraph`),
     pr(3, 'Draft invoice', 'Ada Lovelace', 'Payments', '', true),
   ]
+  prs[0].provider = 'github'
+  prs[0].checksUnavailable = true
+  prs[0].canApprove = false
+  prs[0].canResetFeedback = false
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
@@ -739,6 +744,7 @@ async function checkPrSearch(window, settings) {
   const expectTitles = (titles) =>
     waitForRenderer(window, `JSON.stringify(${titleList}) === ${JSON.stringify(JSON.stringify(titles))}`)
   const shortcut = async (modifier = 'control') => {
+    await focusWindow(window)
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: [modifier] })
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers: [modifier] })
     await waitForRenderer(window, `${input} && document.activeElement === ${input}`)
@@ -1253,10 +1259,11 @@ async function runSmokeTest() {
         repositoriesRootDirectory: '',
       },
       appearance: { theme: 'light', tableSize: 'small' },
-      azDoIntegrations: [
+      integrations: [
         {
           id: 'smoke',
           name: 'Smoke integration',
+          type: 'azure-devops',
           organizationUrl: '',
           project: '',
           pat: '',
@@ -1292,6 +1299,18 @@ async function runSmokeTest() {
       updates.publish({ status: 'installing', info: updateState.info })
     })
     let prData = { items: [], error: null }
+    ipcMain.handle('validate-github', () => ({
+      userDisplayName: 'GitHub Smoke User',
+      error: null,
+      access: {
+        features: Object.fromEntries(
+          ['pullRequests', 'reviews', 'checks', 'statuses', 'teams', 'approval'].map((feature) => [
+            feature,
+            { status: 'unverified', message: 'Synthetic read-only validation.' },
+          ])
+        ),
+      },
+    }))
     let pendingValidation
     let deferValidation = false
     ipcMain.handle('get-pr-data', () => ({
@@ -1517,6 +1536,10 @@ async function runSmokeTest() {
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Add Integration').click()"
     )
+    await waitForRenderer(window, "document.body.innerText.includes('Choose a provider for this connection.')")
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Azure DevOps').click()"
+    )
     await waitForRenderer(
       window,
       'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 3'
@@ -1581,6 +1604,33 @@ async function runSmokeTest() {
       window,
       'document.querySelectorAll(\'[role="tablist"][aria-label="Integrations"] [role="tab"]\').length === 2'
     )
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Add Integration').click()"
+    )
+    await waitForRenderer(window, "document.body.innerText.includes('Choose a provider for this connection.')")
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'GitHub').click()"
+    )
+    await waitForRenderer(window, "!!document.querySelector('textarea[name=githubRepositories]')")
+    assert.equal(
+      await window.webContents.executeJavaScript("document.querySelector('input[name=githubPat]').type"),
+      'password'
+    )
+    await window.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('textarea[name=githubRepositories]')
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'acme/widget')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await waitForRenderer(window, "document.querySelector('textarea[name=githubRepositories]').value === 'acme/widget'")
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Validate connection').click()"
+    )
+    await waitForRenderer(window, "document.body.innerText.includes('Connected as GitHub Smoke User')")
+    await capture(window, 'github-integration-settings')
+    await window.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Remove integration').click()"
+    )
+    await waitForRenderer(window, "!!document.querySelector('input[name=azDoProject]')")
     await window.webContents.executeJavaScript(
       "Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Home').click()"
     )
@@ -1724,6 +1774,7 @@ async function runSmokeTest() {
       navigator.clipboard.readText = async () => ${JSON.stringify(text)}
       Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Paste filter').click()
     `)
+    await focusWindow(window)
     await window.webContents.executeJavaScript(
       'document.querySelector(\'.monaco-editor [aria-label="Profile filter JSON editor"]\').focus()'
     )

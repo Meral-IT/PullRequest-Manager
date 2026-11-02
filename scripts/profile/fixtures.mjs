@@ -1,10 +1,11 @@
 // Fixed synthetic data only: no PAT, personal data, avatar URLs or Azure traffic.
 export const fixtureSettings = {
   general: { openAtLogin: false, enableNotifications: false, notificationSound: false, repositoriesRootDirectory: '' },
-  azDoIntegrations: [
+  integrations: [
     {
       id: 'fixture',
       name: 'Fixture',
+      type: 'azure-devops',
       organizationUrl: 'https://profile.invalid',
       project: 'fixture',
       pat: '',

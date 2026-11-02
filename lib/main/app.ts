@@ -3,7 +3,7 @@ import appIcon from '@/resources/icon.png?asset'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import log from 'electron-log/main'
 import { join } from 'node:path'
-import { AzureDevOpsIntegrationsService } from '../azure-devops/azure-devops-integrations.service'
+import { IntegrationsService } from '../integrations/integrations.service'
 import { NotificationService } from './notification.service'
 import { loadSettings } from './settings'
 import createTrayIcon from './tray'
@@ -11,12 +11,12 @@ import { PullRequestUpdateManager } from './update'
 
 let mainWindow: BrowserWindow | null = null
 
-async function initializeAzureDevOps(): Promise<void> {
+async function initializeIntegrations(): Promise<void> {
   const settings = await loadSettings()
 
   NotificationService.getInstance().setSettings(settings.general, settings.profiles)
-  AzureDevOpsIntegrationsService.getInstance().setConfiguration(settings.azDoIntegrations)
-  AzureDevOpsIntegrationsService.getInstance().start()
+  IntegrationsService.getInstance().setConfiguration(settings.integrations)
+  IntegrationsService.getInstance().start()
 }
 
 export function exitApp(): void {
@@ -64,7 +64,7 @@ export function createAppWindow(): BrowserWindow {
   mainWindow.on('ready-to-show', async () => {
     try {
       await createTrayIcon(mainWindow)
-      await initializeAzureDevOps()
+      await initializeIntegrations()
       await PullRequestUpdateManager.getInstance().checkForUpdates()
     } catch (error) {
       log.error('Failed to initialize the application', error)

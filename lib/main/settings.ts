@@ -4,7 +4,13 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { defaultProfiles } from '../models/pr-profile'
 import { getProfileFilterErrors } from '../models/profile-filter.schema'
-import { SettingsModel, TableSize } from '../models/settings.model'
+import {
+  SettingsModel,
+  TableSize,
+  sameIntegrationConnection,
+  normalizeRepositories,
+  validGitHubRepository,
+} from '../models/settings.model'
 import { AzureDevOpsConnection, sameAzureDevOpsConnection } from '../models/azure-devops-access'
 import { updateTrayProfiles } from './tray'
 
@@ -18,7 +24,7 @@ const defaultSettings: SettingsModel = {
     notificationSound: false,
     repositoriesRootDirectory: '',
   },
-  azDoIntegrations: [],
+  integrations: [],
   appearance: {
     theme: 'system',
     tableSize: TableSize.Small,
@@ -44,23 +50,26 @@ function encryptString(input: string): string {
 
 function parseSettings(data: string): SettingsModel {
   const loaded = JSON.parse(data)
-  if (!('azDoIntegrations' in loaded)) {
+  if (!('integrations' in loaded)) {
     // The previous settings form stored edited intervals as strings.
     const interval = Number(loaded.azDo?.updateInterval)
-    loaded.azDoIntegrations = loaded.azDo
-      ? [
-          {
-            ...loaded.azDo,
-            id: randomUUID(),
-            name: loaded.azDo.project || 'Azure DevOps',
-            organizationUrl: loaded.azDo.organizationUrl || '',
-            project: loaded.azDo.project || '',
-            updateInterval: Number.isFinite(interval) && interval > 0 && interval <= 3000 ? interval : 180,
-          },
-        ]
-      : []
+    loaded.integrations = loaded.azDoIntegrations
+      ? loaded.azDoIntegrations.map((integration) => ({ ...integration, type: 'azure-devops' }))
+      : loaded.azDo
+        ? [
+            {
+              ...loaded.azDo,
+              type: 'azure-devops',
+              id: randomUUID(),
+              name: loaded.azDo.project || 'Azure DevOps',
+              organizationUrl: loaded.azDo.organizationUrl || '',
+              project: loaded.azDo.project || '',
+              updateInterval: Number.isFinite(interval) && interval > 0 && interval <= 3000 ? interval : 180,
+            },
+          ]
+        : []
   }
-  for (const integration of loaded.azDoIntegrations) integration.pat = decryptString(integration.pat)
+  for (const integration of loaded.integrations) integration.pat = decryptString(integration.pat)
   return normalizeSettings(loaded)
 }
 
@@ -153,12 +162,14 @@ export async function acknowledgeAzureDevOpsRequirements(
   await loadSettings()
   return enqueueSettingsWrite(async () => {
     const settings = cachedSettings!
-    const integration = settings.azDoIntegrations.find((item) => item.id === integrationId)
-    if (!integration || !sameAzureDevOpsConnection(integration, connection)) return false
+    const integration = settings.integrations.find((item) => item.id === integrationId)
+    if (integration?.type !== 'azure-devops' || !sameAzureDevOpsConnection(integration, connection)) return false
     await writeSettings({
       ...settings,
-      azDoIntegrations: settings.azDoIntegrations.map((item) =>
-        item.id === integrationId ? { ...item, acknowledgedScopeRequirements: fingerprint } : item
+      integrations: settings.integrations.map((item) =>
+        item.id === integrationId && item.type === 'azure-devops'
+          ? { ...item, acknowledgedScopeRequirements: fingerprint }
+          : item
       ),
     })
     return true
@@ -175,13 +186,13 @@ async function writeSettings(input: SettingsModel): Promise<SettingsModel> {
 
   const settings = {
     ...normalized,
-    azDoIntegrations: normalized.azDoIntegrations.map((integration) => {
-      const previous = cachedSettings?.azDoIntegrations.find((item) => item.id === integration.id)
+    integrations: normalized.integrations.map((integration) => {
+      const previous = cachedSettings?.integrations.find((item) => item.id === integration.id)
       const acknowledgedScopeRequirements =
-        previous && !sameAzureDevOpsConnection(integration, previous)
+        previous && !sameIntegrationConnection(integration, previous)
           ? undefined
           : (integration.acknowledgedScopeRequirements ?? previous?.acknowledgedScopeRequirements)
-      return { ...integration, acknowledgedScopeRequirements }
+      return integration.type === 'azure-devops' ? { ...integration, acknowledgedScopeRequirements } : integration
     }),
   }
   await persistSettings(settings)
@@ -202,7 +213,7 @@ async function persistSettings(settings: SettingsModel): Promise<void> {
     JSON.stringify(
       {
         ...settings,
-        azDoIntegrations: settings.azDoIntegrations.map((integration) => ({
+        integrations: settings.integrations.map((integration) => ({
           ...integration,
           pat: encryptString(integration.pat),
         })),
@@ -231,21 +242,33 @@ export async function loadSettings(): Promise<SettingsModel> {
     const settings = parseSettings(data)
     settings.general.openAtLogin = app.getLoginItemSettings().openAtLogin
     // Migration preserves old invalid profile filters so Settings can still repair them.
-    if (!('azDoIntegrations' in JSON.parse(data))) await persistSettings(settings)
+    if (!('integrations' in JSON.parse(data))) await persistSettings(settings)
     cachedSettings = settings
     return cachedSettings
   })
 }
 
 function normalizeSettings(input: SettingsModel): SettingsModel {
-  if (!Array.isArray(input.azDoIntegrations)) throw new Error('Azure DevOps integrations must be a list.')
+  if (!Array.isArray(input.integrations)) throw new Error('Integrations must be a list.')
   const ids = new Set<string>()
-  for (const integration of input.azDoIntegrations) {
+  for (const integration of input.integrations) {
     if (!integration || typeof integration.id !== 'string' || !integration.id || ids.has(integration.id))
-      throw new Error('Azure DevOps integrations must have unique IDs.')
+      throw new Error('Integrations must have unique IDs.')
     ids.add(integration.id)
-    for (const field of ['name', 'organizationUrl', 'project', 'pat'] as const)
+    if (!['azure-devops', 'github'].includes(integration.type)) throw new Error('Unknown integration type.')
+    for (const field of ['name', 'pat'] as const)
       if (typeof integration[field] !== 'string') throw new Error(`Invalid integration ${field}.`)
+    if (integration.type === 'azure-devops') {
+      if (typeof integration.organizationUrl !== 'string' || typeof integration.project !== 'string')
+        throw new Error('Invalid Azure DevOps connection.')
+    } else if (
+      !Array.isArray(integration.repositories) ||
+      integration.repositories.some(
+        (repo) => typeof repo !== 'string' || (repo.trim() && !validGitHubRepository(repo.trim()))
+      )
+    ) {
+      throw new Error('GitHub repositories must use owner/repository names.')
+    }
     if (integration.intelligentApproval !== undefined && typeof integration.intelligentApproval !== 'boolean')
       throw new Error('Invalid integration smart approval setting.')
     if (
@@ -264,11 +287,15 @@ function normalizeSettings(input: SettingsModel): SettingsModel {
       repositoriesRootDirectory:
         input.general?.repositoriesRootDirectory || defaultSettings.general.repositoriesRootDirectory,
     },
-    azDoIntegrations: input.azDoIntegrations.map((integration) => ({
-      ...integration,
-      updateInterval: integration.updateInterval ?? 180,
-      intelligentApproval: integration.intelligentApproval ?? true,
-    })),
+    integrations: input.integrations.map((integration) => {
+      const normalized = {
+        ...integration,
+        updateInterval: integration.updateInterval ?? 180,
+        intelligentApproval: integration.intelligentApproval ?? true,
+      }
+      if (normalized.type === 'github') normalized.repositories = normalizeRepositories(normalized.repositories)
+      return normalized
+    }),
     appearance: {
       theme: input.appearance.theme || defaultSettings.appearance.theme,
       tableSize: input.appearance.tableSize || defaultSettings.appearance.tableSize,

@@ -80,10 +80,10 @@ export default function SettingsComponent() {
 
   const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
     if (data.value === '/settings/integrations/new') {
-      nav(`/settings/integrations/${actions.addIntegration()}`)
+      nav('/settings/integrations/new')
       return
     }
-    const integration = state.azDoIntegrations.find((item) => `/settings/integrations/${item.id}` === data.value)
+    const integration = state.integrations.find((item) => `/settings/integrations/${item.id}` === data.value)
     if (integration && integration.id !== selectedIntegrationId) actions.selectIntegration(integration.id)
     if (data.value) {
       nav(data.value)
@@ -206,7 +206,7 @@ export default function SettingsComponent() {
               selectedValue={pathName}
               onTabSelect={onTabSelect}
             >
-              {state.azDoIntegrations.map((integration) => (
+              {state.integrations.map((integration) => (
                 <Tab icon={<KeyFilled />} value={`/settings/integrations/${integration.id}`} key={integration.id}>
                   {integration.name || integration.project || 'Unnamed integration'}
                 </Tab>

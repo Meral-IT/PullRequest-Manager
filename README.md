@@ -23,7 +23,7 @@
 
 ## Overview
 
-PullRequestManager is a powerful desktop application designed to simplify the management of pull requests in Azure DevOps. With an intuitive user interface and seamless integration, it helps developers efficiently review, filter, and manage pull requests directly from their desktop.
+PullRequestManager is a desktop application for managing pull requests in Azure DevOps and GitHub.com. It helps developers review, filter, and organize pull requests from multiple connections in one list.
 
 ## Features
 
@@ -45,14 +45,38 @@ Each control's **×** resets its value. The **×** at the end clears all filters
 **Escape** resets all filters without hiding it. Toggling the filter icon keeps filters active,
 as indicated by the highlighted icon. The profile's **Approve all** action includes only matching PRs.
 
-You can manage multiple connections under **Settings → Integrations** in the left navigation. Select a connection to
-edit it, or choose **Add Integration**, give the new connection a name, and enter its organization URL, project name or ID, and PAT. Refresh intervals, smart approval,
-validation, and scope acknowledgements apply to each connection separately. Use **Save Settings** to apply additions,
-edits, or removals. Existing Azure DevOps settings migrate automatically on first launch, keeping PATs encrypted.
+Manage connections under **Settings → Integrations**. Choose **Add Integration**, select **Azure DevOps** or **GitHub**,
+and name the connection. Azure DevOps uses an organization URL, project name or ID, and PAT. GitHub uses a PAT and
+one `owner/repository` name per line. GitHub.com public and private repositories are supported. Refresh intervals,
+smart approval, and connection validation apply separately to each connection; Azure scope acknowledgements remain
+Azure-specific. Use **Save Settings** to apply changes. Both older Azure settings formats migrate automatically,
+preserving connection IDs, profiles, acknowledgements, and encrypted PATs.
 
 PRs from all connections appear together. Overlapping connections produce one row per PR; votes use the first
 connection that supplied that row. Matching PR numbers in different organizations remain separate. A failed connection
 shows its own error while PRs from healthy connections remain available.
+
+### GitHub connection access and reviews
+
+Select the configured repositories when creating a fine-grained PAT. Grant **Pull requests (Read)**,
+**Checks (Read)**, and **Commit statuses (Read)**; use **Pull requests (Read & write)** for approvals and review
+dismissal. Classic PATs need repository access (`repo` for private repositories); team visibility may require
+`read:org`. Organization approval and SSO authorization can also restrict access. Fine-grained tokens report teams
+only in their resource-owner organization. **Validate connection** makes read-only requests and reports observed
+feature access; write access is verified only by an actual review action.
+
+All open PRs, including drafts, are loaded from the listed repositories. Profiles use `organization` for the GitHub
+owner and `project` for the repository. Direct review requests and verified team membership feed the existing
+review profiles. Missing review/check access is shown as unavailable; no checks is shown separately from passing
+checks. Failed repositories leave healthy repository results visible. Polling backs off when GitHub rate limits apply.
+
+GitHub **Approve** and **Approve all** skip your own PRs and existing approvals. Smart approval permits PRs where
+you or a verified team are reviewers, or no reviewers are requested. Approvals are bound to the displayed commit;
+refresh if the head or contributing connection changes. Connections sharing a PAT also share request scheduling and
+rate-limit cooldowns. Bulk operations report individual failures while retaining successful reviews.
+GitHub's **Dismiss my review** dismisses only your active approval/change-request reviews and records
+`Review reset via PullRequest-Manager.` in the PR conversation. Repository rules may prohibit dismissal.
+See [GitHub's review API](https://docs.github.com/en/rest/pulls/reviews) for review permissions and dismissal rules.
 
 ## App updates
 

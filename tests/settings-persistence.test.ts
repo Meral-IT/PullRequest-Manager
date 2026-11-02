@@ -7,7 +7,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
-import type { SettingsModel } from '../lib/models/settings.model'
+import type { AzDoIntegration, SettingsModel } from '../lib/models/settings.model'
 import { AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT } from '../lib/models/azure-devops-access'
 
 test('invalid filter saves leave disk, input and cached settings unchanged', async () => {
@@ -15,10 +15,11 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
   const file = path.join(directory, 'settings.json')
   const original = {
     general: { openAtLogin: false, enableNotifications: true, notificationSound: false, repositoriesRootDirectory: '' },
-    azDoIntegrations: [
+    integrations: [
       {
         id: 'integration',
         name: 'Test',
+        type: 'azure-devops',
         organizationUrl: '',
         project: '',
         pat: '',
@@ -28,7 +29,7 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
     ],
     appearance: { theme: 'system', tableSize: 'small' },
     profiles: [{ id: 'all', label: 'All', visible: true, enableAcceptAll: false, notifyOnNewPrs: false }],
-  } as SettingsModel
+  } as SettingsModel & { integrations: AzDoIntegration[] }
   const source = readFileSync(path.join(process.cwd(), 'lib/main/settings.ts'), 'utf8')
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -41,7 +42,7 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
       loadSettings: () => Promise<SettingsModel>
       acknowledgeAzureDevOpsRequirements: (
         fingerprint: string,
-        connection: SettingsModel['azDoIntegrations'][number],
+        connection: SettingsModel['integrations'][number],
         integrationId: string
       ) => Promise<boolean>
     },
@@ -84,32 +85,32 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
     const cached = await settingsModule.exports.loadSettings()
     const before = await readFile(file, 'utf8')
     const invalid = structuredClone(original)
-    invalid.azDoIntegrations[0].pat = 'unchanged-secret'
+    invalid.integrations[0].pat = 'unchanged-secret'
     invalid.profiles[0].filter = { op: 'AND', filters: [{ isDraft: 'false' }] } as never
     await assert.rejects(settingsModule.exports.saveSettings(invalid), /filter.*isDraft/i)
     assert.equal(await readFile(file, 'utf8'), before)
-    assert.equal(invalid.azDoIntegrations[0].pat, 'unchanged-secret')
+    assert.equal(invalid.integrations[0].pat, 'unchanged-secret')
     assert.strictEqual(await settingsModule.exports.loadSettings(), cached)
     invalid.profiles[0].filter = { op: 'AND', filters: [] }
     await settingsModule.exports.saveSettings(invalid)
     const saved = JSON.parse(await readFile(file, 'utf8'))
     assert.deepEqual(saved.profiles[0].filter, { op: 'AND', filters: [] })
-    assert.notEqual(saved.azDoIntegrations[0].pat, 'unchanged-secret')
-    assert.equal(invalid.azDoIntegrations[0].pat, 'unchanged-secret')
+    assert.notEqual(saved.integrations[0].pat, 'unchanged-secret')
+    assert.equal(invalid.integrations[0].pat, 'unchanged-secret')
     const acknowledged = {
       ...invalid,
-      azDoIntegrations: [
-        { ...invalid.azDoIntegrations[0], acknowledgedScopeRequirements: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT },
+      integrations: [
+        { ...invalid.integrations[0], acknowledgedScopeRequirements: AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT },
       ],
     }
     await settingsModule.exports.saveSettings(acknowledged)
     assert.equal(
-      (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
+      (await settingsModule.exports.loadSettings()).integrations[0].acknowledgedScopeRequirements,
       AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT
     )
     await settingsModule.exports.saveSettings(invalid)
     assert.equal(
-      (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
+      (await settingsModule.exports.loadSettings()).integrations[0].acknowledgedScopeRequirements,
       AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
       'Renderer saves preserve acknowledgement'
     )
@@ -117,10 +118,10 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
       const current = await settingsModule.exports.loadSettings()
       await settingsModule.exports.saveSettings({
         ...current,
-        azDoIntegrations: [{ ...current.azDoIntegrations[0], [field]: `changed-${field}` }],
+        integrations: [{ ...current.integrations[0], [field]: `changed-${field}` }],
       })
       assert.equal(
-        (await settingsModule.exports.loadSettings()).azDoIntegrations[0].acknowledgedScopeRequirements,
+        (await settingsModule.exports.loadSettings()).integrations[0].acknowledgedScopeRequirements,
         undefined,
         `${field} changes clear acknowledgement`
       )
@@ -144,13 +145,15 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
       const acknowledge = () =>
         settingsModule.exports.acknowledgeAzureDevOpsRequirements(
           AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT,
-          current.azDoIntegrations[0],
-          current.azDoIntegrations[0].id
+          current.integrations[0],
+          current.integrations[0].id
         )
       const saveChangedProject = () =>
         settingsModule.exports.saveSettings({
           ...current,
-          azDoIntegrations: [{ ...current.azDoIntegrations[0], project: `replacement-${acknowledgementFirst}` }],
+          integrations: [
+            { ...(current.integrations[0] as AzDoIntegration), project: `replacement-${acknowledgementFirst}` },
+          ],
         })
       const first = acknowledgementFirst ? acknowledge() : saveChangedProject()
       await started
@@ -158,11 +161,11 @@ test('invalid filter saves leave disk, input and cached settings unchanged', asy
       releaseWrite()
       const results = await Promise.all([first, second])
       assert.equal(
-        (await settingsModule.exports.loadSettings()).azDoIntegrations[0].project,
+        (await settingsModule.exports.loadSettings()).integrations[0].project,
         `replacement-${acknowledgementFirst}`
       )
       assert.equal(
-        JSON.parse(await readFile(file, 'utf8')).azDoIntegrations[0].project,
+        JSON.parse(await readFile(file, 'utf8')).integrations[0].project,
         `replacement-${acknowledgementFirst}`
       )
       if (!acknowledgementFirst) assert.equal(results[1], false, 'Stale acknowledgement must not write old settings')

@@ -171,9 +171,9 @@ async function run() {
     callback({ cancel: true })
   )
   const fixture = createFixture({ count: config.count })
-  const [{ AzureDevOpsIntegrationsService }, { default: createWindow }, { PullRequestUpdateManager }, loading, tray] =
+  const [{ IntegrationsService }, { default: createWindow }, { PullRequestUpdateManager }, loading, tray] =
     await Promise.all([
-      import('../../lib/azure-devops/azure-devops-integrations.service'),
+      import('../../lib/integrations/integrations.service'),
       import('../../lib/main/app'),
       import('../../lib/main/update'),
       import('../../lib/tools/loading.service'),
@@ -181,8 +181,8 @@ async function run() {
     ])
   loader = loading.default
   getTrayManager = tray.getTrayManager
-  const integrations = AzureDevOpsIntegrationsService.getInstance()
-  integrations.setConfiguration(fixtureSettings.azDoIntegrations)
+  const integrations = IntegrationsService.getInstance()
+  integrations.setConfiguration(fixtureSettings.integrations)
   service = integrations.services.get('fixture').service
   service.initializeApi = () => fixture.api
   let activeRefreshes = 0

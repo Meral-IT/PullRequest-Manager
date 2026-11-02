@@ -122,7 +122,11 @@ const columns: TableColumnDefinition<PullRequest>[] = [
       ) : null
 
       return (
-        <Tooltip content={`Open PR ${item.id}`} relationship="label" withArrow>
+        <Tooltip
+          content={`${item.provider === 'github' ? 'GitHub' : 'Azure DevOps'} · Open PR ${item.id}`}
+          relationship="label"
+          withArrow
+        >
           <TableCellLayout
             className="pr-title"
             description={`${item.details.repository} · ${sourceBranch} → ${targetBranch}`}
@@ -131,6 +135,11 @@ const columns: TableColumnDefinition<PullRequest>[] = [
             onClick={click}
           >
             <Text truncate>{item.details.label}</Text>
+            {item.provider === 'github' && (
+              <Badge appearance="outline" style={{ marginLeft: '4px' }}>
+                GitHub
+              </Badge>
+            )}
             {draftBadge}
             {conflictBadge}
           </TableCellLayout>
@@ -145,6 +154,7 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
     renderHeaderCell: () => 'Reviews',
     renderCell: (item) => {
+      if (item.reviewersUnavailable) return <Text>Reviews unavailable</Text>
       if (item.reviewers.length === 0) {
         return <CheckmarkRegular />
       }
@@ -169,11 +179,19 @@ const columns: TableColumnDefinition<PullRequest>[] = [
     },
     renderHeaderCell: () => 'Status Checks',
     renderCell: (item) => {
+      if (item.checksUnavailable) return <Text>Checks unavailable</Text>
+      if (item.provider === 'github' && item.evaluations.length === 0) return <Text>No checks</Text>
       const { failedChecks, pendingChecks } = item.evaluations.reduce(
         (acc, status) => {
-          if (status.status === PullRequestPolicyEvaluationStatus.Rejected) {
+          if (
+            status.status === PullRequestPolicyEvaluationStatus.Rejected ||
+            status.status === PullRequestPolicyEvaluationStatus.Broken
+          ) {
             acc.failedChecks.push(status)
-          } else if (status.status === PullRequestPolicyEvaluationStatus.Queued) {
+          } else if (
+            status.status === PullRequestPolicyEvaluationStatus.Queued ||
+            status.status === PullRequestPolicyEvaluationStatus.Running
+          ) {
             acc.pendingChecks.push(status)
           }
           return acc
@@ -479,8 +497,12 @@ export default function PrList(props: Readonly<Props>) {
       >
         <MenuPopover>
           <MenuList>
-            <MenuItem onClick={approveCurrentPullRequest}>Approve</MenuItem>
-            <MenuItem onClick={resetCurrentPullRequestFeedback}>Reset feedback</MenuItem>
+            <MenuItem disabled={contextMenuPr?.canApprove === false} onClick={approveCurrentPullRequest}>
+              Approve
+            </MenuItem>
+            <MenuItem disabled={contextMenuPr?.canResetFeedback === false} onClick={resetCurrentPullRequestFeedback}>
+              {contextMenuPr?.provider === 'github' ? 'Dismiss my review' : 'Reset feedback'}
+            </MenuItem>
             <MenuDivider />
             {vscodeInstalled && <MenuItem onClick={openCurrentRepositoryInVsCode}>Open in VSCode</MenuItem>}
             {solutionFiles.length === 1 && (

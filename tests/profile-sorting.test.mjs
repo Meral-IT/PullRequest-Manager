@@ -224,10 +224,11 @@ const profile = {
 }
 const settings = {
   general: {},
-  azDoIntegrations: [
+  integrations: [
     {
       id: 'integration',
       name: 'Test',
+      type: 'azure-devops',
       organizationUrl: '',
       project: '',
       pat: '',
@@ -285,7 +286,7 @@ test('AzDo validation leaves editable settings unchanged and discards results af
     else if (replaceSavedSettings)
       provider.listeners.get('settings')({
         ...settings,
-        azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'replacement' }],
+        integrations: [{ ...settings.integrations[0], project: 'replacement' }],
       })
     else value.actions.updateIntegration('integration', { pat: 'replacement' })
     release({ userDisplayName: 'Old credentials', error: null, access: { features: {} } })
@@ -319,7 +320,7 @@ test('settings context retains its value across unchanged renders and updates af
   initial.actions.updateIntegration('integration', { project: 'updated-project' })
   const updated = provider.render({}, 'SettingProvider').props.value
   assert.notStrictEqual(updated, initial)
-  assert.equal(updated.state.azDoIntegrations[0].project, 'updated-project')
+  assert.equal(updated.state.integrations[0].project, 'updated-project')
   assert.strictEqual(provider.render({}, 'SettingProvider').props.value, updated)
 })
 
@@ -329,10 +330,7 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   let added = 0
   const state = {
     ...settings,
-    azDoIntegrations: [
-      ...settings.azDoIntegrations,
-      { ...settings.azDoIntegrations[0], id: 'second', name: 'Second connection' },
-    ],
+    integrations: [...settings.integrations, { ...settings.integrations[0], id: 'second', name: 'Second connection' }],
   }
   const context = {
     state,
@@ -359,13 +357,13 @@ test('settings sidebar lists integrations and creates or opens their editors lik
   assert.deepEqual(selected, ['second'])
   assert.deepEqual(view.calls.at(-1), ['navigate', '/settings/integrations/second'])
   group().props.onTabSelect(null, { value: '/settings/integrations/new' })
-  assert.equal(added, 1)
-  assert.deepEqual(view.calls.at(-1), ['navigate', '/settings/integrations/created'])
+  assert.equal(added, 0)
+  assert.deepEqual(view.calls.at(-1), ['navigate', '/settings/integrations/new'])
   assert.equal(
     elements(sidebar(), (element) => element.type === 'Tab' && element.props.children === 'Azure DevOps').length,
     0
   )
-  context.state = { ...state, azDoIntegrations: [] }
+  context.state = { ...state, integrations: [] }
   view.setContext(context)
   assert.deepEqual(
     elements(group(), (element) => element.type === 'Tab').map((tab) => tab.props.children),
@@ -380,7 +378,7 @@ test('integration editor uses its route to select a connection and has no connec
   view.setContext({
     state: {
       ...settings,
-      azDoIntegrations: [...settings.azDoIntegrations, { ...settings.azDoIntegrations[0], id: 'second' }],
+      integrations: [...settings.integrations, { ...settings.integrations[0], id: 'second' }],
     },
     selectedIntegrationId: 'integration',
     actions: { selectIntegration: (id) => selected.push(id) },
@@ -412,26 +410,26 @@ test('integration edits stay independent through selection, save, and removal', 
     pat: 'second-token',
   })
   value().actions.selectIntegration('integration')
-  assert.equal(value().state.azDoIntegrations[0].project, 'First project')
+  assert.equal(value().state.integrations[0].project, 'First project')
   value().actions.selectIntegration(secondId)
   await value().actions.saveSettings()
   const saved = provider.calls.find(([channel]) => channel === 'save-settings')[1]
-  assert.equal(saved.azDoIntegrations.length, 2)
-  assert.equal(saved.azDoIntegrations[0].project, 'First project')
-  assert.equal(saved.azDoIntegrations[1].pat, 'second-token')
+  assert.equal(saved.integrations.length, 2)
+  assert.equal(saved.integrations[0].project, 'First project')
+  assert.equal(saved.integrations[1].pat, 'second-token')
   value().actions.deleteIntegration(secondId)
   assert.equal(value().selectedIntegrationId, 'integration')
-  assert.equal(value().state.azDoIntegrations.length, 1)
+  assert.equal(value().state.integrations.length, 1)
   value().actions.deleteIntegration('integration')
   assert.equal(value().selectedIntegrationId, '')
-  assert.deepEqual(value().state.azDoIntegrations, [])
+  assert.deepEqual(value().state.integrations, [])
 })
 
 test('switching integrations cancels validation and restores only the selected connection access', async () => {
   const provider = await component('app/components/settings/provider/setting.provider.tsx')
   provider.setSettings({
     ...settings,
-    azDoIntegrations: [...settings.azDoIntegrations, { ...settings.azDoIntegrations[0], id: 'second' }],
+    integrations: [...settings.integrations, { ...settings.integrations[0], id: 'second' }],
   })
   const value = () => provider.render({}, 'SettingProvider').props.value
   value()
@@ -761,11 +759,11 @@ test('settings startup cannot overwrite settings received while its request was 
   await provider.flush()
   provider.listeners.get('settings')({
     ...settings,
-    azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'new-project' }],
+    integrations: [{ ...settings.integrations[0], project: 'new-project' }],
   })
-  release({ ...settings, azDoIntegrations: [{ ...settings.azDoIntegrations[0], project: 'old-project' }] })
+  release({ ...settings, integrations: [{ ...settings.integrations[0], project: 'old-project' }] })
   await provider.flush()
-  assert.equal(provider.render({}, 'SettingProvider').props.value.state.azDoIntegrations[0].project, 'new-project')
+  assert.equal(provider.render({}, 'SettingProvider').props.value.state.integrations[0].project, 'new-project')
 })
 
 test('grid startup cannot overwrite live table settings and removes listeners on unmount', async () => {
@@ -1078,4 +1076,95 @@ test('settings startup retains access diagnostics when PR events precede connect
     await provider.flush()
     assert.equal(provider.render({}, 'SettingProvider').props.value.azDoAccess, access)
   }
+})
+
+test('GitHub connections retain their type and discard validation after repository edits', async () => {
+  const provider = await component('app/components/settings/provider/setting.provider.tsx')
+  provider.setSettings(settings)
+  provider.render({}, 'SettingProvider')
+  await provider.flush()
+  let value = provider.render({}, 'SettingProvider').props.value
+  const id = value.actions.addIntegration('github')
+  value = provider.render({}, 'SettingProvider').props.value
+  const integration = value.state.integrations.find((item) => item.id === id)
+  assert.equal(integration.type, 'github')
+  assert.deepEqual(integration.repositories, [])
+  value.actions.updateIntegration(id, { repositories: ['acme/widget'], pat: 'github-token' })
+  value = provider.render({}, 'SettingProvider').props.value
+  let release
+  provider.api.invoke = async (channel, connection) => {
+    assert.equal(channel, 'validate-github')
+    assert.equal(connection.id, id)
+    return new Promise((resolve) => {
+      release = resolve
+    })
+  }
+  const pending = value.actions.validateGitHub()
+  value.actions.updateIntegration(id, { repositories: ['acme/other'] })
+  release({ userDisplayName: 'Old user', error: null, access: { features: {} } })
+  await pending
+  value = provider.render({}, 'SettingProvider').props.value
+  assert.equal(value.githubValidation, undefined)
+  assert.equal(value.validatingGitHub, false)
+  assert.deepEqual(value.state.integrations.find((item) => item.id === id).repositories, ['acme/other'])
+})
+
+test('missing and running status checks never render as a successful checkmark', async () => {
+  const view = await component('app/components/pr-list/pr-list.tsx')
+  const item = { id: 1, creationDate: new Date(), provider: 'github', checksUnavailable: true, evaluations: [] }
+  const grid = elements(view.render({ data: [item] }), (element) => element.props.columns)[0]
+  const status = grid.props.columns.find((column) => column.columnId === 'statusChecks')
+  assert.equal(status.renderCell(item).props.children, 'Checks unavailable')
+  assert.equal(
+    status.renderCell({
+      ...item,
+      checksUnavailable: false,
+      evaluations: [{ id: 'run', status: 1, displayName: 'Build' }],
+    }).type,
+    'Tooltip'
+  )
+})
+
+test('provider picker creates the selected type and GitHub settings mask the PAT', async () => {
+  const picker = await component('app/components/settings/integration-settings.component.tsx')
+  const chosen = []
+  picker.setParams({ integrationId: 'new' })
+  picker.setContext({
+    state: { integrations: [] },
+    actions: {
+      addIntegration: (type) => {
+        chosen.push(type)
+        return 'new-id'
+      },
+    },
+  })
+  const buttons = elements(picker.render(), (element) => element.type === 'Button')
+  buttons.find((button) => button.props.children === 'GitHub').props.onClick()
+  assert.deepEqual(chosen, ['github'])
+  assert.deepEqual(picker.calls.at(-1), ['navigate', '/settings/integrations/new-id'])
+  const view = await component('app/components/settings/github/github-settings.component.tsx')
+  const edits = []
+  view.setContext({
+    selectedIntegrationId: 'github',
+    state: {
+      integrations: [
+        {
+          type: 'github',
+          id: 'github',
+          name: 'GitHub',
+          repositories: ['acme/widget'],
+          pat: 'token',
+          updateInterval: 180,
+          intelligentApproval: true,
+        },
+      ],
+    },
+    actions: { updateIntegration: (...args) => edits.push(args) },
+  })
+  const tree = view.render()
+  const pat = elements(tree, (element) => element.props.name === 'githubPat')[0]
+  assert.equal(pat.props.type, 'password')
+  const repos = elements(tree, (element) => element.props.name === 'githubRepositories')[0]
+  repos.props.onChange(null, { value: 'acme/widget\nacme/another' })
+  assert.deepEqual(edits.at(-1), ['github', { repositories: ['acme/widget', 'acme/another'] }])
 })
