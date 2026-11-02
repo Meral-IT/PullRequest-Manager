@@ -133,6 +133,7 @@ const createColumns = (
         .join(' · ')
 
       const context = pullRequestDescriptionContext(item, searchQuery)
+      const contextTooltip = context ? ` — Description: ${context}` : ''
 
       const draftBadge = item.isDraft ? (
         <Badge appearance="outline" style={{ marginLeft: '4px' }}>
@@ -147,7 +148,7 @@ const createColumns = (
 
       return (
         <Tooltip
-          content={`${item.details.label} — ${description}${context ? ` — Description: ${context}` : ''}`}
+          content={`${item.details.label} — ${description}${contextTooltip}`}
           relationship="description"
           withArrow
         >
