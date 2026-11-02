@@ -788,9 +788,11 @@ async function checkPrSearch(window, settings) {
     await expectTitles(titles)
   }
   const approvals = []
+  let approvalResponse = (items) => ({ succeeded: items.length, skipped: 0, failed: 0 })
   const openedUrls = []
   ipcMain.handle('approve-prs', (_event, items) => {
     approvals.push(items.map((item) => item.id))
+    return approvalResponse(items)
   })
   let rejectUrl = false
   ipcMain.handle('web-open-url', (_event, url) => {
@@ -798,7 +800,10 @@ async function checkPrSearch(window, settings) {
     openedUrls.push(url)
   })
   const resets = []
-  ipcMain.handle('reset-pr-feedback', (_event, item) => resets.push(item.id))
+  ipcMain.handle('reset-pr-feedback', (_event, item) => {
+    resets.push(item.id)
+    return { succeeded: 1, skipped: 0, failed: 0 }
+  })
   ipcMain.handle('find-solution-files', () => [])
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
@@ -1021,6 +1026,10 @@ async function checkPrSearch(window, settings) {
   await press('Enter')
   await waitForRenderer(window, `!${rowMenu} && document.activeElement === ${rowActions}`)
   assert.deepEqual(approvals, [[1]], 'Keyboard row approval targets the displayed PR')
+  await waitForRenderer(
+    window,
+    `Array.from(document.querySelectorAll('[role=status]')).some(item => item.textContent.includes('1 approved, 0 skipped, 0 failed'))`
+  )
   await press('Enter')
   assert.equal(
     await window.webContents.executeJavaScript(`${rowMenu} === document.activeElement`),
@@ -1031,6 +1040,10 @@ async function checkPrSearch(window, settings) {
   assert.equal(await window.webContents.executeJavaScript('document.activeElement.textContent'), 'Reset feedback')
   await press('Enter')
   assert.deepEqual(resets, [1], 'Keyboard row reset targets the same PR')
+  await waitForRenderer(
+    window,
+    `Array.from(document.querySelectorAll('[role=status]')).some(item => item.textContent.includes('1 vote reset, 0 skipped, 0 failed'))`
+  )
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement === ${rowActions}`), true)
   await window.webContents.executeJavaScript(
     `${titleLink}.focus(); ${titleLink}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`
@@ -1068,6 +1081,61 @@ async function checkPrSearch(window, settings) {
   window.webContents.send('settings', settings)
   window.webContents.send('theme-changed', 'light')
   await settleLayout(window)
+
+  await search('', allTitles)
+  let releaseApproval
+  approvalResponse = () =>
+    new Promise((resolve) => {
+      releaseApproval = resolve
+    })
+  const allBulkActions = `document.querySelector('button[aria-label="Approve all matching PRs in All (2)"]')`
+  await window.webContents.executeJavaScript(`${allBulkActions}.click()`)
+  await waitForRenderer(window, `!!${bulkMenu}`)
+  await window.webContents.executeJavaScript(`${bulkMenu}.click()`)
+  await waitForRenderer(
+    window,
+    `${allBulkActions}.disabled && document.body.innerText.includes('Updating pull request votes')`
+  )
+  await window.webContents.executeJavaScript(`${rowActions}.click()`)
+  await waitForRenderer(window, `!!${rowMenu}`)
+  assert.equal(await window.webContents.executeJavaScript(`${rowMenu}.getAttribute('aria-disabled')`), 'true')
+  const beforeRepeatedVotes = approvals.length
+  await window.webContents.executeJavaScript(`${rowMenu}.click(); ${rowMenu}.click()`)
+  await press('Escape')
+  assert.equal(approvals.length, beforeRepeatedVotes, 'Pending row controls cannot duplicate a bulk vote')
+  releaseApproval({
+    succeeded: 1,
+    skipped: 0,
+    failed: 1,
+    error: 'Access denied. Check PAT scopes and Azure DevOps permissions for this feature.',
+  })
+  await waitForRenderer(
+    window,
+    `Array.from(document.querySelectorAll('[role=alert]')).some(item => item.textContent.includes('1 approved, 0 skipped, 1 failed'))`
+  )
+  await expectTitles(allTitles)
+  assert.equal(await window.webContents.executeJavaScript(`${allBulkActions}.disabled`), false)
+  await capture(window, 'pr-approval-partial-light')
+  settings.appearance.theme = 'dark'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'dark')
+  await settleLayout(window)
+  await capture(window, 'pr-approval-partial-dark')
+  settings.appearance.theme = 'light'
+  window.webContents.send('settings', settings)
+  window.webContents.send('theme-changed', 'light')
+  await settleLayout(window)
+  approvalResponse = () => ({ succeeded: 0, skipped: 1, failed: 0 })
+  await window.webContents.executeJavaScript(`${rowActions}.click()`)
+  await waitForRenderer(window, `!!${rowMenu}`)
+  await window.webContents.executeJavaScript(`${rowMenu}.click()`)
+  await waitForRenderer(
+    window,
+    `Array.from(document.querySelectorAll('[role=status]')).some(item => item.textContent.includes('0 approved, 1 skipped, 0 failed'))`
+  )
+  await expectTitles(allTitles)
+  approvalResponse = (items) => ({ succeeded: items.length, skipped: 0, failed: 0 })
+  await search('invoice', ['Fix invoice rounding'])
   approvals.length = 0
 
   await window.webContents.executeJavaScript(

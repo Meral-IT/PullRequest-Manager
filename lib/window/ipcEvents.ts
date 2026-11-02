@@ -141,11 +141,11 @@ export const registerWindowIPC = (mainWindow: BrowserWindow) => {
   })
 
   handleIPC('approve-prs', async (_e, data: PullRequest[]) => {
-    await AzureDevOpsIntegrationsService.getInstance().approvePullRequests(data)
+    return AzureDevOpsIntegrationsService.getInstance().approvePullRequests(data)
   })
 
   handleIPC('reset-pr-feedback', async (_e, pr: PullRequest) => {
-    await AzureDevOpsIntegrationsService.getInstance().resetPullRequestFeedback(pr)
+    return AzureDevOpsIntegrationsService.getInstance().resetPullRequestFeedback(pr)
   })
 
   handleIPC('check-vscode-installed', async () => {

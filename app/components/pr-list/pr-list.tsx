@@ -54,6 +54,7 @@ import { BotFilled, CheckmarkRegular, MoreHorizontalRegular } from '@fluentui/re
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
+import { usePrVoteAction } from './use-pr-vote-action'
 
 function voteToBadge(vote: PrVote): PresenceBadgeStatus {
   switch (vote) {
@@ -373,9 +374,12 @@ const columnSizingOptions = {
 type Props = {
   data: PullRequest[]
   sorting?: PrProfile['sorting']
+  voteAction?: ReturnType<typeof usePrVoteAction>
 }
 
 export default function PrList(props: Readonly<Props>) {
+  const localVoteAction = usePrVoteAction()
+  const voteAction = props.voteAction ?? localVoteAction
   const [page, setPage] = useState(0)
   const [manualSort, setManualSort] = useState<NonNullable<DataGridProps['sortState']>>({
     sortColumn: undefined,
@@ -494,7 +498,7 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('approve-prs', [contextMenuPr]).catch(reportActionError)
+    void voteAction.run('approve', [contextMenuPr])
     closeContextMenu()
   }
 
@@ -502,7 +506,7 @@ export default function PrList(props: Readonly<Props>) {
     if (!contextMenuPr) {
       return
     }
-    globalThis.api.invoke('reset-pr-feedback', contextMenuPr).catch(reportActionError)
+    void voteAction.run('reset', [contextMenuPr])
     closeContextMenu()
   }
 
@@ -531,6 +535,16 @@ export default function PrList(props: Readonly<Props>) {
 
   return (
     <>
+      {!props.voteAction && voteAction.pending && (
+        <MessageBar role="status">
+          <MessageBarBody>Updating pull request votes…</MessageBarBody>
+        </MessageBar>
+      )}
+      {!props.voteAction && voteAction.notice && (
+        <MessageBar intent={voteAction.notice.intent} role={voteAction.notice.intent === 'error' ? 'alert' : 'status'}>
+          <MessageBarBody>{voteAction.notice.message}</MessageBarBody>
+        </MessageBar>
+      )}
       {actionError && (
         <MessageBar intent="error" role="alert">
           <MessageBarBody>{actionError}</MessageBarBody>
@@ -546,8 +560,12 @@ export default function PrList(props: Readonly<Props>) {
       >
         <MenuPopover>
           <MenuList>
-            <MenuItem onClick={approveCurrentPullRequest}>Approve</MenuItem>
-            <MenuItem onClick={resetCurrentPullRequestFeedback}>Reset feedback</MenuItem>
+            <MenuItem disabled={voteAction.pending} onClick={approveCurrentPullRequest}>
+              Approve
+            </MenuItem>
+            <MenuItem disabled={voteAction.pending} onClick={resetCurrentPullRequestFeedback}>
+              Reset feedback
+            </MenuItem>
             <MenuDivider />
             {vscodeInstalled && <MenuItem onClick={openCurrentRepositoryInVsCode}>Open in VSCode</MenuItem>}
             {solutionFiles.length === 1 && (

@@ -2,7 +2,8 @@ import { BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { NotificationService } from '../main/notification.service'
 import { saveAzureDevOpsVoteVerification } from '../main/settings'
-import { AzureDevOpsConnection } from '../models/azure-devops-access'
+import { AzureDevOpsConnection, getAzureDevOpsAccessFailure } from '../models/azure-devops-access'
+import { PullRequestActionResult } from '../models/pull-request-action'
 import { ErrorType } from '../models/error-detail'
 import { PullRequestData } from '../models/pr-data'
 import { PrProfile } from '../models/pr-profile'
@@ -27,6 +28,7 @@ export class AzureDevOpsIntegrationsService {
   }
 
   private readonly services = new Map<string, { settings: AzDoIntegration; service: AzureDevOpsService }>()
+  private readonly pendingVotes = new Set<string>()
   private active = false
   private configuring = false
 
@@ -128,26 +130,55 @@ export class AzureDevOpsIntegrationsService {
     this.services.get(integrationId)?.service.acknowledgeAccess()
   }
 
-  public approvePullRequestsForProfile(profile: PrProfile): Promise<void> {
+  public approvePullRequestsForProfile(profile: PrProfile): Promise<PullRequestActionResult> {
     return this.approvePullRequests(
       FilterEvaluator.evaluate(this.getPullRequests().items, profile.filter ?? { op: 'AND', filters: [] })
     )
   }
 
-  public async approvePullRequests(prs: PullRequest[]): Promise<void> {
+  public async approvePullRequests(prs: PullRequest[]): Promise<PullRequestActionResult> {
     const selected = new Set(prs.map(pullRequestKey))
-    const current = this.getPullRequests().items.filter((pr) => selected.has(pullRequestKey(pr)))
-    await Promise.all(
-      [...this.services].map(([id, { service }]) => {
-        const items = current.filter((pr) => pr.integrationId === id)
-        return items.length ? service.approvePullRequests(items) : Promise.resolve()
-      })
+    const current = this.getPullRequests().items.filter(
+      (pr) => selected.has(pullRequestKey(pr)) && !this.pendingVotes.has(pullRequestKey(pr))
     )
+    const result: PullRequestActionResult = { succeeded: 0, skipped: selected.size - current.length, failed: 0 }
+    for (const pr of current) this.pendingVotes.add(pullRequestKey(pr))
+    try {
+      const results = await Promise.all(
+        [...this.services].map(async ([id, { service }]) => {
+          const items = current.filter((pr) => pr.integrationId === id)
+          if (!items.length) return { succeeded: 0, skipped: 0, failed: 0 }
+          try {
+            return await service.approvePullRequests(items)
+          } catch (error) {
+            return { succeeded: 0, skipped: 0, failed: items.length, error: getAzureDevOpsAccessFailure(error).message }
+          }
+        })
+      )
+      for (const summary of results) {
+        result.succeeded += summary.succeeded
+        result.skipped += summary.skipped
+        result.failed += summary.failed
+        if (summary.error) result.error ??= summary.error
+      }
+      return result
+    } finally {
+      for (const pr of current) this.pendingVotes.delete(pullRequestKey(pr))
+    }
   }
 
-  public async resetPullRequestFeedback(pr: PullRequest): Promise<void> {
-    const current = this.getPullRequests().items.find((item) => pullRequestKey(item) === pullRequestKey(pr))
-    if (current?.integrationId)
-      await this.services.get(current.integrationId)?.service.resetPullRequestFeedback(current)
+  public async resetPullRequestFeedback(pr: PullRequest): Promise<PullRequestActionResult> {
+    const key = pullRequestKey(pr)
+    const current = this.getPullRequests().items.find((item) => pullRequestKey(item) === key)
+    const service = current?.integrationId ? this.services.get(current.integrationId)?.service : undefined
+    if (!current || !service || this.pendingVotes.has(key)) return { succeeded: 0, skipped: 1, failed: 0 }
+    this.pendingVotes.add(key)
+    try {
+      return await service.resetPullRequestFeedback(current)
+    } catch (error) {
+      return { succeeded: 0, skipped: 0, failed: 1, error: getAzureDevOpsAccessFailure(error).message }
+    } finally {
+      this.pendingVotes.delete(key)
+    }
   }
 }
