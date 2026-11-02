@@ -541,6 +541,237 @@ test('only current verification is restored, and ordinary rechecks and settings 
   }
 })
 
+test('temporary and resource failures retain write verification through recovery and restart', async (t) => {
+  for (const [operation, error] of [
+    ['poll', { statusCode: 503 }],
+    ['poll', { code: 'ETIMEDOUT' }],
+    ['poll', { statusCode: 404 }],
+    ['validate', { statusCode: 503 }],
+    ['validate', { statusCode: 404 }],
+    ['approve-setup', { statusCode: 503 }],
+    ['approve', { statusCode: 503 }],
+    ['approve', { statusCode: 404 }],
+    ['reset', { statusCode: 503 }],
+    ['reset', { statusCode: 404 }],
+    ['bulk', { statusCode: 503 }],
+  ]) {
+    await t.test(`${operation}: ${error.statusCode ?? error.code}`, async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+      const runtime = loadServices()
+      const integration = { ...settings, id: 'transient', name: 'Test', updateInterval: 1 }
+      await runtime.saveSettings({ general: {}, appearance: {}, profiles: [], azDoIntegrations: [integration] })
+      const manager = runtime.AzureDevOpsIntegrationsService.getInstance()
+      manager.setConfiguration([integration])
+      const service = manager.services.get(integration.id).service
+      const api = apiFixture({ prs: [pullRequest(1, me.id), pullRequest(2, me.id)] })
+      service.initializeApi = () => api
+      service.api = api
+      await manager.updateDataImmediately()
+      await manager.approvePullRequests(manager.getPullRequests().items)
+      const fail = async () => {
+        throw Object.assign(new Error('Request failed'), error)
+      }
+      try {
+        if (operation === 'poll') {
+          service.start()
+          await service.refresh?.promise
+          await new Promise((resolve) => setImmediate(resolve))
+          api.connect = fail
+          t.mock.timers.tick(1000)
+          await service.refresh?.promise
+          assert.ok(service.getPullRequests().error, 'Refresh failures must still be reported')
+        } else if (operation === 'validate') {
+          api.connect = fail
+          const originalValidation = runtime.AzureDevOpsService.validateAccess
+          try {
+            runtime.AzureDevOpsService.validateAccess = () =>
+              originalValidation.call(runtime.AzureDevOpsService, api, settings)
+            const result = await manager.validateConnection(settings, integration.id)
+            assert.ok(result.error, 'Validation failures must still be reported')
+          } finally {
+            runtime.AzureDevOpsService.validateAccess = originalValidation
+          }
+        } else {
+          const git = await api.getGitApi()
+          api.getGitApi =
+            operation === 'approve-setup'
+              ? fail
+              : async () => ({
+                  ...git,
+                  createPullRequestReviewer: (...args) =>
+                    operation === 'bulk' && args[2] === 1 ? git.createPullRequestReviewer(...args) : fail(),
+                })
+          const prs = manager.getPullRequests().items
+          if (operation === 'reset') await manager.resetPullRequestFeedback(prs[0])
+          else await manager.approvePullRequests(prs)
+        }
+        service.stop()
+        assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+        assert.ok((await runtime.loadSettings()).azDoIntegrations[0].verifiedVoteRequirements)
+        service.api = apiFixture({ prs: [pullRequest(1, me.id)] })
+        await manager.updateDataImmediately()
+        assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+        const restarted = loadServices()
+        const saved = await restarted.loadSettings()
+        const restoredManager = restarted.AzureDevOpsIntegrationsService.getInstance()
+        restoredManager.setConfiguration(saved.azDoIntegrations)
+        assert.equal(restoredManager.getPullRequests().integrations[0].access.features.vote.status, 'verified')
+      } finally {
+        service.stop()
+      }
+    })
+  }
+})
+
+test('bulk approvals retain successful write evidence but prioritize authentication and permission failures', async () => {
+  for (const [failures, status, reason] of [
+    [[503, null], 'verified', undefined],
+    [[503, 401, null], 'unverified', 'authentication'],
+    [[503, 403, null], 'denied', 'authorization'],
+    [[503, 404], 'unverified', 'temporary'],
+  ]) {
+    const service = new AzureDevOpsService()
+    service.setConfiguration(settings)
+    const api = apiFixture({ prs: failures.map((_, index) => pullRequest(index + 1, me.id)) })
+    service.api = api
+    await service.updateDataImmediately()
+    api.getGitApi = async () => ({
+      createPullRequestReviewer: async (_vote, _repo, id) => {
+        const statusCode = failures[id - 1]
+        if (statusCode) throw Object.assign(new Error('Request failed'), { statusCode })
+        return { ...me, vote: 10 }
+      },
+    })
+    await service.approvePullRequests(service.getPullRequests().items)
+    const result = service.getPullRequests().access.features.vote
+    assert.equal(result.status, status)
+    assert.equal(result.reason, reason)
+  }
+})
+
+test('delayed inconclusive operations cannot overwrite newer vote access results', async (t) => {
+  for (const operation of ['poll', 'filtered-approval', 'filtered-denial']) {
+    await t.test(operation, async () => {
+      const service = new AzureDevOpsService()
+      service.setConfiguration({
+        ...settings,
+        verifiedVoteRequirements:
+          operation === 'filtered-denial' ? compiled.exports.AZURE_DEVOPS_REQUIREMENTS_FINGERPRINT : undefined,
+      })
+      const api = apiFixture({ prs: [pullRequest(1, 'unrelated')] })
+      service.api = api
+      await service.updateDataImmediately()
+      const [pr] = service.getPullRequests().items
+      const waiting = Promise.withResolvers()
+      let calls = 0
+      api.connect = async () => {
+        if (++calls === 1) {
+          await waiting.promise
+          if (operation === 'poll') throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+        }
+        return { authenticatedUser: me }
+      }
+      const pending = operation === 'poll' ? service.updateDataImmediately() : service.approvePullRequests([pr])
+      if (operation === 'filtered-denial')
+        api.getGitApi = async () => ({
+          createPullRequestReviewer: async () => {
+            throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          },
+        })
+      await service.resetPullRequestFeedback(pr)
+      waiting.resolve()
+      await pending
+      assert.equal(
+        service.getPullRequests().access.features.vote.status,
+        operation === 'filtered-denial' ? 'denied' : 'verified'
+      )
+    })
+  }
+})
+
+test('delayed temporary approval failures retain the latest verified or denied result', async (t) => {
+  for (const previous of ['verified', 'denied']) {
+    await t.test(previous, async () => {
+      const persisted = []
+      const service = new AzureDevOpsService(undefined, async (_connection, verified) => {
+        persisted.push(verified)
+      })
+      service.setConfiguration(settings)
+      const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+      service.api = api
+      await service.updateDataImmediately()
+      const [pr] = service.getPullRequests().items
+      if (previous === 'denied')
+        api.getGitApi = async () => ({
+          createPullRequestReviewer: async () => {
+            throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          },
+        })
+      await service.resetPullRequestFeedback(pr)
+      assert.equal(service.getPullRequests().access.features.vote.status, previous)
+      const waiting = Promise.withResolvers()
+      let calls = 0
+      api.getGitApi = async () => ({
+        createPullRequestReviewer: async () => {
+          if (++calls === 1) {
+            await waiting.promise
+            throw Object.assign(new Error('Unavailable'), { statusCode: 503 })
+          }
+          if (previous === 'verified') throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+          return { ...me, vote: 0 }
+        },
+      })
+      const approving = service.approvePullRequests([pr])
+      await new Promise((resolve) => setImmediate(resolve))
+      await service.resetPullRequestFeedback(pr)
+      waiting.resolve()
+      await approving
+      assert.equal(
+        service.getPullRequests().access.features.vote.status,
+        previous === 'verified' ? 'denied' : 'verified'
+      )
+      assert.equal(persisted.at(-1), previous === 'denied')
+    })
+  }
+})
+
+test('a delayed authentication failure invalidates a vote verified during that refresh', async () => {
+  const persisted = []
+  const service = new AzureDevOpsService(undefined, async (_connection, verified) => {
+    persisted.push(verified)
+  })
+  service.setConfiguration(settings)
+  const api = apiFixture({ prs: [pullRequest(1, me.id)] })
+  service.api = api
+  await service.updateDataImmediately()
+  const [pr] = service.getPullRequests().items
+  const getGitApi = api.getGitApi
+  api.getGitApi = async () => ({
+    createPullRequestReviewer: async () => {
+      throw Object.assign(new Error('Forbidden'), { statusCode: 403 })
+    },
+  })
+  await service.resetPullRequestFeedback(pr)
+  api.getGitApi = getGitApi
+  const waiting = Promise.withResolvers()
+  let calls = 0
+  api.connect = async () => {
+    if (++calls === 1) {
+      await waiting.promise
+      throw Object.assign(new Error('Expired'), { statusCode: 401 })
+    }
+    return { authenticatedUser: me }
+  }
+  const refreshing = service.updateDataImmediately()
+  await service.resetPullRequestFeedback(pr)
+  assert.equal(service.getPullRequests().access.features.vote.status, 'verified')
+  waiting.resolve()
+  await refreshing
+  assert.equal(service.getPullRequests().access.features.vote.status, 'unverified')
+  assert.equal(service.getPullRequests().access.features.vote.reason, 'authentication')
+  assert.equal(persisted.at(-1), false)
+})
+
 test('access failures clear remembered verification and delayed votes cannot verify replacement connections', async () => {
   for (const operation of ['refresh', 'refresh-forbidden', 'validate', 'approve', 'reset', 'delayed']) {
     const persisted = []
