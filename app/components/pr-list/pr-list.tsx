@@ -49,7 +49,7 @@ import {
   createTableColumn,
   partitionAvatarGroupItems,
 } from '@fluentui/react-components'
-import { BotFilled, CheckmarkRegular, MoreHorizontalRegular } from '@fluentui/react-icons'
+import { BotFilled, CheckmarkRegular, MoreVerticalRegular } from '@fluentui/react-icons'
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ZeroData from '../zero-data/zero-data.component'
 import './pr-list.scss'
@@ -240,17 +240,17 @@ const createColumns = (
     columnId: 'actions',
     renderHeaderCell: () => 'Actions',
     renderCell: (item) => (
-      <Button
-        appearance="subtle"
-        size="small"
-        icon={<MoreHorizontalRegular />}
-        aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
-        aria-haspopup="menu"
-        aria-expanded={openPr === item}
-        onClick={(event) => openActions(event, item)}
-      >
-        Actions
-      </Button>
+      <Tooltip content="More options" relationship="description">
+        <Button
+          appearance="subtle"
+          size="small"
+          icon={<MoreVerticalRegular />}
+          aria-label={`Actions for PR ${item.id}: ${item.details.label}`}
+          aria-haspopup="menu"
+          aria-expanded={openPr === item}
+          onClick={(event) => openActions(event, item)}
+        />
+      </Tooltip>
     ),
   }),
 ]
