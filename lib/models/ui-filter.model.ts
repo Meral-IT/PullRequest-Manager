@@ -122,7 +122,9 @@ export class FilterEvaluator {
   private static evaluateReviewer(reviewer: Reviewer, filter: ReviewerFilter): boolean {
     return (
       ((!filter.user || this.evaluateUser(reviewer.user, filter.user)) &&
-        (!filter.isRequired || reviewer.isRequired) &&
+        (filter.isRequired === undefined ||
+          reviewer.isRequired === filter.isRequired ||
+          (filter.isRequired === false && reviewer.isRequired === undefined)) &&
         (filter.vote === undefined || reviewer.vote === filter.vote) &&
         (filter.isApproved === undefined || reviewer.vote > PrVote.NoVote === filter.isApproved)) ??
       false
@@ -133,8 +135,12 @@ export class FilterEvaluator {
     return (
       ((!filter.label || user.label === filter.label) &&
         (!filter.id || user.id === filter.id) &&
-        (!filter.isMySelf || user.isMySelf === filter.isMySelf) &&
-        (!filter.isBot || user?.isBot)) ??
+        (filter.isMySelf === undefined ||
+          user.isMySelf === filter.isMySelf ||
+          (filter.isMySelf === false && user.isMySelf === undefined)) &&
+        (filter.isBot === undefined ||
+          user.isBot === filter.isBot ||
+          (filter.isBot === false && user.isBot === undefined))) ??
       false
     )
   }
