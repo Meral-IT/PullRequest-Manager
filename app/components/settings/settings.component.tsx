@@ -20,7 +20,6 @@ import {
 import {
   AddFilled,
   HomeFilled,
-  KeyFilled,
   LayerRegular,
   PaintBrushFilled,
   SettingsFilled,
@@ -29,6 +28,7 @@ import {
 import { useContext, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import SplitContainer from '../split-container/split-container.component'
+import AzureDevOpsIcon from './azdo/azure-devops-icon'
 import { SettingsContext } from './context'
 
 const useStyles = makeStyles({
@@ -207,7 +207,11 @@ export default function SettingsComponent() {
               onTabSelect={onTabSelect}
             >
               {state.azDoIntegrations.map((integration) => (
-                <Tab icon={<KeyFilled />} value={`/settings/integrations/${integration.id}`} key={integration.id}>
+                <Tab
+                  icon={<AzureDevOpsIcon aria-hidden="true" focusable="false" />}
+                  value={`/settings/integrations/${integration.id}`}
+                  key={integration.id}
+                >
                   {integration.name || integration.project || 'Unnamed integration'}
                 </Tab>
               ))}
