@@ -3,7 +3,7 @@ import test from 'node:test'
 import vm from 'node:vm'
 import { installMonacoDiagnostic } from './monaco-diagnostic.mjs'
 
-function fixture(nativeInput = true) {
+function fixture(nativeInput = true, editorAvailable = true) {
   const records = []
   const host = new EventTarget()
   const native = Object.assign(new EventTarget(), { text: '{"fi', selectionStart: 4, selectionEnd: 4 })
@@ -36,7 +36,7 @@ function fixture(nativeInput = true) {
   const context = vm.createContext({
     document: { querySelector: () => input, hasFocus: () => true, activeElement: input },
     performance: { now: () => 100, getEntriesByType: () => [{ name: 'file:///assets/jsonMode-hash.js' }] },
-    monaco: { editor: { getEditors: () => [editor] } },
+    monaco: { editor: { getEditors: () => (editorAvailable ? [editor] : []) } },
     console: { info: (message) => records.push(JSON.parse(message.slice('[monaco-diagnostic] '.length))) },
     MutationObserver: class {
       constructor(callback) {
@@ -72,7 +72,7 @@ test('Monaco diagnostics capture actual synthetic editor/native/provider state a
   assert.deepEqual(f.records[0].native, { text: '{"fi', selectionStart: 4, selectionEnd: 4 })
   assert.equal(f.records[0].selection.startColumn, 5)
   assert.equal(f.records[0].completionSupported, true)
-  assert.equal(f.records[0].jsonModuleLoaded, true)
+  assert.equal(f.records[0].jsonModuleResourceObserved, true)
   f.host.dispatchEvent(Object.assign(new Event('keydown'), { key: ' ', code: 'Space', ctrlKey: true }))
   assert.equal(f.records.at(-1).key, ' ')
   assert.equal(f.records.at(-1).ctrl, true)
@@ -113,4 +113,8 @@ test('Monaco diagnostics bound event count and text, preserve final state, and s
   f.context.smokeMonacoDiagnostic.stop()
   assert.equal(f.records.length, 49)
   assert.equal(f.records.at(-1).event, 'completion-accepted')
+})
+
+test('Monaco diagnostics fail clearly when bootstrap did not expose the real editor', () => {
+  assert.throws(() => fixture(true, false), /Monaco diagnostic API did not expose the labeled smoke editor/)
 })

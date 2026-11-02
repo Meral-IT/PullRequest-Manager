@@ -3,6 +3,7 @@ export function installMonacoDiagnostic() {
   const input = document.querySelector('.monaco-editor [aria-label="Profile filter JSON editor"]')
   const host = input.closest('.monaco-editor')
   const editor = globalThis.monaco?.editor.getEditors().find((editor) => editor.getDomNode() === host)
+  if (!editor) throw new Error('Monaco diagnostic API did not expose the labeled smoke editor')
   const started = performance.now()
   const cleanups = []
   const marks = new Set()
@@ -44,7 +45,9 @@ export function installMonacoDiagnostic() {
               .map((row) => row.textContent.slice(0, 80)),
           }
         : null,
-      jsonModuleLoaded: performance.getEntriesByType('resource').some((entry) => /jsonMode[^/]*\.js/.test(entry.name)),
+      jsonModuleResourceObserved: performance
+        .getEntriesByType('resource')
+        .some((entry) => /jsonMode[^/]*\.js/.test(entry.name)),
     }
   }
   const record = (event, detail = {}) => {

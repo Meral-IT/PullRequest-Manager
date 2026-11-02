@@ -58,6 +58,9 @@ function waitForRenderer(window, condition, description = condition) {
 }
 
 async function loadSmokeRenderer(window) {
+  pendingStep = 'Monaco diagnostic renderer bootstrap'
+  // Debugger commands need a live renderer target before the first app navigation.
+  if (!window.webContents.getURL()) await window.loadURL('about:blank')
   // Expose Monaco's supported diagnostic API before its module initializes; no app changes.
   window.webContents.debugger.attach('1.3')
   try {
@@ -67,7 +70,7 @@ async function loadSmokeRenderer(window) {
     })
     await window.loadFile(resolve(import.meta.dirname, '../out/renderer/index.html'))
   } finally {
-    window.webContents.debugger.detach()
+    if (!window.webContents.isDestroyed()) window.webContents.debugger.detach()
   }
 }
 
