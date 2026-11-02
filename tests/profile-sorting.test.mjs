@@ -149,6 +149,7 @@ async function component(entry) {
   new Function('require', 'module', 'exports', output[0].code)(
     (name) => {
       if (name === 'react') return hooks
+      if (name === '@fluentui/react-icons') return load(name)
       if (name.startsWith('@fluentui/')) return fluent
       if (name === 'react-router-dom')
         return {
