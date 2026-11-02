@@ -732,6 +732,12 @@ async function checkPrSearch(window, settings) {
     pr(1, 'Fix invoice rounding', 'Ada Lovelace', 'Payments', `${'x'.repeat(500)} final paragraph`),
     pr(3, 'Draft invoice', 'Ada Lovelace', 'Payments', '', true),
   ]
+  prs[0].evaluations = [0, 1, 2, 3, 4, 5].map((status) => ({
+    id: String(status),
+    status,
+    displayName: `Policy ${status}`,
+    config: { type: { id: 'build', displayName: 'Build', url: '' } },
+  }))
   const allTitles = ['Fix invoice rounding', 'Update dashboard']
   const input = `document.querySelector('input[aria-label="Search pull requests"]')`
   const filterButton = `document.querySelector('button[aria-controls="pr-filter-line"]')`
@@ -792,6 +798,58 @@ async function checkPrSearch(window, settings) {
   window.webContents.send('settings', settings)
   window.webContents.send('pr-data', { items: prs, error: null })
   await expectTitles(allTitles)
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+  const policySummary = '[role="img"][aria-label="2 failed, 2 pending, 1 approved, 1 not applicable"]'
+  assert.deepEqual(
+    await window.webContents.executeJavaScript(`(() => {
+      const summary = document.querySelector('${policySummary}')
+      const cells = Array.from(document.querySelectorAll('[role="gridcell"]'))
+      summary.closest('[role="row"]').querySelectorAll('[role="gridcell"]')[2].focus()
+      return {
+        inCell: !!summary.closest('[role="gridcell"]'),
+        emptyChecks: cells.some(cell => cell.textContent === 'No checks'),
+        emptyReviewers: cells.some(cell => cell.textContent === 'No reviewers'),
+      }
+    })()`),
+    { inCell: true, emptyChecks: true, emptyReviewers: true }
+  )
+  const policyKey = async (keyCode) => {
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
+    await settleLayout(window)
+  }
+  await policyKey('Right')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `document.activeElement === document.querySelector('${policySummary}').closest('[role="gridcell"]')`
+    ),
+    true,
+    'Arrow navigation reaches the status gridcell'
+  )
+  await policyKey('Enter')
+  assert.equal(
+    await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('${policySummary}')`),
+    true,
+    'Enter reaches the policy tooltip summary from its gridcell'
+  )
+  const policyTooltip = `document.getElementById(document.querySelector('${policySummary}').getAttribute('aria-describedby'))`
+  await waitForRenderer(window, `${policyTooltip}?.getBoundingClientRect().height > 10`)
+  assert.equal(
+    await window.webContents.executeJavaScript(`${policyTooltip}.textContent`),
+    'Policy 0: Queued.Policy 1: Running.Policy 2: Approved.Policy 3: Rejected.Policy 4: Not applicable.Policy 5: Broken.'
+  )
+  await capture(window, 'policy-status-mixed')
+  await policyKey('Escape')
+  assert.equal(
+    await window.webContents.executeJavaScript(
+      `document.activeElement === document.querySelector('${policySummary}').closest('[role="gridcell"]')`
+    ),
+    true,
+    'Escape returns focus from the summary to the status gridcell'
+  )
+  await window.webContents.executeJavaScript(`${filterButton}.focus()`)
+  await settleLayout(window)
   assert.equal(
     await window.webContents.executeJavaScript(`!!${filterButton}`),
     true,
