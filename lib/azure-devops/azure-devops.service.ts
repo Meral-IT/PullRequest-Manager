@@ -615,16 +615,13 @@ export class AzureDevOpsService {
       log.debug('Completed to fetch data')
     } catch (error) {
       log.error('Failed to fetch data', getAzureDevOpsAccessFailure(error).message)
-      if (error instanceof Error) {
-        const statusCode = (error as AzError).statusCode ?? 0
-        const errorType = statusCode === 401 ? ErrorType.Authentication : ErrorType.Unknown
-        data.error = {
-          message: error.message.replaceAll(settings.pat, '[redacted]'),
-          details: getAzureDevOpsAccessFailure(error).message,
-          type: errorType,
-          actionText: 'DevOps Settings',
-          actionHref: '/settings/azure-devops',
-        }
+      const statusCode = error instanceof Error ? ((error as AzError).statusCode ?? 0) : 0
+      data.error = {
+        message: (error instanceof Error ? error.message : String(error)).replaceAll(settings.pat, '[redacted]'),
+        details: getAzureDevOpsAccessFailure(error).message,
+        type: statusCode === 401 ? ErrorType.Authentication : ErrorType.Unknown,
+        actionText: 'DevOps Settings',
+        actionHref: '/settings/azure-devops',
       }
     }
     return data
@@ -826,7 +823,12 @@ export class AzureDevOpsService {
             : AzureDevOpsService.mergeVoteAccess(this.pullRequests.access.features.vote, newData.access.features.vote)
       }
       if (!this.onData) this.handleNewPRNotifications(newData.items)
-      this.pullRequests = { items: newData.items, error: newData.error, access: newData.access }
+      this.pullRequests = {
+        items: newData.items,
+        error: newData.error,
+        access: newData.access,
+        lastSuccessfulRefreshAt: newData.error ? this.pullRequests.lastSuccessfulRefreshAt : Date.now(),
+      }
       this.publishData()
       await this.persistVoteVerification(revision)
     } finally {

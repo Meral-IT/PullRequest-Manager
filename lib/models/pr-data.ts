@@ -4,6 +4,8 @@ import type { AzureDevOpsAccess } from './azure-devops-access'
 
 export type PullRequestData = {
   items: PullRequest[]
+  isLoading?: boolean
+  lastSuccessfulRefreshAt?: number
 
   error: ErrorDetail | null
   access?: AzureDevOpsAccess
@@ -12,5 +14,6 @@ export type PullRequestData = {
     name: string
     access?: AzureDevOpsAccess
     error: ErrorDetail | null
+    lastSuccessfulRefreshAt?: number
   }[]
 }

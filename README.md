@@ -54,6 +54,11 @@ PRs from all connections appear together. Overlapping connections produce one ro
 connection that supplied that row. Matching PR numbers in different organizations remain separate. A failed connection
 shows its own error while PRs from healthy connections remain available.
 
+Choose **Refresh** above the PR list to fetch current data or retry a failed connection. The button is disabled
+while a refresh runs, and the status announces completion or connection failures. The last successful refresh
+time is the oldest successful snapshot across all configured connections; it appears only after each has
+succeeded once. Failed refreshes do not advance that time. **View → Reload** reloads the app using cached data.
+
 ## App updates
 
 When an update is available, choose **Download update** or review its release notes. The update panel shows
