@@ -6,6 +6,7 @@ import {
   Checkbox,
   Field,
   Input,
+  Link,
   makeStyles,
   mergeClasses,
   Popover,
@@ -392,8 +393,36 @@ export default function ProfileSettings() {
         className={mergeClasses(styles.panel, styles.filterPanel)}
         tabIndex={0}
       >
+        <Caption1 id="profile-filter-help" className={styles.hint}>
+          Leave the filter blank to include all pull requests. Empty the editor to insert a non-draft PR example.
+        </Caption1>
         <div className={styles.toolbar}>
           <div className={styles.options}>
+            <Link
+              href="https://github.com/Meral-IT/PullRequest-Manager/blob/develop/README.md#profile-filters"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Filter documentation
+            </Link>
+            <Button
+              size="small"
+              appearance="subtle"
+              aria-describedby="profile-filter-help"
+              disabled={Boolean(profile.filter?.trim())}
+              onClick={() => {
+                if (profile.filter?.trim()) return
+                actions.onChangeHandler({
+                  profileId: profile.id,
+                  target: {
+                    name: 'filter',
+                    value: JSON.stringify({ op: 'AND', filters: [{ isDraft: false }] }, null, 2),
+                  },
+                })
+              }}
+            >
+              Insert example
+            </Button>
             <Button
               size="small"
               appearance="subtle"
